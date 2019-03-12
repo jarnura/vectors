@@ -83,7 +83,7 @@ scalar :: Vector Number
 scalar = [2.0]
 
 cubePoints :: Array (Vector Number)
-cubePoints = map (mulScalar 1.0) [point1,point2,point3,point4,point5,point6,point7,point8]
+cubePoints = map (mulScalar 0.5) [point1,point2,point3,point4,point5,point6,point7,point8]
 
 transform3dto2d :: Matrix Number
 transform3dto2d = fromArray 2 4
@@ -171,7 +171,7 @@ scene mouse {w,h} = (unfold loop2 down init) <> (loop <$> (Mou.position mouse))
         background = filled (fillColor white) (rectangle 0.0 0.0 w h)
 
         renderSide :: Array Point -> Drawing
-        renderSide = closed >>> outlined ((outlineColor black) <> (lineWidth 2.0))
+        renderSide = closed >>> outlined ((outlineColor black) <> (lineWidth 0.5))
 
         vectorToPoint :: Matrix Number -> Point
         vectorToPoint = M.toVector >>> (\arr -> { x: fromMaybe zero (arr !! 0), y: fromMaybe zero (arr !! 1)})
