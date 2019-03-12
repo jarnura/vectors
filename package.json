@@ -1,0 +1,15 @@
+{
+  "name": "graphics",
+  "version": "1.0.0",
+  "description": "\"vectors transformations, projection\"",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "pulp build --to dist/index.js && open dist/index.html"
+  },
+  "author": "jarnura",
+  "license": "ISC"
+}
