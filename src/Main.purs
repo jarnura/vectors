@@ -87,14 +87,14 @@ cubePoints = map (mulScalar 1.0) [point1,point2,point3,point4,point5,point6,poin
 
 transform3dto2d :: Matrix Number
 transform3dto2d = fromArray 2 4
-  [ 2.0 + one, zero, zero, zero,
-    zero, 2.0 + one, zero, zero ] # maybe (M.zeros 2 4) identity
+  [ 1.0 + one, zero, zero, zero,
+    zero, 1.0 + one, zero, zero ] # maybe (M.zeros 2 4) identity
 
 projection2d :: Array (Matrix Number) -> Array (Matrix Number)
 projection2d =
   map (M.multiply transform3dto2d)
   >>> map (M.add
-            ((fromArray 2 1 [1000.0,800.0])
+            ((fromArray 2 1 [500.0,500.0])
               # maybe (M.zeros 2 1) identity)
           )
 
