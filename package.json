@@ -8,8 +8,19 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "pulp build --to dist/index.js && xdg-open dist/index.html"
+    "build": "pulp build --to dist/index.js && xdg-open dist/index.html",
+    "build-watch": "pulp --watch browserify --to dist/index.js",
+    "webpack": "DEBUG=purs-loader* DEBUG_DEPTH=100 webpack --progress --bail",
+    "webpack:server": "webpack-dev-server --progress --inline",
+    "webpack:dll": "webpack --verbose --colors --display-error-details --progress --config webpack-dll.config.js"
   },
   "author": "jarnura",
-  "license": "ISC"
+  "license": "ISC",
+  "devDependencies": {
+    "purescript-psa": "^0.7.3",
+    "purs-loader": "^3.2.0",
+    "webpack": "^3.12.0",
+    "webpack-cli": "^3.1.2",
+    "webpack-dev-server": "^2.11.3"
+  }
 }

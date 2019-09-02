@@ -8,3 +8,7 @@
 /.purs*
 /.psa*
 /.DS_Store
+/.gitignore
+/vendor-dll.js
+/vendor-manifest.json
+/package-lock.json
