@@ -2,10 +2,10 @@ module Main where
 
 import Prelude
 
-import Cube as C
+import Data.Foldable (for_)
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
-import Data.Number (pi, tan)
+import Data.Number (cos, pi, sin, tan)
 import Effect (Effect)
 import Effect.Console (log)
 import Effect.Ref as Ref
@@ -16,16 +16,23 @@ import Graphics.Canvas
   , getCanvasHeight
   , getCanvasWidth
   )
-import Graphics.GL (Renderer)
+import Graphics.GL (Mesh, Renderer)
 import Graphics.GL as GL
 import Math.Matrix (Matrix)
 import Math.Matrix as M
+import Meshes as Meshes
 import Vector as V
 
 type State =
   { transform :: Matrix Number
   , speed     :: Number
   , mouseLast :: Maybe { x :: Int, y :: Int }
+  , frame     :: Number
+  }
+
+type Entity =
+  { mesh        :: Mesh
+  , modelMatrix :: State -> Matrix Number
   }
 
 -- Maximum rotation per keypress, in degrees.
@@ -44,35 +51,33 @@ mouseSensitivity = 0.1
 fov :: Number
 fov = pi / 3.0
 
--- Distance from the camera to the cube center along -Z.
+-- Distance from the camera to the world origin along -Z.
 cameraDistance :: Number
 cameraDistance = 1000.0
 
--- Near/far clip planes (positive distances; the projection matrix negates them).
 clipNear :: Number
 clipNear = 1.0
 
 clipFar :: Number
 clipFar = 2000.0
 
-identityMatrix :: Matrix Number
-identityMatrix = fromMaybe (M.zeros 4 4) $ M.fromArray 4 4
-  [ 1.0, 0.0, 0.0, 0.0
-  , 0.0, 1.0, 0.0, 0.0
-  , 0.0, 0.0, 1.0, 0.0
-  , 0.0, 0.0, 0.0, 1.0
-  ]
+-- Satellite orbits the world origin on the XZ plane.
+satelliteOrbitRadius :: Number
+satelliteOrbitRadius = 200.0
+
+-- One full orbit in 5 seconds at 60 fps = 1.2 deg/frame.
+satelliteDegreesPerFrame :: Number
+satelliteDegreesPerFrame = 1.2
 
 initialState :: State
 initialState =
-  { transform: identityMatrix
+  { transform: M.identity
   , speed: 0.0
   , mouseLast: Nothing
+  , frame: 0.0
   }
 
 -- Perspective projection composed with a camera-distance translation.
--- The cube sits at the world origin; the camera looks down -Z from
--- (0, 0, +cameraDistance).
 perspectiveProjection :: Number -> Number -> Matrix Number
 perspectiveProjection w h =
   let
@@ -85,16 +90,15 @@ perspectiveProjection w h =
                          , (2.0 * clipFar * clipNear) / (clipNear - clipFar)
       , 0.0        , 0.0 , -1.0                                   , 0.0
       ]
-    v = fromMaybe (M.zeros 4 4) $ M.fromArray 4 4
-      [ 1.0 , 0.0 , 0.0 , 0.0
-      , 0.0 , 1.0 , 0.0 , 0.0
-      , 0.0 , 0.0 , 1.0 , -cameraDistance
-      , 0.0 , 0.0 , 0.0 , 1.0
-      ]
-  in M.multiply p v
+  in M.multiply p (M.translate 0.0 0.0 (-cameraDistance))
 
 step :: Input -> State -> State
-step input = applyKey input.lastKey >>> applyMouse input.mouse
+step input =
+  applyKey input.lastKey
+    >>> applyMouse input.mouse
+    >>> tickFrame
+  where
+    tickFrame s = s { frame = s.frame + 1.0 }
 
 applyKey :: Maybe String -> State -> State
 applyKey Nothing s = s
@@ -126,9 +130,15 @@ applyMouse (Just pos) s = case s.mouseLast of
          , mouseLast = Just pos
          }
 
--- Push the current canvas dimensions into the GL viewport + projection
--- uniform. Called once at startup and on every frame where the canvas
--- size has changed (handles window resize).
+-- Satellite's world-space transform: a circular orbit at constant Y=0.
+satelliteTransform :: State -> Matrix Number
+satelliteTransform s =
+  let angleRad = s.frame * satelliteDegreesPerFrame * pi / 180.0
+  in M.translate
+       (satelliteOrbitRadius * cos angleRad)
+       0.0
+       (satelliteOrbitRadius * sin angleRad)
+
 updateViewport :: Renderer -> CanvasElement -> Effect Unit
 updateViewport renderer canvas = do
   w <- getCanvasWidth  canvas
@@ -143,11 +153,13 @@ main = do
     Nothing -> log "Main: canvas element with id 'canvas' not found; aborting init"
     Just canvas -> do
       renderer <- GL.initRenderer canvas
-      mesh     <- GL.createWireframeMesh renderer
-                    { vertices: C.cubeVertices
-                    , indices:  C.cubeEdgeIndices
-                    , color:    C.cubeColor
-                    }
+      mainMesh <- GL.createWireframeMesh renderer Meshes.mainCube
+      satMesh  <- GL.createWireframeMesh renderer Meshes.satelliteCube
+      let entities :: Array Entity
+          entities =
+            [ { mesh: mainMesh, modelMatrix: _.transform }
+            , { mesh: satMesh,  modelMatrix: satelliteTransform }
+            ]
       updateViewport renderer canvas
       w0 <- getCanvasWidth  canvas
       h0 <- getCanvasHeight canvas
@@ -163,5 +175,6 @@ main = do
               Ref.write { w, h } sizeRef
               updateViewport renderer canvas
             GL.beginFrame renderer
-            GL.drawMesh renderer mesh (M.toVector s.transform)
+            for_ entities \e ->
+              GL.drawMesh renderer e.mesh (M.toVector (e.modelMatrix s))
         }
