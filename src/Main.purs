@@ -5,14 +5,18 @@ import Prelude
 import Cube as C
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Number (pi, tan)
 import Effect (Effect)
 import Effect.Console (log)
+import Effect.Ref as Ref
 import FRP.Loop (Input, runLoop)
 import Graphics.Canvas
-  ( getCanvasElementById
+  ( CanvasElement
+  , getCanvasElementById
   , getCanvasHeight
   , getCanvasWidth
   )
+import Graphics.GL (Renderer)
 import Graphics.GL as GL
 import Math.Matrix (Matrix)
 import Math.Matrix as M
@@ -36,6 +40,21 @@ speedStep = 0.2
 mouseSensitivity :: Number
 mouseSensitivity = 0.1
 
+-- Vertical field of view, in radians.
+fov :: Number
+fov = pi / 3.0
+
+-- Distance from the camera to the cube center along -Z.
+cameraDistance :: Number
+cameraDistance = 1000.0
+
+-- Near/far clip planes (positive distances; the projection matrix negates them).
+clipNear :: Number
+clipNear = 1.0
+
+clipFar :: Number
+clipFar = 2000.0
+
 identityMatrix :: Matrix Number
 identityMatrix = fromMaybe (M.zeros 4 4) $ M.fromArray 4 4
   [ 1.0, 0.0, 0.0, 0.0
@@ -51,17 +70,28 @@ initialState =
   , mouseLast: Nothing
   }
 
--- Orthographic projection centered on origin: [-w/2, w/2] x [-h/2, h/2].
--- Depth range [-far, far] keeps the cube visible regardless of orientation.
-orthoProjection :: Number -> Number -> Matrix Number
-orthoProjection w h =
-  let far = 1000.0
-  in fromMaybe (M.zeros 4 4) $ M.fromArray 4 4
-       [ 2.0 / w , 0.0     , 0.0          , 0.0
-       , 0.0     , 2.0 / h , 0.0          , 0.0
-       , 0.0     , 0.0     , -1.0 / far   , 0.0
-       , 0.0     , 0.0     , 0.0          , 1.0
-       ]
+-- Perspective projection composed with a camera-distance translation.
+-- The cube sits at the world origin; the camera looks down -Z from
+-- (0, 0, +cameraDistance).
+perspectiveProjection :: Number -> Number -> Matrix Number
+perspectiveProjection w h =
+  let
+    aspect = w / h
+    f      = 1.0 / tan (fov / 2.0)
+    p      = fromMaybe (M.zeros 4 4) $ M.fromArray 4 4
+      [ f / aspect , 0.0 , 0.0                                    , 0.0
+      , 0.0        , f   , 0.0                                    , 0.0
+      , 0.0        , 0.0 , (clipFar + clipNear) / (clipNear - clipFar)
+                         , (2.0 * clipFar * clipNear) / (clipNear - clipFar)
+      , 0.0        , 0.0 , -1.0                                   , 0.0
+      ]
+    v = fromMaybe (M.zeros 4 4) $ M.fromArray 4 4
+      [ 1.0 , 0.0 , 0.0 , 0.0
+      , 0.0 , 1.0 , 0.0 , 0.0
+      , 0.0 , 0.0 , 1.0 , -cameraDistance
+      , 0.0 , 0.0 , 0.0 , 1.0
+      ]
+  in M.multiply p v
 
 step :: Input -> State -> State
 step input = applyKey input.lastKey >>> applyMouse input.mouse
@@ -96,25 +126,42 @@ applyMouse (Just pos) s = case s.mouseLast of
          , mouseLast = Just pos
          }
 
+-- Push the current canvas dimensions into the GL viewport + projection
+-- uniform. Called once at startup and on every frame where the canvas
+-- size has changed (handles window resize).
+updateViewport :: Renderer -> CanvasElement -> Effect Unit
+updateViewport renderer canvas = do
+  w <- getCanvasWidth  canvas
+  h <- getCanvasHeight canvas
+  GL.resizeRenderer renderer { width: w, height: h }
+  GL.setProjection  renderer (M.toVector (perspectiveProjection w h))
+
 main :: Effect Unit
 main = do
   mcanvas <- getCanvasElementById "canvas"
   case mcanvas of
     Nothing -> log "Main: canvas element with id 'canvas' not found; aborting init"
     Just canvas -> do
-      w <- getCanvasWidth  canvas
-      h <- getCanvasHeight canvas
       renderer <- GL.initRenderer canvas
       mesh     <- GL.createWireframeMesh renderer
                     { vertices: C.cubeVertices
                     , indices:  C.cubeEdgeIndices
                     , color:    C.cubeColor
                     }
-      GL.setProjection renderer (M.toVector (orthoProjection w h))
+      updateViewport renderer canvas
+      w0 <- getCanvasWidth  canvas
+      h0 <- getCanvasHeight canvas
+      sizeRef <- Ref.new { w: w0, h: h0 }
       runLoop
         { initial: initialState
         , step
         , draw: \s -> do
+            w <- getCanvasWidth  canvas
+            h <- getCanvasHeight canvas
+            prev <- Ref.read sizeRef
+            when (prev.w /= w || prev.h /= h) do
+              Ref.write { w, h } sizeRef
+              updateViewport renderer canvas
             GL.beginFrame renderer
             GL.drawMesh renderer mesh (M.toVector s.transform)
         }

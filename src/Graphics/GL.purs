@@ -45,4 +45,4 @@ foreign import drawMesh :: Renderer -> Mesh -> Array Number -> Effect Unit
 
 -- Resize the GL viewport. Pass the canvas's current pixel dimensions.
 foreign import resizeRenderer
-  :: Renderer -> { width :: Int, height :: Int } -> Effect Unit
+  :: Renderer -> { width :: Number, height :: Number } -> Effect Unit

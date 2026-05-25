@@ -13,5 +13,8 @@
     "esbuild": "^0.28.0",
     "purescript": "^0.15.16",
     "spago": "^1.0.4"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.60.0"
   }
 }
