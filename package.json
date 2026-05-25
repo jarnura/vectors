@@ -1,15 +1,17 @@
 {
   "name": "graphics",
   "version": "1.0.0",
-  "description": "\"vectors transformations, projection\"",
-  "main": "index.js",
-  "directories": {
-    "test": "test"
-  },
+  "description": "vectors transformations, projection",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "pulp build --to dist/index.js && xdg-open dist/index.html"
+    "build": "spago bundle",
+    "test": "spago test",
+    "dev": "spago bundle && node dev-server.js"
   },
   "author": "jarnura",
-  "license": "ISC"
+  "license": "ISC",
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "purescript": "^0.15.16",
+    "spago": "^1.0.4"
+  }
 }

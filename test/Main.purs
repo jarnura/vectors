@@ -4,11 +4,11 @@ import Prelude
 
 import Data.Array (all, zipWith)
 import Data.Maybe (fromMaybe)
+import Data.Number (abs)
 import Effect (Effect)
 import Effect.Console (log)
 import Effect.Exception (throw)
-import LinearAlgebra.Matrix as M
-import Math (abs)
+import Math.Matrix as M
 
 import Vector (rotateX, rotateY, rotateZ)
 

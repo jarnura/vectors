@@ -1,7 +1,6 @@
 module Cube.Types where
 
-import VectorPrelude
+import Math.Matrix (Matrix, Vector)
 
 type CubePoint = Vector Number
 type Cube      = Array (Matrix Number)
-
