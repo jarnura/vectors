@@ -9,6 +9,7 @@ import Data.Int (toNumber) as Module
 import Data.Maybe (Maybe(..), fromJust, fromMaybe, maybe) as Module
 import Effect (Effect) as Module
 import Effect.Console (log) as Module
+import Effect.Unsafe (unsafePerformEffect) as Module
 import FRP.Behavior (Behavior, animate, unfold) as Module
 import FRP.Event.Keyboard (Keyboard, getKeyboard, withKeys) as Module
 import FRP.Event.Mouse (Mouse, getMouse) as Module

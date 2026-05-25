@@ -10,7 +10,6 @@
     "purescript-prelude": "^4.1.0",
     "purescript-console": "^4.2.0",
     "purescript-effect": "^2.0.1",
-    "purescript-halogen": "^4.0.0",
     "purescript-behaviors": "^7.0.0",
     "purescript-canvas": "^4.0.0",
     "purescript-drawing": "^4.0.0",

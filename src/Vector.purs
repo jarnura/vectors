@@ -21,19 +21,18 @@ import Utils                as Helper
 transform3dMatrixTo2dMatrix :: Matrix Number
 transform3dMatrixTo2dMatrix = identityMatrix_2_4 2.0
 
-projectOn2d :: Cube -> Cube
-projectOn2d =
+projectOn2d :: Number → Number → Cube → Cube
+projectOn2d w h =
   (<$>) (M.multiply transform3dMatrixTo2dMatrix)
-    >>> (<$>) (M.add changeOrigin)
+    >>> (<$>) (M.add (changeOrigin w h))
 
--- The origin of a 3d plane is 0,0,0 as projection on 2d plane its origin 0,0
---   If the origin is 0,0 we cant see the negative side projection in negative axis
---   To overcome this move origin to point (more than the length of object) in positive axis
+-- Origin shift: 3d-plane origin (0,0,0) projects to (0,0) on the 2d plane.
+-- Centering on the canvas requires shifting by half its dimensions.
 
-changeOrigin :: Matrix Number
-changeOrigin =
-  M.fromArray 2 1 [500.0,500.0]
-    # maybe (M.zeros 2 1) identity
+changeOrigin :: Number → Number → Matrix Number
+changeOrigin w h =
+  M.fromArray 2 1 [ w / 2.0, h / 2.0 ]
+    # fromMaybe (M.zeros 2 1)
 
 
 -- Value Determines size of the Cube
@@ -87,8 +86,8 @@ rotateZ deg = M.fromArray 4 4
 
 transformation :: String -> Matrix Number
 transformation key = case key of
-  "ArrowLeft"  → rotateY $ Helper.incSpeed unit
-  "ArrowRight" → rotateY $ (-1.0) * Helper.incSpeed unit
-  "ArrowUp"    → rotateX $ Helper.incSpeed unit
-  "ArrowDown"  → rotateX $ (-1.0) * Helper.incSpeed unit
-  _            → rotateZ $ 0.0
+  "ArrowLeft"  → rotateY        (unsafePerformEffect Helper.incSpeed)
+  "ArrowRight" → rotateY (negate (unsafePerformEffect Helper.incSpeed))
+  "ArrowUp"    → rotateX        (unsafePerformEffect Helper.incSpeed)
+  "ArrowDown"  → rotateX (negate (unsafePerformEffect Helper.incSpeed))
+  _            → rotateZ 0.0

@@ -1,92 +1,46 @@
+// Global mutable state. Exposed to PureScript as Effect-typed FFI:
+// every export returns a thunk (function () { ... }) so the PureScript
+// type system can see the side effects.
+
+var MAX_SPEED = 10.0;
+var SPEED_STEP = 0.2;
+
 var matrix = null;
 var x      = 0.0;
 var y      = 0.0;
-var rotx   = 0.0;
-var roty   = 0.0;
 var speed  = 0.0;
 
-exports.storerotX = function(val) {
-  rotx = val;
-  //return function(){
-    return val;
-  //}
-}
+exports.storeX = function (val) {
+  return function () {
+    x = val;
+  };
+};
 
-exports.storerotY = function(val) {
-  roty = val;
-  //return function(){
-    return val;
-  //}
-}
+exports.storeY = function (val) {
+  return function () {
+    y = val;
+  };
+};
 
+exports.getX = function () {
+  return x;
+};
 
-exports.getrotX = function() {
-    return rotx;
-}
+exports.getY = function () {
+  return y;
+};
 
-exports.getrotY = function() {
-    return roty;
-}
-exports.storeX = function(val) {
-  x = val;
-  //return function(){
-    return val;
-  //}
-}
+exports.storeMatrix = function (mat) {
+  return function () {
+    matrix = mat;
+  };
+};
 
-exports.storeY = function(val) {
-  y = val;
-  //return function(){
-    return val;
-  //}
-}
+exports.getCachedMatrix = function () {
+  return matrix;
+};
 
-
-exports.getX = function() {
-    return x;
-}
-
-exports.getY = function() {
-    return y;
-}
-
-exports.logAny = function(value) {
-  console.log(value);
-  //return function(){
-    return value;
-  //}
-}
-
-exports.storeMatrix = function(mat) {
-  matrix = mat;
-  //console.log("storeMatrix -> ", matrix);
-  //return function(){
-    return matrix;
-  //}
-}
-
-exports.getCachedMatrix = function() {
-    console.log(speed);
-    return matrix;
-}
-
-exports.getSpeed = function() {
+exports.incSpeed = function () {
+  if (speed < MAX_SPEED) speed += SPEED_STEP;
   return speed;
-}
-
-exports.incSpeed = function() {
-  if (speed < 10.0)
-    speed += 0.2;
-  return speed;
-}
-
-exports.decSpeed = function() {
-  if (speed > -10)
-    speed -= 0.2
-  return speed;
-}
-
-exports.off = function() {
-  speed = 0.0;
-  return;
-}
+};
