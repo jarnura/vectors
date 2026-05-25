@@ -2,11 +2,9 @@ module Main where
 
 import Prelude
 
-import Color (white)
 import Cube as C
-import Cube.Types (Cube)
 import Data.Int (toNumber)
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe)
 import Effect (Effect)
 import Effect.Console (log)
 import FRP.Loop (Input, runLoop)
@@ -14,16 +12,14 @@ import Graphics.Canvas
   ( getCanvasElementById
   , getCanvasHeight
   , getCanvasWidth
-  , getContext2D
-  , setCanvasHeight
-  , setCanvasWidth
   )
-import Graphics.Drawing2D (Drawing, fillColor, filled, rectangle, render)
+import Graphics.GL as GL
+import Math.Matrix (Matrix)
 import Math.Matrix as M
 import Vector as V
 
 type State =
-  { cube      :: Cube
+  { transform :: Matrix Number
   , speed     :: Number
   , mouseLast :: Maybe { x :: Int, y :: Int }
   }
@@ -40,12 +36,32 @@ speedStep = 0.2
 mouseSensitivity :: Number
 mouseSensitivity = 0.1
 
+identityMatrix :: Matrix Number
+identityMatrix = fromMaybe (M.zeros 4 4) $ M.fromArray 4 4
+  [ 1.0, 0.0, 0.0, 0.0
+  , 0.0, 1.0, 0.0, 0.0
+  , 0.0, 0.0, 1.0, 0.0
+  , 0.0, 0.0, 0.0, 1.0
+  ]
+
 initialState :: State
 initialState =
-  { cube: C.initcube
+  { transform: identityMatrix
   , speed: 0.0
   , mouseLast: Nothing
   }
+
+-- Orthographic projection centered on origin: [-w/2, w/2] x [-h/2, h/2].
+-- Depth range [-far, far] keeps the cube visible regardless of orientation.
+orthoProjection :: Number -> Number -> Matrix Number
+orthoProjection w h =
+  let far = 1000.0
+  in fromMaybe (M.zeros 4 4) $ M.fromArray 4 4
+       [ 2.0 / w , 0.0     , 0.0          , 0.0
+       , 0.0     , 2.0 / h , 0.0          , 0.0
+       , 0.0     , 0.0     , -1.0 / far   , 0.0
+       , 0.0     , 0.0     , 0.0          , 1.0
+       ]
 
 step :: Input -> State -> State
 step input = applyKey input.lastKey >>> applyMouse input.mouse
@@ -54,16 +70,16 @@ applyKey :: Maybe String -> State -> State
 applyKey Nothing s = s
 applyKey (Just key) s =
   let nextSpeed = if s.speed < maxSpeed then s.speed + speedStep else s.speed
-      transform = case key of
+      rotation  = case key of
         "ArrowLeft"  -> Just (V.rotateY nextSpeed)
         "ArrowRight" -> Just (V.rotateY (negate nextSpeed))
         "ArrowUp"    -> Just (V.rotateX nextSpeed)
         "ArrowDown"  -> Just (V.rotateX (negate nextSpeed))
         _            -> Nothing
-  in case transform of
+  in case rotation of
        Nothing -> s
-       Just t  -> s { cube = map (M.multiply t) s.cube
-                    , speed = nextSpeed
+       Just r  -> s { transform = M.multiply r s.transform
+                    , speed     = nextSpeed
                     }
 
 applyMouse :: Maybe { x :: Int, y :: Int } -> State -> State
@@ -73,17 +89,12 @@ applyMouse (Just pos) s = case s.mouseLast of
   Just last ->
     let dx = toNumber pos.x - toNumber last.x
         dy = toNumber pos.y - toNumber last.y
-        t  = M.multiply
+        r  = M.multiply
                (V.rotateX (negate (dy * mouseSensitivity)))
                (V.rotateY        (dx * mouseSensitivity))
-    in s { cube      = map (M.multiply t) s.cube
+    in s { transform = M.multiply r s.transform
          , mouseLast = Just pos
          }
-
-draw :: { w :: Number, h :: Number } -> State -> Drawing
-draw { w, h } s =
-  filled (fillColor white) (rectangle 0.0 0.0 w h)
-    <> C.renderCube w h s.cube
 
 main :: Effect Unit
 main = do
@@ -91,13 +102,19 @@ main = do
   case mcanvas of
     Nothing -> log "Main: canvas element with id 'canvas' not found; aborting init"
     Just canvas -> do
-      ctx <- getContext2D canvas
-      w   <- getCanvasWidth  canvas
-      h   <- getCanvasHeight canvas
-      _   <- setCanvasWidth  canvas w
-      _   <- setCanvasHeight canvas h
+      w <- getCanvasWidth  canvas
+      h <- getCanvasHeight canvas
+      renderer <- GL.initRenderer canvas
+      mesh     <- GL.createWireframeMesh renderer
+                    { vertices: C.cubeVertices
+                    , indices:  C.cubeEdgeIndices
+                    , color:    C.cubeColor
+                    }
+      GL.setProjection renderer (M.toVector (orthoProjection w h))
       runLoop
         { initial: initialState
         , step
-        , draw: \s -> render ctx (draw { w, h } s)
+        , draw: \s -> do
+            GL.beginFrame renderer
+            GL.drawMesh renderer mesh (M.toVector s.transform)
         }

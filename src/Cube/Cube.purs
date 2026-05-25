@@ -1,89 +1,42 @@
 module Cube
-  ( initcube
-  , renderCube
+  ( cubeVertices
+  , cubeEdgeIndices
+  , cubeColor
   ) where
 
 import Prelude
 
-import Color (black)
-import Cube.Types (Cube, CubePoint)
-import Data.Array ((!!))
-import Data.Foldable (foldMap)
-import Data.Maybe (fromMaybe)
-import Graphics.Drawing2D (Drawing, Point, closed, lineWidth, outlineColor, outlined)
-import Math.Matrix (Matrix, fromColumn, mulScalar, toVector, zeros)
-import Vector as V
+import Graphics.GL (Color)
 
--- Half-extent of the unit cube before scaling.
-cubeHalfExtent :: Number
-cubeHalfExtent = 100.0
+-- Half-edge length of the cube. The cube spans [-h, +h] on each axis.
+-- Picked to match the original Canvas2D-era visual size (~200px wide on a
+-- 1920×1080 canvas after orthographic projection).
+halfExtent :: Number
+halfExtent = 100.0
 
--- Uniform scale applied to all cube vertices at initialization.
-cubeScale :: Number
-cubeScale = 0.5
-
--- Stroke width for cube edges.
-edgeLineWidth :: Number
-edgeLineWidth = 0.5
-
-point1 :: CubePoint
-point1 = [ -cubeHalfExtent, -cubeHalfExtent,  cubeHalfExtent, 1.0 ]
-
-point2 :: CubePoint
-point2 = [  cubeHalfExtent, -cubeHalfExtent,  cubeHalfExtent, 1.0 ]
-
-point3 :: CubePoint
-point3 = [  cubeHalfExtent,  cubeHalfExtent,  cubeHalfExtent, 1.0 ]
-
-point4 :: CubePoint
-point4 = [ -cubeHalfExtent,  cubeHalfExtent,  cubeHalfExtent, 1.0 ]
-
-point5 :: CubePoint
-point5 = [ -cubeHalfExtent, -cubeHalfExtent, -cubeHalfExtent, 1.0 ]
-
-point6 :: CubePoint
-point6 = [ -cubeHalfExtent,  cubeHalfExtent, -cubeHalfExtent, 1.0 ]
-
-point7 :: CubePoint
-point7 = [  cubeHalfExtent,  cubeHalfExtent, -cubeHalfExtent, 1.0 ]
-
-point8 :: CubePoint
-point8 = [  cubeHalfExtent, -cubeHalfExtent, -cubeHalfExtent, 1.0 ]
-
-edges :: Array (Array Int)
-edges =
-  [ [0,1], [1,2], [2,3], [3,0]
-  , [4,5], [5,6], [6,7], [7,4]
-  , [0,4], [1,7], [2,6], [3,5]
+-- 8 corner positions, flattened as [x0,y0,z0, x1,y1,z1, ...].
+cubeVertices :: Array Number
+cubeVertices =
+  let h = halfExtent
+  in
+  [ -h, -h,  h   -- 0: front bottom-left
+  ,  h, -h,  h   -- 1: front bottom-right
+  ,  h,  h,  h   -- 2: front top-right
+  , -h,  h,  h   -- 3: front top-left
+  , -h, -h, -h   -- 4: back bottom-left
+  , -h,  h, -h   -- 5: back top-left
+  ,  h,  h, -h   -- 6: back top-right
+  ,  h, -h, -h   -- 7: back bottom-right
   ]
 
-cubePoints :: Array CubePoint
-cubePoints = map (mulScalar cubeScale)
-  [ point1, point2, point3, point4, point5, point6, point7, point8 ]
+-- 12 edges as pairs of vertex indices, flattened for gl.drawElements(LINES).
+cubeEdgeIndices :: Array Int
+cubeEdgeIndices =
+  [ 0,1, 1,2, 2,3, 3,0   -- front face
+  , 4,5, 5,6, 6,7, 7,4   -- back face
+  , 0,4, 1,7, 2,6, 3,5   -- connecting edges
+  ]
 
-initcube :: Cube
-initcube = map fromColumn cubePoints
-
-vectorToPoint :: Matrix Number -> Point
-vectorToPoint m =
-  let v = toVector m
-  in { x: fromMaybe 0.0 (v !! 0), y: fromMaybe 0.0 (v !! 1) }
-
-drawEdges :: Cube -> Array (Array Point)
-drawEdges points = map edgePoints edges
-  where
-    edgePoints edge =
-      [ vectorAt edge 0
-      , vectorAt edge 1
-      ]
-    vectorAt edge idx =
-      vectorToPoint $ fromMaybe (zeros 2 1) $
-        points !! fromMaybe 0 (edge !! idx)
-
-renderSide :: Array Point -> Drawing
-renderSide =
-  closed >>> outlined (outlineColor black <> lineWidth edgeLineWidth)
-
-renderCube :: Number -> Number -> Cube -> Drawing
-renderCube w h cube =
-  V.projectOn2d w h cube # drawEdges # foldMap renderSide
+-- Black, fully opaque.
+cubeColor :: Color
+cubeColor = { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }
