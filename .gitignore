@@ -5,3 +5,6 @@
 /_site/
 /generated-docs/
 /.DS_Store
+
+# babysitter (.a5c) — entire directory ignored; credentials are always excluded
+/.a5c/
