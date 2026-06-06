@@ -174,6 +174,24 @@ test('overlay: element label shows/updates the element name', async ({ page }) =
   await expect(label).toBeHidden();
 });
 
+// subshells M2: the element table now spans Z=1..36, so the selector reaches
+// Krypton and the label shows the new name; the scene still renders.
+test('subshells M2: element table reaches Krypton (Z=36)', async ({ page }) => {
+  const label = page.locator('#atom-label');
+  await page.click('#scene-toggle'); // → atomos
+
+  // The selector accepts the extended range up to 36.
+  await expect(page.locator('#element-value')).toHaveAttribute('max', '36');
+
+  // Z=36 settles the label on "Krypton".
+  await page.fill('#element-value', '36');
+  await expect(label).toHaveText('Krypton', { timeout: 4000 });
+
+  // The atom still renders lit geometry at center (no crash at the new max).
+  const center = await readPixel(page, 0.5, 0.5);
+  expect(center[0] + center[1] + center[2]).toBeGreaterThan(40);
+});
+
 // overlay-text M2: the scene-title banner scrambles to the current scene name.
 test('overlay: scene title updates on scene switch', async ({ page }) => {
   const title = page.locator('#scene-title');

@@ -1,5 +1,6 @@
--- Pure atomic model for atomos: a small element table (Z = 1..8), electron-shell
--- filling, and a deterministic nucleon cluster layout. No rendering or effects.
+-- Pure atomic model for atomos: an element table (Z = 1..36, H..Kr), Madelung
+-- sub-shell electron filling, and a deterministic nucleon cluster layout. No
+-- rendering or effects.
 module Atom
   ( V3
   , Element
@@ -53,26 +54,137 @@ nucleusRadius = 60.0
 nucleonRadius :: Number
 nucleonRadius = 22.0
 
--- Neutron count (common isotope) and symbol for Z = 1..8 (index Z-1).
+-- Neutron count (most-abundant isotope, N = A − Z) for Z = 1..36 (index Z−1).
 neutronTable :: Array Int
-neutronTable = [ 0, 2, 4, 5, 6, 6, 7, 8 ]
+neutronTable =
+  [ 0
+  , 2
+  , 4
+  , 5
+  , 6
+  , 6
+  , 7
+  , 8
+  , 10
+  , 10 -- H..Ne
+  , 12
+  , 12
+  , 14
+  , 14
+  , 16
+  , 16
+  , 18
+  , 22
+  , 20
+  , 20 -- Na..Ca
+  , 24
+  , 26
+  , 28
+  , 28
+  , 30
+  , 30
+  , 32
+  , 30
+  , 34
+  , 34 -- Sc..Zn
+  , 38
+  , 42
+  , 42
+  , 46
+  , 44
+  , 48 -- Ga..Kr
+  ]
 
 symbolTable :: Array String
-symbolTable = [ "H", "He", "Li", "Be", "B", "C", "N", "O" ]
+symbolTable =
+  [ "H"
+  , "He"
+  , "Li"
+  , "Be"
+  , "B"
+  , "C"
+  , "N"
+  , "O"
+  , "F"
+  , "Ne"
+  , "Na"
+  , "Mg"
+  , "Al"
+  , "Si"
+  , "P"
+  , "S"
+  , "Cl"
+  , "Ar"
+  , "K"
+  , "Ca"
+  , "Sc"
+  , "Ti"
+  , "V"
+  , "Cr"
+  , "Mn"
+  , "Fe"
+  , "Co"
+  , "Ni"
+  , "Cu"
+  , "Zn"
+  , "Ga"
+  , "Ge"
+  , "As"
+  , "Se"
+  , "Br"
+  , "Kr"
+  ]
 
 nameTable :: Array String
 nameTable =
-  [ "Hydrogen", "Helium", "Lithium", "Beryllium", "Boron", "Carbon", "Nitrogen", "Oxygen" ]
+  [ "Hydrogen"
+  , "Helium"
+  , "Lithium"
+  , "Beryllium"
+  , "Boron"
+  , "Carbon"
+  , "Nitrogen"
+  , "Oxygen"
+  , "Fluorine"
+  , "Neon"
+  , "Sodium"
+  , "Magnesium"
+  , "Aluminium"
+  , "Silicon"
+  , "Phosphorus"
+  , "Sulfur"
+  , "Chlorine"
+  , "Argon"
+  , "Potassium"
+  , "Calcium"
+  , "Scandium"
+  , "Titanium"
+  , "Vanadium"
+  , "Chromium"
+  , "Manganese"
+  , "Iron"
+  , "Cobalt"
+  , "Nickel"
+  , "Copper"
+  , "Zinc"
+  , "Gallium"
+  , "Germanium"
+  , "Arsenic"
+  , "Selenium"
+  , "Bromine"
+  , "Krypton"
+  ]
 
 -- Full element name for an atomic number (clamped to the supported table).
 elementName :: Int -> String
 elementName raw = fromMaybe "?" (nameTable !! (clampZ raw - 1))
 
--- Clamp an atomic number into the supported range so bad input can't crash.
+-- Clamp an atomic number into the supported range (H..Kr) so bad input can't
+-- crash. Mirrors maxElectron so the table and the electron model agree.
 clampZ :: Int -> Int
 clampZ z
   | z < 1 = 1
-  | z > 8 = 8
+  | z > maxElectron = maxElectron
   | otherwise = z
 
 elementOf :: Int -> Element

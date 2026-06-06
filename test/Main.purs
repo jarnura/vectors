@@ -418,10 +418,37 @@ main = do
   check "elementName 2 = Helium" $ elementName 2 == "Helium"
   check "elementName 6 = Carbon" $ elementName 6 == "Carbon"
   check "elementName 8 = Oxygen" $ elementName 8 == "Oxygen"
-  -- Out-of-range clamps to a valid name (no crash / no empty string).
-  check "elementName 999 is a valid clamped name" $ elementName 999 == "Oxygen"
 
   log "all element name properties hold."
+
+  -- ───── Element table extended to Krypton, Z=1..36 (subshells M2) ─────
+  log "extended element table properties:"
+
+  -- Names across the new range (period 2/3/4 anchors up to Krypton).
+  check "elementName 10 = Neon" $ elementName 10 == "Neon"
+  check "elementName 18 = Argon" $ elementName 18 == "Argon"
+  check "elementName 19 = Potassium" $ elementName 19 == "Potassium"
+  check "elementName 26 = Iron" $ elementName 26 == "Iron"
+  check "elementName 36 = Krypton" $ elementName 36 == "Krypton"
+
+  -- Symbols come from the same table (via elementOf).
+  check "symbol 19 = K" $ (elementOf 19).symbol == "K"
+  check "symbol 26 = Fe" $ (elementOf 26).symbol == "Fe"
+  check "symbol 36 = Kr" $ (elementOf 36).symbol == "Kr"
+
+  -- Proton/electron count = Z across the new range; neutrons anchored.
+  check "Iron = 26p 30n 26e" $
+    let fe = elementOf 26 in fe.protons == 26 && fe.neutrons == 30 && fe.electrons == 26
+  check "Krypton = 36p 48n 36e" $
+    let kr = elementOf 36 in kr.protons == 36 && kr.neutrons == 48 && kr.electrons == 36
+
+  -- Clamp now spans 1..36: low clamps to Hydrogen, high clamps to Krypton.
+  check "clampZ low: elementOf 0 → Hydrogen" $
+    (elementOf 0).protons == 1 && elementName 0 == "Hydrogen"
+  check "clampZ high: elementName 999 → Krypton" $ elementName 999 == "Krypton"
+  check "clampZ high: elementOf 999 → 36 protons" $ (elementOf 999).protons == 36
+
+  log "all extended element table properties hold."
 
   -- ───── Scene titles for the banner (overlay-text M2) ────────────────
   log "scene title properties:"
