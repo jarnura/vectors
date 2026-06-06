@@ -8,3 +8,6 @@
 
 # babysitter (.a5c) — entire directory ignored; credentials are always excluded
 /.a5c/
+
+# local run artifacts (dev-server logs, etc.)
+/.run/
