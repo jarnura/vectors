@@ -1,8 +1,9 @@
 # vectors
 
-A PureScript + WebGL2 3D graphics demo. Renders meshes (a main cube plus an
-orbiting satellite cube) with perspective projection, mouse/keyboard-driven
-rotation, and canvas-resize handling.
+A PureScript + WebGL2 3D graphics demo. Renders a solid-lit main cube plus an
+orbiting satellite cube inside a **world backdrop** (green ground plane,
+wireframe grid floor, sky-blue horizon), with perspective projection,
+mouse/keyboard-driven rotation, and canvas-resize handling.
 
 ## Commands
 
@@ -11,6 +12,7 @@ rotation, and canvas-resize handling.
 | `npm run build` | `spago bundle` → browser bundle at `dist/index.js` |
 | `npm test` | `spago test` → runs `Test.Main` |
 | `npm run dev` | bundle, then `node dev-server.js` (static server on `0.0.0.0:47474`) |
+| `npm run e2e` | Playwright canvas-verification E2E suite (boots the dev server) |
 
 Toolchain: spago + purs 0.15.16 + esbuild, driven via npm. PureScript deps are
 declared in `spago.yaml`; npm holds only the dev toolchain and Playwright.
@@ -24,23 +26,28 @@ Module map (under `src/`):
 
 | Module | Files | Role |
 |--------|-------|------|
-| `Main` | `Main.purs` | Entry point; wires canvas, renderer, render loop, input, and the `Entity` list (cube + satellite) |
-| `Graphics.GL` | `GL.purs` + `GL.js` | WebGL2 FFI: renderer, meshes, colors, draw calls |
-| `Math.Matrix` | `Math/Matrix.purs` | Matrix linear algebra (multiply, projection, etc.) |
+| `Main` | `Main.purs` | Entry point; wires canvas, renderer, render loop, input, and the `Entity` list (ground, grid, cube, satellite). `EntityMesh = Solid \| Wire` dispatches to the solid or wireframe draw path |
+| `Graphics.GL` | `GL.purs` + `GL.js` | WebGL2 FFI: renderer, meshes, colors, clear color, draw calls |
+| `Math.Matrix` | `Math/Matrix.purs` | Matrix linear algebra (multiply, projection, `translate`, etc.) |
 | `Vector` | `Vector.purs` | Rotation matrices (`rotateX/Y/Z`) and vector ops |
-| `Meshes` | `Meshes.purs` | Geometry specs for wireframe and solid cubes |
+| `Meshes` | `Meshes.purs` | Geometry specs for wireframe/solid cubes and the world (`groundPlane`, `gridFloor`) |
+| `World` | `World.purs` | Static world-backdrop constants/transforms (`groundTransform`, `gridTransform`, `skyColor`) |
 | `FRP.Loop` | `FRP/Loop.purs` + `FRP/Loop.js` | requestAnimationFrame render loop + input plumbing |
 
 State is a plain record (`transform`, `speed`, `mouseLast`, `frame`) advanced
-each frame; updates return new records rather than mutating.
+each frame; updates return new records rather than mutating. The ground, grid,
+and sky are static (their model matrices ignore `State`).
 
 ## Conventions
 
 - Conventional commits: `feat:` / `refactor:` / `fix:` (also `test:`, `chore:`,
   `docs:`, `perf:`, `ci:`).
-- Ship tests alongside behavior changes. Tests are hand-rolled assertions in
-  `test/Main.purs` (rotation-matrix properties, `1e-10` tolerance). Covered:
-  `Math.Matrix`, `Vector`. Untested: `Meshes`, `Graphics.GL`, `FRP.Loop`.
+- Ship tests alongside behavior changes. Unit tests are hand-rolled assertions
+  in `test/Main.purs` (`1e-10` tolerance) covering `Math.Matrix`, `Vector`,
+  `Meshes` (world geometry), and `World`. Browser behavior is covered by
+  Playwright canvas-verification specs in `e2e/` (run with `npm run e2e`).
+  Untested: `Graphics.GL` FFI internals, `FRP.Loop`. PureScript is formatted
+  with `purs-tidy`.
 - Do NOT commit build output. `dist/`, `output/`, `.spago/`, `node_modules/`
   are gitignored.
 - Keep each FFI `.js` file paired with its `.purs` module, and type all FFI
