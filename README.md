@@ -1,16 +1,22 @@
 # vectors
 
-A small **PureScript + WebGL2** 3D graphics demo. A solid-lit cube and an
-orbiting satellite cube sit inside a simple **world** — a green ground plane, a
-wireframe grid floor, and a sky-blue horizon — with perspective projection and
-mouse/keyboard-driven rotation.
+A small **PureScript + WebGL2** 3D graphics demo with two scenes, toggled by an
+on-screen switch:
+
+- **Cube POC** — a solid-lit cube + orbiting satellite inside a simple world
+  (green ground, wireframe grid, sky-blue horizon).
+- **atomos** — a 3D atom visualizer in deep space: a nucleus of proton (red) and
+  neutron (gray) spheres with electrons on animated Bohr orbits, configurable by
+  element.
 
 ## Controls
 
-- **Arrow keys** — rotate the main cube (X/Y axes).
-- **Mouse drag** — rotate the cube freely.
-- **Shear input + Apply button** (top-left) — shear the main cube by the entered
-  value (`x' = x + k·y`). Repeated clicks compound.
+- **Switch scene** (top-left) — toggle Cube POC ↔ atomos.
+- **Element Z** (atomos) — choose the atom (Z = 1..8: H … O); nucleus and
+  electrons update live.
+- **Arrow keys / mouse drag** — rotate the cube (Cube POC).
+- **Shear input + Apply** — shear the main cube by the entered value
+  (`x' = x + k·y`); repeated clicks compound.
 
 ## Develop
 

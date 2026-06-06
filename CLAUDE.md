@@ -1,10 +1,16 @@
 # vectors
 
-A PureScript + WebGL2 3D graphics demo. Renders a solid-lit main cube plus an
-orbiting satellite cube inside a **world backdrop** (green ground plane,
-wireframe grid floor, sky-blue horizon), with perspective projection,
-mouse/keyboard-driven rotation, and canvas-resize handling. An on-screen
-**Shear** control (number input + button) applies a shear to the main cube.
+A PureScript + WebGL2 3D graphics demo with two **scenes**, toggled by an
+on-screen switch:
+- **Cube POC** — a solid-lit main cube + orbiting satellite inside a world
+  backdrop (green ground, wireframe grid, sky-blue horizon), with
+  mouse/keyboard rotation and a **Shear** control.
+- **atomos** — a 3D atom visualizer in near-black space with a starfield: a
+  nucleus of proton (red) + neutron (gray) spheres and electrons on animated
+  Bohr orbits. The atom is **configurable by element** (Z = 1..8) via a selector.
+
+Each fundamental particle is a sphere. Perspective projection + canvas-resize
+throughout.
 
 ## Commands
 
@@ -27,17 +33,21 @@ Module map (under `src/`):
 
 | Module | Files | Role |
 |--------|-------|------|
-| `Main` | `Main.purs` | Entry point; wires canvas, renderer, render loop, input, and the `Entity` list (ground, grid, cube, satellite). `EntityMesh = Solid \| Wire` dispatches to the solid or wireframe draw path |
+| `Main` | `Main.purs` | Entry point; wires canvas, renderer, loop, input; builds per-scene `Entity` lists and selects on `State.scene`. `EntityMesh = Solid \| Wire` dispatch |
 | `Graphics.GL` | `GL.purs` + `GL.js` | WebGL2 FFI: renderer, meshes, colors, clear color, draw calls |
 | `Math.Matrix` | `Math/Matrix.purs` | Matrix linear algebra (multiply, projection, `translate`, `scale`, `shear`, etc.) |
 | `Vector` | `Vector.purs` | Rotation matrices (`rotateX/Y/Z`) and vector ops |
-| `Meshes` | `Meshes.purs` | Geometry specs for wireframe/solid cubes and the world (`groundPlane`, `gridFloor`) |
+| `Meshes` | `Meshes.purs` | Geometry specs: cubes, world (`groundPlane`, `gridFloor`), and `sphere` (particles/stars) |
 | `World` | `World.purs` | Static world-backdrop constants/transforms (`groundTransform`, `gridTransform`, `skyColor`) |
-| `FRP.Loop` | `FRP/Loop.purs` + `FRP/Loop.js` | requestAnimationFrame render loop + input plumbing (keyboard, mouse, shear button → `Input`) |
+| `Scene` | `Scene.purs` | `Scene = CubePoc \| Atomos`, `nextScene`, atomos `spaceColor` |
+| `Atom` | `Atom.purs` | Element table (Z=1..8) + electron-shell filling + nucleon cluster + `electronPositions` (Bohr orbits) |
+| `Starfield` | `Starfield.purs` | Deterministic Fibonacci-sphere star positions for the atomos backdrop |
+| `FRP.Loop` | `FRP/Loop.purs` + `FRP/Loop.js` | rAF loop + input plumbing (keyboard, mouse, shear button, scene toggle, element selector → `Input`) |
 
-State is a plain record (`transform`, `speed`, `mouseLast`, `frame`) advanced
-each frame; updates return new records rather than mutating. The ground, grid,
-and sky are static (their model matrices ignore `State`).
+State is a plain record (`transform`, `speed`, `mouseLast`, `frame`, `scene`,
+`element`) advanced each frame; updates return new records rather than mutating.
+The world meshes, nucleus, and starfield use scene-/element-derived transforms;
+electrons advance with `frame`.
 
 ## Conventions
 
