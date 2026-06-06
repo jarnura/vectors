@@ -113,11 +113,17 @@ perspectiveProjection w h =
 
 step :: Input -> State -> State
 step input =
-  applyKey input.lastKey
+  applyShear input.shear
+    >>> applyKey input.lastKey
     >>> applyMouse input.mouse
     >>> tickFrame
   where
   tickFrame s = s { frame = s.frame + 1.0 }
+
+-- Apply a shear (by the button's input value) to the main cube's transform.
+applyShear :: Maybe Number -> State -> State
+applyShear Nothing s = s
+applyShear (Just k) s = s { transform = M.multiply (M.shear k) s.transform }
 
 applyKey :: Maybe String -> State -> State
 applyKey Nothing s = s

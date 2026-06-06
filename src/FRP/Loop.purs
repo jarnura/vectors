@@ -13,16 +13,22 @@ import Effect.Ref as Ref
 type Input =
   { lastKey :: Maybe String
   , mouse :: Maybe { x :: Int, y :: Int }
+  , shear :: Maybe Number
   }
 
 emptyInput :: Input
-emptyInput = { lastKey: Nothing, mouse: Nothing }
+emptyInput = { lastKey: Nothing, mouse: Nothing, shear: Nothing }
 
 foreign import installKeyUpListener
   :: (String -> Effect Unit) -> Effect Unit
 
 foreign import installMouseMoveListener
   :: (Int -> Int -> Effect Unit) -> Effect Unit
+
+-- Wires the shear button: on click, reads the shear-value input and invokes
+-- the callback with the parsed number.
+foreign import installShearButton
+  :: (Number -> Effect Unit) -> Effect Unit
 
 foreign import requestAnimationFrame
   :: Effect Unit -> Effect Unit
@@ -41,6 +47,8 @@ runLoop spec = do
     Ref.modify_ (_ { lastKey = Just k }) inputRef
   installMouseMoveListener \x y ->
     Ref.modify_ (_ { mouse = Just { x, y } }) inputRef
+  installShearButton \k ->
+    Ref.modify_ (_ { shear = Just k }) inputRef
   let
     tick = do
       i <- Ref.read inputRef

@@ -45,6 +45,32 @@ test('M3: grid lines visible on ground', async ({ page }) => {
   expect(distinctColors(region)).toBeGreaterThan(1);
 });
 
+// Shear button: clicking with a value shears the main cube (pixels change),
+// while the static ground/grid stay put.
+test('shear button: clicking shears the main cube', async ({ page }) => {
+  await expect(page.locator('#shear-btn')).toBeVisible();
+  await expect(page.locator('#shear-value')).toBeVisible();
+
+  // Capture the cube region before the shear.
+  const before = await readRegion(page, 0.35, 0.3, 0.65, 0.6, 16, 10);
+
+  await page.fill('#shear-value', '1.5');
+  await page.click('#shear-btn');
+  await page.waitForTimeout(300); // let a few frames render the sheared transform
+
+  const after = await readRegion(page, 0.35, 0.3, 0.65, 0.6, 16, 10);
+
+  // The cube region must change after applying a non-zero shear.
+  const changed = before.some((p, i) =>
+    Math.abs(p[0] - after[i][0]) + Math.abs(p[1] - after[i][1]) + Math.abs(p[2] - after[i][2]) > 24
+  );
+  expect(changed).toBe(true);
+
+  // The static ground far below stays the same color (world backdrop unaffected).
+  const ground = await readPixel(page, 0.5, 0.95);
+  expect(ground[1]).toBeGreaterThan(ground[0]); // still green-dominant
+});
+
 // M4: sky backdrop (top is sky-blue, not white) + ground/sky differ.
 test('M4: sky backdrop and horizon transition', async ({ page }) => {
   const top = await readPixel(page, 0.5, 0.03);     // sky region

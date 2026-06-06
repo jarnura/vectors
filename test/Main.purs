@@ -4,7 +4,8 @@ import Prelude
 
 import Data.Array (all, filter, index, length, mapWithIndex, zipWith)
 import Data.Foldable (maximum, minimum)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
+import FRP.Loop (emptyInput)
 import Data.Number (abs)
 import Effect (Effect)
 import Effect.Console (log)
@@ -233,6 +234,14 @@ main = do
       approxEq (fromMaybe 0.0 (index sheared 0)) 0.7
 
   log "all shear matrix properties hold."
+
+  -- ───── Shear input wiring (shear-button M2) ─────────────────────────
+  log "shear input properties:"
+
+  -- The extended Input has a shear channel, empty by default (no click yet).
+  check "emptyInput.shear is Nothing" $ isNothing emptyInput.shear
+
+  log "all shear input properties hold."
 
 -- Extract every Nth element starting at `start` (used to pluck x/y/z columns).
 everyNth :: Int -> Int -> Array Number -> Array Number
