@@ -9,6 +9,8 @@ mouse/keyboard-driven rotation.
 
 - **Arrow keys** — rotate the main cube (X/Y axes).
 - **Mouse drag** — rotate the cube freely.
+- **Shear input + Apply button** (top-left) — shear the main cube by the entered
+  value (`x' = x + k·y`). Repeated clicks compound.
 
 ## Develop
 

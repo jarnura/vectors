@@ -3,7 +3,8 @@
 A PureScript + WebGL2 3D graphics demo. Renders a solid-lit main cube plus an
 orbiting satellite cube inside a **world backdrop** (green ground plane,
 wireframe grid floor, sky-blue horizon), with perspective projection,
-mouse/keyboard-driven rotation, and canvas-resize handling.
+mouse/keyboard-driven rotation, and canvas-resize handling. An on-screen
+**Shear** control (number input + button) applies a shear to the main cube.
 
 ## Commands
 
@@ -28,11 +29,11 @@ Module map (under `src/`):
 |--------|-------|------|
 | `Main` | `Main.purs` | Entry point; wires canvas, renderer, render loop, input, and the `Entity` list (ground, grid, cube, satellite). `EntityMesh = Solid \| Wire` dispatches to the solid or wireframe draw path |
 | `Graphics.GL` | `GL.purs` + `GL.js` | WebGL2 FFI: renderer, meshes, colors, clear color, draw calls |
-| `Math.Matrix` | `Math/Matrix.purs` | Matrix linear algebra (multiply, projection, `translate`, etc.) |
+| `Math.Matrix` | `Math/Matrix.purs` | Matrix linear algebra (multiply, projection, `translate`, `scale`, `shear`, etc.) |
 | `Vector` | `Vector.purs` | Rotation matrices (`rotateX/Y/Z`) and vector ops |
 | `Meshes` | `Meshes.purs` | Geometry specs for wireframe/solid cubes and the world (`groundPlane`, `gridFloor`) |
 | `World` | `World.purs` | Static world-backdrop constants/transforms (`groundTransform`, `gridTransform`, `skyColor`) |
-| `FRP.Loop` | `FRP/Loop.purs` + `FRP/Loop.js` | requestAnimationFrame render loop + input plumbing |
+| `FRP.Loop` | `FRP/Loop.purs` + `FRP/Loop.js` | requestAnimationFrame render loop + input plumbing (keyboard, mouse, shear button → `Input`) |
 
 State is a plain record (`transform`, `speed`, `mouseLast`, `frame`) advanced
 each frame; updates return new records rather than mutating. The ground, grid,
