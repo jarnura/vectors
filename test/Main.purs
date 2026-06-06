@@ -13,7 +13,7 @@ import Effect.Exception (throw)
 import Math.Matrix as M
 
 import Atom (configString, electronPositions, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, subshellCap, subshellInclination, subshellRadius)
-import Orbital (OrbShape(..), occBrightness, orbitalsFor, zEff, meanRadius, rScale)
+import Orbital (OrbShape(..), electronSites, occBrightness, orbitalAxis, orbitalViewportRadius, orbitalsFor, zEff, meanRadius, rScale)
 import Meshes (angularValue, groundPlane, gridFloor, orbitRing, orbitalMesh, sphere)
 import Scene (Scene(..), nextScene, sceneTitle)
 import Starfield (starPositions)
@@ -583,6 +583,51 @@ main = do
   check "occBrightness 2 is full brightness" $ approxEq (occBrightness 2) 1.0
 
   log "all Hund occupancy brightness properties hold."
+
+  -- ───── Electron particle sites (electron-particles M1) ──────────────
+  log "electron particle model properties:"
+
+  let
+    z0 = { x: 0.0, y: 0.0, z: 0.0 }
+    d3 v = sqrt (v.x * v.x + v.y * v.y + v.z * v.z)
+
+  -- One discrete particle per electron: the count equals the (clamped) Z.
+  check "electronSites count == Z (H 1)" $ length (electronSites 1) == 1
+  check "electronSites count == Z (C 6)" $ length (electronSites 6) == 6
+  check "electronSites count == Z (Fe 26)" $ length (electronSites 26) == 26
+  check "electronSites count == Z (Kr 36)" $ length (electronSites 36) == 36
+
+  -- Hydrogen's lone electron sits on the outermost orbital radius.
+  check "Hydrogen electron at the outermost radius (~380)" $
+    approxEq (d3 (fromMaybe z0 (index (electronSites 1) 0))) orbitalViewportRadius
+
+  -- Lobe-tip axes are unit vectors, with the canonical p directions.
+  check "orbitalAxis Px/Py/Pz are the +x/+y/+z units" $
+    orbitalAxis Px == { x: 1.0, y: 0.0, z: 0.0 }
+      && orbitalAxis Py == { x: 0.0, y: 1.0, z: 0.0 }
+      && orbitalAxis Pz == { x: 0.0, y: 0.0, z: 1.0 }
+  check "every orbitalAxis is a unit vector" $
+    all (\sh -> approxEq (d3 (orbitalAxis sh)) 1.0)
+      [ S, Px, Py, Pz, Dz2, Dxz, Dyz, Dx2y2, Dxy ]
+
+  -- A paired orbital (Helium 1s²) contributes an antipodal ± pair.
+  check "Helium 1s² gives an antipodal electron pair" $
+    let
+      ss = electronSites 2
+      a = fromMaybe z0 (index ss 0)
+      b = fromMaybe z0 (index ss 1)
+    in
+      length ss == 2
+        && approxEq (a.x + b.x) 0.0
+        && approxEq (a.y + b.y) 0.0
+        && approxEq (a.z + b.z) 0.0
+        && approxEq (d3 a) (d3 b)
+
+  -- Out-of-range Z is clamped (no crash).
+  check "electronSites clamps high (999 → 36)" $ length (electronSites 999) == 36
+  check "electronSites clamps low (0 → 1)" $ length (electronSites 0) == 1
+
+  log "all electron particle model properties hold."
 
   -- ───── Element selector input (atomos M5) ───────────────────────────
   log "element input properties:"

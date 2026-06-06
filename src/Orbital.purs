@@ -7,21 +7,25 @@
 module Orbital
   ( OrbShape(..)
   , Orbital
+  , V3
   , orbitalsFor
   , zEff
   , meanRadius
   , rScale
   , orbitalViewportRadius
   , occBrightness
+  , orbitalAxis
+  , electronSites
   ) where
 
 import Prelude
 
 import Atom (elementOf, fillSubshells)
-import Data.Array (concatMap, length, range, zipWith)
+import Data.Array (concatMap, filter, length, range, zipWith)
 import Data.Foldable (maximum, sum)
 import Data.Int (toNumber)
 import Data.Maybe (fromMaybe)
+import Data.Number (sqrt)
 
 -- The real (cubic-harmonic) orbital shapes reached for Z ≤ 36.
 data OrbShape
@@ -41,6 +45,9 @@ derive instance ordOrbShape :: Ord OrbShape
 -- A single real orbital: principal n, azimuthal l, its shape, and how many
 -- electrons (0, 1, or 2) occupy it.
 type Orbital = { n :: Int, l :: Int, kind :: OrbShape, occ :: Int }
+
+-- A 3D point/direction.
+type V3 = { x :: Number, y :: Number, z :: Number }
 
 -- The real orbital shapes of sub-shell l, in a fixed canonical order.
 shapesFor :: Int -> Array OrbShape
@@ -144,3 +151,42 @@ occBrightness occ
   | occ <= 0 = 0.0
   | occ == 1 = 0.5
   | otherwise = 1.0
+
+-- ───── Discrete electron particles ──────────────────────────────────
+
+-- Unit direction of an orbital's primary lobe tip — where its electron
+-- particle(s) sit. The s orbital is spherical, so a fixed axis is chosen.
+orbitalAxis :: OrbShape -> V3
+orbitalAxis shape = case shape of
+  S -> { x: 0.0, y: 1.0, z: 0.0 }
+  Px -> { x: 1.0, y: 0.0, z: 0.0 }
+  Py -> { x: 0.0, y: 1.0, z: 0.0 }
+  Pz -> { x: 0.0, y: 0.0, z: 1.0 }
+  Dz2 -> { x: 0.0, y: 0.0, z: 1.0 }
+  Dxz -> normalize { x: 1.0, y: 0.0, z: 1.0 }
+  Dyz -> normalize { x: 0.0, y: 1.0, z: 1.0 }
+  Dx2y2 -> { x: 1.0, y: 0.0, z: 0.0 }
+  Dxy -> normalize { x: 1.0, y: 1.0, z: 0.0 }
+  where
+  normalize v =
+    let
+      m = sqrt (v.x * v.x + v.y * v.y + v.z * v.z)
+    in
+      { x: v.x / m, y: v.y / m, z: v.z / m }
+
+-- World positions of an element's electron particles: one per electron, placed
+-- at its orbital's lobe tip (orbitalAxis · physical radius). A singly-occupied
+-- orbital yields one particle at the +lobe; a paired one yields the ± pair. So
+-- `length (electronSites z) == Z` (clamped) — the electrons are countable.
+electronSites :: Int -> Array V3
+electronSites z =
+  concatMap sitesFor (filter (\o -> o.occ > 0) (orbitalsFor z))
+  where
+  sitesFor o =
+    let
+      ax = orbitalAxis o.kind
+      r = rScale z o.n o.l
+      p = { x: ax.x * r, y: ax.y * r, z: ax.z * r }
+    in
+      if o.occ >= 2 then [ p, { x: -p.x, y: -p.y, z: -p.z } ]
+      else [ p ]
