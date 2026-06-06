@@ -22,7 +22,8 @@ throughout.
 | `npm run e2e` | Playwright canvas-verification E2E suite (boots the dev server) |
 
 Toolchain: spago + purs 0.15.16 + esbuild, driven via npm. PureScript deps are
-declared in `spago.yaml`; npm holds only the dev toolchain and Playwright.
+declared in `spago.yaml`; npm holds the dev toolchain, Playwright, and
+**animejs** (used via the `Text` FFI for HTML overlay text only — never WebGL).
 
 ## Architecture
 
@@ -42,6 +43,7 @@ Module map (under `src/`):
 | `Scene` | `Scene.purs` | `Scene = CubePoc \| Atomos`, `nextScene`, atomos `spaceColor` |
 | `Atom` | `Atom.purs` | Element table (Z=1..8) + electron-shell filling + nucleon cluster + `electronPositions` (Bohr orbits) |
 | `Starfield` | `Starfield.purs` | Deterministic Fibonacci-sphere star positions for the atomos backdrop |
+| `Text` | `Text.purs` + `Text.js` | anime.js **HTML overlay-text** FFI (`scrambleInto`/`setVisible`) — DOM only, never WebGL. Drives the atomos element label + scene-title banner |
 | `FRP.Loop` | `FRP/Loop.purs` + `FRP/Loop.js` | rAF loop + input plumbing (keyboard, mouse, shear button, scene toggle, element selector → `Input`) |
 
 State is a plain record (`transform`, `speed`, `mouseLast`, `frame`, `scene`,

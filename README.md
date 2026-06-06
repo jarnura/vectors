@@ -7,7 +7,8 @@ on-screen switch:
   (green ground, wireframe grid, sky-blue horizon).
 - **atomos** — a 3D atom visualizer in deep space: a nucleus of proton (red) and
   neutron (gray) spheres with electrons on animated Bohr orbits, configurable by
-  element.
+  element. An animated **element-name label** and a **scene-title banner**
+  (anime.js text scramble, HTML overlay) react to the controls.
 
 ## Controls
 
