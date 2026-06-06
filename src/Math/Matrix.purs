@@ -8,6 +8,7 @@ module Math.Matrix
   , identity
   , translate
   , scale
+  , shear
   , add
   , multiply
   , mulScalar
@@ -94,6 +95,27 @@ scale sx sy sz = mkMatrix 4 4
   , 0.0
   , 0.0
   , sz
+  , 0.0
+  , 0.0
+  , 0.0
+  , 0.0
+  , 1.0
+  ]
+
+-- 4x4 shear matrix: x' = x + k*y (shears the Y axis into X). shear 0 = identity.
+shear :: Number -> Matrix Number
+shear k = mkMatrix 4 4
+  [ 1.0
+  , k
+  , 0.0
+  , 0.0
+  , 0.0
+  , 1.0
+  , 0.0
+  , 0.0
+  , 0.0
+  , 0.0
+  , 1.0
   , 0.0
   , 0.0
   , 0.0

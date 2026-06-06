@@ -215,6 +215,25 @@ main = do
 
   log "all sky backdrop properties hold."
 
+  -- ───── Shear matrix (shear-button M1) ───────────────────────────────
+  log "shear matrix properties:"
+
+  -- Zero shear is the identity.
+  check "shear 0 = I" $ approxEqMatrix (M.shear 0.0) identity4
+
+  -- The shear matrix differs from identity only at entry [0][1] = k.
+  check "shear k has entry [0][1] = k" $
+    approxEq (fromMaybe 0.0 (index (M.toVector (M.shear 0.7)) 1)) 0.7
+
+  -- Shearing the +Y basis vector moves it by k in +X: (0,1,0,1) ↦ (k,1,0,1).
+  check "shear k shears +Y into +X" $
+    let
+      sheared = M.toVector (M.multiply (M.shear 0.7) (M.fromColumn [ 0.0, 1.0, 0.0, 1.0 ]))
+    in
+      approxEq (fromMaybe 0.0 (index sheared 0)) 0.7
+
+  log "all shear matrix properties hold."
+
 -- Extract every Nth element starting at `start` (used to pluck x/y/z columns).
 everyNth :: Int -> Int -> Array Number -> Array Number
 everyNth step start xs =
