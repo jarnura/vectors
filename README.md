@@ -9,7 +9,8 @@ on-screen switch:
   neutron (gray) spheres with electrons on animated orbital rings, configurable
   by element (Z = 1..36, H…Kr). Electrons fill **sub-shells** in Madelung/Aufbau
   order; each sub-shell draws a **thin orbital ring line**, and **discrete
-  electrons** (bright spheres) orbit on those rings. An **element-name label**, a
+  electrons** (bright spheres) orbit on those rings — **colour-coded by shell**
+  (each shell a distinct colour, sub-shells lighter). An **element-name label**, a
   **scene-title banner**, and an **orbital-info overlay** (live electron
   configuration) — anime.js text scramble, HTML overlay — react to the controls.
 

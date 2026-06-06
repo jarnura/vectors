@@ -11,9 +11,11 @@ on-screen switch:
   selector. Electrons fill **sub-shells** in Madelung/Aufbau order (each capped
   at 4ℓ+2), so e.g. Krypton resolves to `1s² 2s² 2p⁶ 3s² 3p⁶ 4s² 3d¹⁰ 4p⁶`. Each
   sub-shell draws a **thin orbital ring line**, and **discrete electrons** (bright
-  spheres) orbit on those rings (animated by frame). An **orbital-info overlay**
-  shows the live electron configuration. (Idealized Madelung; Cr/Cu anomalies not
-  modeled.)
+  spheres) orbit on those rings (animated by frame). Rings + electrons are
+  **colour-coded by shell** — each principal shell n a distinct colour, with
+  sub-shells the same hue but **lighter** outward (see `Palette`). An
+  **orbital-info overlay** shows the live electron configuration. (Idealized
+  Madelung; Cr/Cu anomalies not modeled.)
 
 Each fundamental particle is a sphere. Perspective projection + canvas-resize
 throughout.
@@ -48,6 +50,7 @@ Module map (under `src/`):
 | `World` | `World.purs` | Static world-backdrop constants/transforms (`groundTransform`, `gridTransform`, `skyColor`) |
 | `Scene` | `Scene.purs` | `Scene = CubePoc \| Atomos`, `nextScene`, atomos `spaceColor` |
 | `Atom` | `Atom.purs` | Element table (Z=1..36, H…Kr) + Madelung sub-shell filling (`fillSubshells`/`subshellCap`/`configString`, per-shell totals via `electronShells`) + nucleon cluster + `electronPositions` (discrete electrons on per-sub-shell orbital rings, `subshellRadius`/`subshellInclination`) |
+| `Palette` | `Palette.purs` | Shell/sub-shell colours: `shellColor n` (distinct per shell) + `subshellColor n l` (shell hue, lighter by ℓ). Pure |
 | `Starfield` | `Starfield.purs` | Deterministic Fibonacci-sphere star positions for the atomos backdrop |
 | `Text` | `Text.purs` + `Text.js` | anime.js **HTML overlay-text** FFI (`scrambleInto`/`setVisible`) — DOM only, never WebGL. Drives the atomos element label, scene-title banner, and orbital-info (electron-configuration) overlay |
 | `FRP.Loop` | `FRP/Loop.purs` + `FRP/Loop.js` | rAF loop + input plumbing (keyboard, mouse, shear button, scene toggle, element selector → `Input`) |
