@@ -7,12 +7,14 @@ module Meshes
   , solidSatelliteCube
   , groundPlane
   , gridFloor
+  , sphere
   ) where
 
 import Prelude
 
 import Data.Array (concatMap, (..))
 import Data.Int (toNumber)
+import Data.Number (cos, pi, sin)
 import Graphics.GL (Color)
 
 type MeshSpec =
@@ -384,6 +386,57 @@ gridVertices e n =
 gridIndices :: Int -> Array Int
 gridIndices n = 0 .. (4 * (n + 1) - 1)
 
+-- ───── UV sphere (atomos: protons/neutrons/electrons/stars) ───────────
+
+-- A solid UV sphere of `latSeg` latitude bands × `longSeg` longitude bands and
+-- radius `r`, centered at the local origin. Vertices lie on the sphere; normals
+-- are the unit position vectors. Default color is white — callers override
+-- `color` via record update (e.g. `(sphere 12 12 1.0) { color = protonRed }`).
+sphere :: Int -> Int -> Number -> SolidSpec
+sphere latSeg longSeg r =
+  { vertices: positions \nx ny nz -> [ r * nx, r * ny, r * nz ]
+  , normals: positions \nx ny nz -> [ nx, ny, nz ]
+  , indices: sphereIndices latSeg longSeg
+  , color: sphereWhite
+  }
+  where
+  -- Build a flat array by mapping every (lat i, long j) vertex through `f`,
+  -- where (nx,ny,nz) is the unit surface normal at that vertex.
+  positions f =
+    concatMap
+      ( \i ->
+          concatMap
+            ( \j ->
+                let
+                  theta = pi * toNumber i / toNumber latSeg
+                  phi = 2.0 * pi * toNumber j / toNumber longSeg
+                  nx = sin theta * cos phi
+                  ny = cos theta
+                  nz = sin theta * sin phi
+                in
+                  f nx ny nz
+            )
+            (0 .. longSeg)
+      )
+      (0 .. latSeg)
+
+-- Two triangles per quad; (longSeg+1) vertices per latitude row.
+sphereIndices :: Int -> Int -> Array Int
+sphereIndices latSeg longSeg =
+  concatMap
+    ( \i ->
+        concatMap
+          ( \j ->
+              let
+                a = i * (longSeg + 1) + j
+                b = a + (longSeg + 1)
+              in
+                [ a, b, a + 1, a + 1, b, b + 1 ]
+          )
+          (0 .. (longSeg - 1))
+    )
+    (0 .. (latSeg - 1))
+
 -- ───── Colors ─────────────────────────────────────────────────────────
 
 black :: Color
@@ -400,6 +453,10 @@ groundGreen = { r: 0.22, g: 0.45, b: 0.27, a: 1.0 }
 -- Darker grid lines, readable against the green ground.
 gridGray :: Color
 gridGray = { r: 0.13, g: 0.20, b: 0.15, a: 1.0 }
+
+-- Neutral default for spheres; callers override per particle.
+sphereWhite :: Color
+sphereWhite = { r: 0.90, g: 0.90, b: 0.90, a: 1.0 }
 
 -- Deeper blue-purple — looks more vibrant under directional light than
 -- pure black.

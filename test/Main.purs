@@ -2,17 +2,17 @@ module Test.Main where
 
 import Prelude
 
-import Data.Array (all, filter, index, length, mapWithIndex, zipWith)
+import Data.Array (all, filter, index, length, mapWithIndex, range, zipWith)
 import Data.Foldable (maximum, minimum)
 import Data.Maybe (fromMaybe, isNothing)
 import FRP.Loop (emptyInput)
-import Data.Number (abs)
+import Data.Number (abs, sqrt)
 import Effect (Effect)
 import Effect.Console (log)
 import Effect.Exception (throw)
 import Math.Matrix as M
 
-import Meshes (groundPlane, gridFloor)
+import Meshes (groundPlane, gridFloor, sphere)
 import Vector (rotateX, rotateY, rotateZ)
 import World (groundTransform, groundY, groundExtent, gridDivisions, skyColor)
 
@@ -242,6 +242,40 @@ main = do
   check "emptyInput.shear is Nothing" $ isNothing emptyInput.shear
 
   log "all shear input properties hold."
+
+  -- ───── UV sphere mesh (atomos M1) ───────────────────────────────────
+  log "sphere mesh properties:"
+
+  let
+    latSeg = 12
+    longSeg = 12
+    sp = sphere latSeg longSeg 50.0
+    spVerts = length sp.vertices / 3
+    mag v = sqrt (v.x * v.x + v.y * v.y + v.z * v.z)
+
+  -- A UV sphere has (lat+1)*(long+1) vertices, equally many normal floats.
+  check "sphere vertex count = (lat+1)(long+1)" $
+    length sp.vertices == (latSeg + 1) * (longSeg + 1) * 3
+  check "sphere normals count matches vertices" $
+    length sp.normals == length sp.vertices
+
+  -- Two triangles per quad ⇒ lat*long*6 indices.
+  check "sphere index count = lat*long*6" $
+    length sp.indices == latSeg * longSeg * 6
+
+  -- Every vertex lies on the sphere of the given radius.
+  check "sphere vertices lie on radius" $
+    all (\vi -> approxEq (mag (nth sp.vertices vi)) 50.0) (range 0 (spVerts - 1))
+
+  -- Every normal is unit length.
+  check "sphere normals are unit length" $
+    all (\vi -> approxEq (mag (nth sp.normals vi)) 1.0) (range 0 (spVerts - 1))
+
+  -- Every index addresses a real vertex.
+  check "sphere indices in range" $
+    all (\i -> i >= 0 && i < spVerts) sp.indices
+
+  log "all sphere mesh properties hold."
 
 -- Extract every Nth element starting at `start` (used to pluck x/y/z columns).
 everyNth :: Int -> Int -> Array Number -> Array Number
