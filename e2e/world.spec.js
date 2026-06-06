@@ -152,6 +152,28 @@ test('atomos: element selector changes the atom', async ({ page }) => {
   expect(afterBad[0] + afterBad[1] + afterBad[2]).toBeGreaterThan(40);
 });
 
+// overlay-text M1: the atomos element label (anime.js scramble) shows the
+// element name and updates when the element changes.
+test('overlay: element label shows/updates the element name', async ({ page }) => {
+  const label = page.locator('#atom-label');
+
+  // Hidden in the cube POC scene.
+  await expect(label).toBeHidden();
+
+  await page.click('#scene-toggle'); // → atomos (default Carbon, Z=6)
+  await expect(label).toBeVisible();
+  // Wait for the scramble to settle on "Carbon".
+  await expect(label).toHaveText('Carbon', { timeout: 4000 });
+
+  // Changing the element re-scrambles to the new name.
+  await page.fill('#element-value', '8');
+  await expect(label).toHaveText('Oxygen', { timeout: 4000 });
+
+  // Switching back to the cube POC hides the label again.
+  await page.click('#scene-toggle');
+  await expect(label).toBeHidden();
+});
+
 // M4: sky backdrop (top is sky-blue, not white) + ground/sky differ.
 test('M4: sky backdrop and horizon transition', async ({ page }) => {
   const top = await readPixel(page, 0.5, 0.03);     // sky region

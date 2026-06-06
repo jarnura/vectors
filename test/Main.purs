@@ -12,7 +12,7 @@ import Effect.Console (log)
 import Effect.Exception (throw)
 import Math.Matrix as M
 
-import Atom (electronPositions, electronShells, elementOf, nucleusRadius, nucleons, shellRadius)
+import Atom (electronPositions, electronShells, elementName, elementOf, nucleusRadius, nucleons, shellRadius)
 import Meshes (groundPlane, gridFloor, sphere)
 import Scene (Scene(..), nextScene)
 import Starfield (starPositions)
@@ -366,6 +366,18 @@ main = do
     (elementOf 8).protons /= (elementOf 6).protons
 
   log "all element input properties hold."
+
+  -- ───── Element names for overlay label (overlay-text M1) ────────────
+  log "element name properties:"
+
+  check "elementName 1 = Hydrogen" $ elementName 1 == "Hydrogen"
+  check "elementName 2 = Helium" $ elementName 2 == "Helium"
+  check "elementName 6 = Carbon" $ elementName 6 == "Carbon"
+  check "elementName 8 = Oxygen" $ elementName 8 == "Oxygen"
+  -- Out-of-range clamps to a valid name (no crash / no empty string).
+  check "elementName 999 is a valid clamped name" $ elementName 999 == "Oxygen"
+
+  log "all element name properties hold."
 
 -- Extract every Nth element starting at `start` (used to pluck x/y/z columns).
 everyNth :: Int -> Int -> Array Number -> Array Number

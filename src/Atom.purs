@@ -6,6 +6,7 @@ module Atom
   , Nucleon(..)
   , Particle
   , elementOf
+  , elementName
   , electronShells
   , nucleons
   , nucleusRadius
@@ -53,6 +54,14 @@ neutronTable = [ 0, 2, 4, 5, 6, 6, 7, 8 ]
 
 symbolTable :: Array String
 symbolTable = [ "H", "He", "Li", "Be", "B", "C", "N", "O" ]
+
+nameTable :: Array String
+nameTable =
+  [ "Hydrogen", "Helium", "Lithium", "Beryllium", "Boron", "Carbon", "Nitrogen", "Oxygen" ]
+
+-- Full element name for an atomic number (clamped to the supported table).
+elementName :: Int -> String
+elementName raw = fromMaybe "?" (nameTable !! (clampZ raw - 1))
 
 -- Clamp an atomic number into the supported range so bad input can't crash.
 clampZ :: Int -> Int

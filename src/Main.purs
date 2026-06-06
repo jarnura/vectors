@@ -25,6 +25,7 @@ import Atom as Atom
 import Meshes as Meshes
 import Scene (Scene(..), nextScene, spaceColor)
 import Starfield (starPositions)
+import Text as Text
 import Vector as V
 import World (groundTransform, gridTransform, groundExtent, gridDivisions, skyColor)
 
@@ -146,6 +147,24 @@ clearColorFor :: Scene -> GL.Color
 clearColorFor CubePoc = skyColor
 clearColorFor Atomos = spaceColor
 
+-- Animate the HTML overlay label only when the scene or element changes (not
+-- every frame). The label shows the element name and is visible only in atomos.
+updateOverlay
+  :: Ref.Ref { scene :: Scene, element :: Int } -> State -> Effect Unit
+updateOverlay ref s = do
+  prev <- Ref.read ref
+  let
+    sceneChanged = prev.scene /= s.scene
+    elementChanged = prev.element /= s.element
+    inAtomos = s.scene == Atomos
+  when sceneChanged do
+    Text.setVisible "atom-label" inAtomos
+    when inAtomos (Text.scrambleInto "atom-label" (Atom.elementName s.element))
+  when (elementChanged && inAtomos) do
+    Text.scrambleInto "atom-label" (Atom.elementName s.element)
+  when (sceneChanged || elementChanged) do
+    Ref.write { scene: s.scene, element: s.element } ref
+
 -- Apply a shear (by the button's input value) to the main cube's transform.
 applyShear :: Maybe Number -> State -> State
 applyShear Nothing s = s
@@ -265,10 +284,12 @@ main = do
       w0 <- getCanvasWidth canvas
       h0 <- getCanvasHeight canvas
       sizeRef <- Ref.new { w: w0, h: h0 }
+      overlayRef <- Ref.new { scene: initialState.scene, element: initialState.element }
       runLoop
         { initial: initialState
         , step
         , draw: \s -> do
+            updateOverlay overlayRef s
             w <- getCanvasWidth canvas
             h <- getCanvasHeight canvas
             prev <- Ref.read sizeRef
