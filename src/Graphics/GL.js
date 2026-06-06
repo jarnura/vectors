@@ -92,7 +92,8 @@ function buildProgram(gl, vertSrc, fragSrc) {
 }
 
 export const initRenderer = (canvas) => () => {
-  const gl = canvas.getContext("webgl2", { antialias: true });
+  // preserveDrawingBuffer lets E2E tests read back rendered pixels deterministically.
+  const gl = canvas.getContext("webgl2", { antialias: true, preserveDrawingBuffer: true });
   if (!gl) {
     throw new Error("Graphics.GL: WebGL2 not available on this canvas");
   }

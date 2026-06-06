@@ -11,3 +11,8 @@
 
 # local run artifacts (dev-server logs, etc.)
 /.run/
+
+# Playwright E2E output
+/artifacts/
+/test-results/
+/playwright-report/

@@ -5,13 +5,16 @@
   "scripts": {
     "build": "spago bundle",
     "test": "spago test",
-    "dev": "spago bundle && node dev-server.js"
+    "dev": "spago bundle && node dev-server.js",
+    "e2e": "playwright test",
+    "e2e:report": "playwright show-report artifacts/e2e-report"
   },
   "author": "jarnura",
   "license": "ISC",
   "devDependencies": {
     "esbuild": "^0.28.0",
     "purescript": "^0.15.16",
+    "purs-tidy": "^0.11.1",
     "spago": "^1.0.4"
   },
   "dependencies": {
