@@ -281,6 +281,28 @@ test('atomos: more electrons show more discrete structure', async ({ page }) => 
   expect(argon).toBeGreaterThan(hydrogen);
 });
 
+// colours: each shell is a distinct colour (sub-shells lighter), so a multi-shell
+// element (Krypton, 4 shells) shows many more colours than a single-shell one (Helium).
+test('atomos: shells are colour-coded (multi-shell shows more colours)', async ({ page }) => {
+  await page.click('#scene-toggle'); // → atomos
+
+  const colourCount = async () => {
+    const r = await readRegion(page, 0.18, 0.18, 0.82, 0.82, 36, 24);
+    return distinctColors(r);
+  };
+
+  await page.fill('#element-value', '2'); // Helium: 1 shell (one ring colour)
+  await page.waitForTimeout(400);
+  const helium = await colourCount();
+
+  await page.fill('#element-value', '36'); // Krypton: 4 shells (red/amber/green/blue)
+  await page.waitForTimeout(400);
+  const krypton = await colourCount();
+
+  // The multi-shell atom surfaces clearly more distinct colours.
+  expect(krypton).toBeGreaterThan(helium + 2);
+});
+
 // overlay-text M2: the scene-title banner scrambles to the current scene name.
 test('overlay: scene title updates on scene switch', async ({ page }) => {
   const title = page.locator('#scene-title');

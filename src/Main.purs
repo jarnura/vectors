@@ -2,7 +2,7 @@ module Main where
 
 import Prelude
 
-import Data.Array (length, take)
+import Data.Array (concat, length, take, zipWith)
 import Data.Foldable (for_)
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -25,6 +25,7 @@ import Math.Matrix as M
 import Atom (Nucleon(..))
 import Atom as Atom
 import Meshes as Meshes
+import Palette (subshellColor)
 import Scene (Scene(..), nextScene, sceneTitle, spaceColor)
 import Starfield (starPositions)
 import Text as Text
@@ -252,15 +253,20 @@ main = do
       starMesh <- GL.createSolidMesh renderer starSphere
       protonMesh <- GL.createSolidMesh renderer protonSphere
       neutronMesh <- GL.createSolidMesh renderer neutronSphere
-      -- One thin orbital ring line per sub-shell, created ONCE for the maximal
-      -- element (Krypton); a smaller element's rings are an exact prefix. Plus a
-      -- discrete electron sphere instanced at every electron position.
+      -- One thin orbital ring line + one electron sphere per sub-shell, created
+      -- ONCE for the maximal element (Krypton); a smaller element uses an exact
+      -- prefix. Both are coloured by sub-shell (shell hue, lighter outward), so a
+      -- sub-shell's ring and its electrons share one colour.
       ringMeshes <- traverse
         ( \ss -> GL.createWireframeMesh renderer
-            (Meshes.orbitRing ringSegments (Atom.subshellRadius ss.n ss.l) (Atom.subshellInclination ss.n ss.l))
+            ( (Meshes.orbitRing ringSegments (Atom.subshellRadius ss.n ss.l) (Atom.subshellInclination ss.n ss.l))
+                { color = subshellColor ss.n ss.l }
+            )
         )
         (Atom.fillSubshells Atom.maxElectron)
-      electronMesh <- GL.createSolidMesh renderer electronSphere
+      electronMeshes <- traverse
+        (\ss -> GL.createSolidMesh renderer (electronSphere (subshellColor ss.n ss.l)))
+        (Atom.fillSubshells Atom.maxElectron)
       let
         cubeEntities :: Array Entity
         cubeEntities =
@@ -296,11 +302,18 @@ main = do
             (take (length (Atom.fillSubshells (Atom.elementOf s.element).electrons)) ringMeshes)
 
         -- Discrete electrons orbiting on the rings; positions advance with frame.
+        -- Each sub-shell's electrons use that sub-shell's colour mesh (matching
+        -- its ring), zipping the per-sub-shell meshes with the grouped positions.
         electronEntities :: State -> Array Entity
         electronEntities s =
-          map
-            (\p -> { mesh: Solid electronMesh, modelMatrix: \_ -> M.translate p.x p.y p.z })
-            (Atom.electronPositions (Atom.elementOf s.element) s.frame)
+          concat
+            ( zipWith
+                ( \mesh group ->
+                    map (\p -> { mesh: Solid mesh, modelMatrix: \_ -> M.translate p.x p.y p.z }) group
+                )
+                electronMeshes
+                (Atom.electronPositionsBySubshell (Atom.elementOf s.element) s.frame)
+            )
 
         entitiesFor :: State -> Array Entity
         entitiesFor s = case s.scene of
@@ -342,8 +355,7 @@ protonSphere = (Meshes.sphere 14 14 Atom.nucleonRadius) { color = { r: 0.90, g: 
 neutronSphere :: Meshes.SolidSpec
 neutronSphere = (Meshes.sphere 14 14 Atom.nucleonRadius) { color = { r: 0.62, g: 0.64, b: 0.67, a: 1.0 } }
 
--- A single discrete electron sphere, instanced at every electron position on
--- the orbital rings.
-electronSphere :: Meshes.SolidSpec
-electronSphere =
-  (Meshes.sphere 12 12 Atom.electronRadius) { color = { r: 0.55, g: 0.80, b: 1.0, a: 1.0 } }
+-- A discrete electron sphere in the given (sub-shell) colour, instanced at every
+-- electron position on that sub-shell's ring.
+electronSphere :: GL.Color -> Meshes.SolidSpec
+electronSphere color = (Meshes.sphere 12 12 Atom.electronRadius) { color = color }
