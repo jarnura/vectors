@@ -12,7 +12,7 @@ import Effect.Console (log)
 import Effect.Exception (throw)
 import Math.Matrix as M
 
-import Atom (electronPositions, electronShells, elementName, elementOf, nucleusRadius, nucleons, shellRadius)
+import Atom (configString, electronPositions, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, subshellCap)
 import Meshes (groundPlane, gridFloor, sphere)
 import Scene (Scene(..), nextScene, sceneTitle)
 import Starfield (starPositions)
@@ -327,6 +327,50 @@ main = do
     all (\n -> sqrt (n.pos.x * n.pos.x + n.pos.y * n.pos.y + n.pos.z * n.pos.z) <= nucleusRadius + epsilon) cNuc
 
   log "all atom model properties hold."
+
+  -- ───── Sub-shell (orbital) model + Madelung filling (subshells M1) ───
+  log "subshell model properties:"
+
+  -- Subshell capacities follow 4ℓ+2: s=2, p=6, d=10, f=14, g=18.
+  check "subshellCap s/p/d/f/g = 2/6/10/14/18" $
+    subshellCap 0 == 2
+      && subshellCap 1 == 6
+      && subshellCap 2 == 10
+      && subshellCap 3 == 14
+      && subshellCap 4 == 18
+
+  -- Per-shell totals are DERIVED from a Madelung-ordered subshell fill: low-Z
+  -- anchors are unchanged, but transition metals diverge (4s fills before 3d,
+  -- yet 3d's electrons belong to shell n=3 — Sc is [2,8,9,2], not [2,8,8,3]).
+  check "Helium shells = [2]" $ electronShells 2 == [ 2 ]
+  check "Neon shells = [2,8]" $ electronShells 10 == [ 2, 8 ]
+  check "Argon shells = [2,8,8]" $ electronShells 18 == [ 2, 8, 8 ]
+  check "Potassium (19) shells = [2,8,8,1]" $ electronShells 19 == [ 2, 8, 8, 1 ]
+  check "Scandium (21) shells = [2,8,9,2]" $ electronShells 21 == [ 2, 8, 9, 2 ]
+  check "Iron (26) shells = [2,8,14,2]" $ electronShells 26 == [ 2, 8, 14, 2 ]
+  check "Zinc (30) shells = [2,8,18,2]" $ electronShells 30 == [ 2, 8, 18, 2 ]
+  check "Krypton (36) shells = [2,8,18,8]" $ electronShells 36 == [ 2, 8, 18, 8 ]
+
+  -- Shells always sum to the (clamped) electron count.
+  check "shells sum to Z (Fe 26)" $ sum (electronShells 26) == 26
+  check "shells sum to Z (Kr 36)" $ sum (electronShells 36) == 36
+  check "shells sum clamps low (0 → 1)" $ sum (electronShells 0) == 1
+  check "shells sum clamps high (999 → 36)" $ sum (electronShells 999) == 36
+
+  -- Every filled subshell respects its 4ℓ+2 cap (no overfilling).
+  check "Kr subshells respect 4ℓ+2 caps" $
+    all (\ss -> ss.count <= subshellCap ss.l && ss.count > 0) (fillSubshells 36)
+
+  -- fillSubshells is clamp-safe and total at the edges.
+  check "fillSubshells 0 is empty" $ length (fillSubshells 0) == 0
+  check "fillSubshells totals to clamped Z (Kr)" $
+    sum (map _.count (fillSubshells 36)) == 36
+
+  -- Human-readable configuration string in standard (n,l)-sorted order.
+  check "configString 36 = Krypton config" $
+    configString 36 == "1s2 2s2 2p6 3s2 3p6 3d10 4s2 4p6"
+
+  log "all subshell model properties hold."
 
   -- ───── Electrons / Bohr orbits (atomos M4) ──────────────────────────
   log "electron orbit properties:"

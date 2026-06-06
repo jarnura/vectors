@@ -5,9 +5,13 @@ module Atom
   , Element
   , Nucleon(..)
   , Particle
+  , Subshell
   , elementOf
   , elementName
   , electronShells
+  , subshellCap
+  , fillSubshells
+  , configString
   , nucleons
   , nucleusRadius
   , nucleonRadius
@@ -18,7 +22,8 @@ module Atom
 
 import Prelude
 
-import Data.Array (concat, mapWithIndex, range, uncons, (!!))
+import Data.Array (concat, filter, mapWithIndex, range, sortBy, uncons, (!!))
+import Data.Foldable (intercalate, maximum, sum)
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Number (cos, pi, pow, sin, sqrt)
@@ -79,21 +84,86 @@ elementOf raw =
   in
     { z, symbol: sym, protons: z, neutrons: n, electrons: z }
 
--- Greedily fill electron shells with capacities 2, 8, 8, 18, … until all
--- electrons are placed.
-electronShells :: Int -> Array Int
-electronShells = go shellCaps
+-- ───── Sub-shell (orbital) electron model, Madelung/Aufbau filling ───
+
+-- A filled subshell: principal quantum number n, azimuthal l (s=0,p=1,d=2,…),
+-- a human label (e.g. "3d"), and how many electrons occupy it.
+type Subshell = { n :: Int, l :: Int, label :: String, count :: Int }
+
+-- Highest atomic number the model supports (Krypton).
+maxElectron :: Int
+maxElectron = 36
+
+-- Maximum electrons a subshell of azimuthal quantum number l can hold: 4ℓ+2
+-- (s=2, p=6, d=10, f=14, g=18).
+subshellCap :: Int -> Int
+subshellCap l = 4 * l + 2
+
+-- Subshell letters for l = 0..4.
+subshellLetter :: Int -> String
+subshellLetter l = fromMaybe "?" ([ "s", "p", "d", "f", "g" ] !! l)
+
+-- Madelung / Aufbau fill order as (n, l) pairs, sorted by (n+ℓ, then lower n).
+-- The list runs past Krypton for headroom; only subshells reached by Z fill.
+madelungOrder :: Array { n :: Int, l :: Int }
+madelungOrder =
+  [ { n: 1, l: 0 } -- 1s
+  , { n: 2, l: 0 } -- 2s
+  , { n: 2, l: 1 } -- 2p
+  , { n: 3, l: 0 } -- 3s
+  , { n: 3, l: 1 } -- 3p
+  , { n: 4, l: 0 } -- 4s
+  , { n: 3, l: 2 } -- 3d
+  , { n: 4, l: 1 } -- 4p
+  , { n: 5, l: 0 } -- 5s
+  , { n: 4, l: 2 } -- 4d
+  , { n: 5, l: 1 } -- 5p
+  ]
+
+-- Fill subshells in Madelung order, capping each at 4ℓ+2, until `total`
+-- electrons are placed. Pure, total, deterministic; emits only filled (>0)
+-- subshells. A non-positive count yields no subshells.
+fillSubshells :: Int -> Array Subshell
+fillSubshells total = go madelungOrder (max 0 total)
   where
-  shellCaps = [ 2, 8, 8, 18, 18 ]
-  go caps remaining
+  go orbitals remaining
     | remaining <= 0 = []
-    | otherwise = case uncons caps of
-        Nothing -> [ remaining ]
-        Just { head: cap, tail } ->
+    | otherwise = case uncons orbitals of
+        Nothing -> []
+        Just { head: o, tail } ->
           let
-            here = min remaining cap
+            here = min remaining (subshellCap o.l)
           in
-            [ here ] <> go tail (remaining - here)
+            [ { n: o.n, l: o.l, label: show o.n <> subshellLetter o.l, count: here } ]
+              <> go tail (remaining - here)
+
+-- Clamp an electron count into the supported [1, maxElectron] range.
+clampElectron :: Int -> Int
+clampElectron e
+  | e < 1 = 1
+  | e > maxElectron = maxElectron
+  | otherwise = e
+
+-- Per-principal-shell electron totals, DERIVED from the subshell fill by
+-- grouping subshells by n and summing. Because 4s fills before 3d (Madelung)
+-- but 3d's electrons belong to shell n=3, this yields the correct transition
+-- metal configs (e.g. Scandium → [2,8,9,2], Krypton → [2,8,18,8]).
+electronShells :: Int -> Array Int
+electronShells z =
+  let
+    subs = fillSubshells (clampElectron z)
+    maxN = fromMaybe 0 (maximum (map _.n subs))
+  in
+    filter (_ > 0)
+      (map (\nn -> sum (map _.count (filter (\s -> s.n == nn) subs))) (range 1 maxN))
+
+-- Electron configuration string in standard (n, l)-sorted order, e.g. Krypton →
+-- "1s2 2s2 2p6 3s2 3p6 3d10 4s2 4p6".
+configString :: Int -> String
+configString z =
+  intercalate " " (map (\s -> s.label <> show s.count) sorted)
+  where
+  sorted = sortBy (\a b -> compare a.n b.n <> compare a.l b.l) (fillSubshells (clampElectron z))
 
 -- The nucleus: protons + neutrons packed into a small ball (Fibonacci-sphere
 -- directions, cube-root radial spacing so they fill rather than shell). The
