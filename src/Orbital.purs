@@ -12,6 +12,7 @@ module Orbital
   , meanRadius
   , rScale
   , orbitalViewportRadius
+  , occBrightness
   ) where
 
 import Prelude
@@ -134,3 +135,12 @@ rScale z n l =
     maxR = fromMaybe 1.0 (maximum radii)
   in
     orbitalViewportRadius * meanRadius z n l / maxR
+
+-- Render brightness for an orbital's occupancy: empty (0) is dark/unrendered, a
+-- singly-occupied orbital (1, Hund) is dimmer, a paired orbital (2) is full —
+-- so Hund's rule reads visually.
+occBrightness :: Int -> Number
+occBrightness occ
+  | occ <= 0 = 0.0
+  | occ == 1 = 0.5
+  | otherwise = 1.0

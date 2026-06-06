@@ -260,6 +260,29 @@ test('qm M3: element switch reconfigures the orbital cloud', async ({ page }) =>
   expect(changed).toBeGreaterThan(4);
 });
 
+// qm M4: Hund's rule is visible — paired orbitals render brighter than singly
+// occupied ones. Neon (2p all paired) shows more bright pixels than Nitrogen
+// (2p singly occupied, dimmer).
+test('qm M4: paired orbitals (Neon) are brighter than singly-occupied (Nitrogen)', async ({ page }) => {
+  await page.click('#scene-toggle'); // → atomos
+
+  const brightCount = async () => {
+    const r = await readRegion(page, 0.25, 0.25, 0.75, 0.75, 30, 18);
+    return r.filter((p) => p[0] + p[1] + p[2] > 200).length;
+  };
+
+  await page.fill('#element-value', '7'); // Nitrogen: 2p = [1,1,1] (all dim)
+  await page.waitForTimeout(400);
+  const nitrogenBright = await brightCount();
+
+  await page.fill('#element-value', '10'); // Neon: 2p = [2,2,2] (all paired, bright)
+  await page.waitForTimeout(400);
+  const neonBright = await brightCount();
+
+  // The fully-paired atom shows strictly more bright (paired-orbital) pixels.
+  expect(neonBright).toBeGreaterThan(nitrogenBright);
+});
+
 // overlay-text M2: the scene-title banner scrambles to the current scene name.
 test('overlay: scene title updates on scene switch', async ({ page }) => {
   const title = page.locator('#scene-title');

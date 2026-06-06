@@ -251,15 +251,26 @@ main = do
       -- Atomos QM-orbital meshes: one solid shape mesh per real orbital (s, the
       -- three p, the five d), built ONCE at unit size and scaled per element at
       -- render time. Never rebuilt per frame.
-      sOrb <- GL.createSolidMesh renderer (orbitalShape O.S orbitalSColor)
-      pxOrb <- GL.createSolidMesh renderer (orbitalShape O.Px orbitalPColor)
-      pyOrb <- GL.createSolidMesh renderer (orbitalShape O.Py orbitalPColor)
-      pzOrb <- GL.createSolidMesh renderer (orbitalShape O.Pz orbitalPColor)
-      dz2Orb <- GL.createSolidMesh renderer (orbitalShape O.Dz2 orbitalDColor)
-      dxzOrb <- GL.createSolidMesh renderer (orbitalShape O.Dxz orbitalDColor)
-      dyzOrb <- GL.createSolidMesh renderer (orbitalShape O.Dyz orbitalDColor)
-      dx2y2Orb <- GL.createSolidMesh renderer (orbitalShape O.Dx2y2 orbitalDColor)
-      dxyOrb <- GL.createSolidMesh renderer (orbitalShape O.Dxy orbitalDColor)
+      -- Two brightness variants per shape: dim (singly occupied) and bright
+      -- (paired), so Hund's rule is visible.
+      sOrb1 <- GL.createSolidMesh renderer (orbitalShape O.S orbitalSColor 1)
+      sOrb2 <- GL.createSolidMesh renderer (orbitalShape O.S orbitalSColor 2)
+      px1 <- GL.createSolidMesh renderer (orbitalShape O.Px orbitalPColor 1)
+      px2 <- GL.createSolidMesh renderer (orbitalShape O.Px orbitalPColor 2)
+      py1 <- GL.createSolidMesh renderer (orbitalShape O.Py orbitalPColor 1)
+      py2 <- GL.createSolidMesh renderer (orbitalShape O.Py orbitalPColor 2)
+      pz1 <- GL.createSolidMesh renderer (orbitalShape O.Pz orbitalPColor 1)
+      pz2 <- GL.createSolidMesh renderer (orbitalShape O.Pz orbitalPColor 2)
+      dz21 <- GL.createSolidMesh renderer (orbitalShape O.Dz2 orbitalDColor 1)
+      dz22 <- GL.createSolidMesh renderer (orbitalShape O.Dz2 orbitalDColor 2)
+      dxz1 <- GL.createSolidMesh renderer (orbitalShape O.Dxz orbitalDColor 1)
+      dxz2 <- GL.createSolidMesh renderer (orbitalShape O.Dxz orbitalDColor 2)
+      dyz1 <- GL.createSolidMesh renderer (orbitalShape O.Dyz orbitalDColor 1)
+      dyz2 <- GL.createSolidMesh renderer (orbitalShape O.Dyz orbitalDColor 2)
+      dx2y21 <- GL.createSolidMesh renderer (orbitalShape O.Dx2y2 orbitalDColor 1)
+      dx2y22 <- GL.createSolidMesh renderer (orbitalShape O.Dx2y2 orbitalDColor 2)
+      dxy1 <- GL.createSolidMesh renderer (orbitalShape O.Dxy orbitalDColor 1)
+      dxy2 <- GL.createSolidMesh renderer (orbitalShape O.Dxy orbitalDColor 2)
       let
         cubeEntities :: Array Entity
         cubeEntities =
@@ -287,21 +298,27 @@ main = do
             )
             (Atom.nucleons (Atom.elementOf s.element))
 
-        -- Pick the pre-built shape mesh for a real orbital.
-        meshForShape sh = case sh of
-          O.S -> sOrb
-          O.Px -> pxOrb
-          O.Py -> pyOrb
-          O.Pz -> pzOrb
-          O.Dz2 -> dz2Orb
-          O.Dxz -> dxzOrb
-          O.Dyz -> dyzOrb
-          O.Dx2y2 -> dx2y2Orb
-          O.Dxy -> dxyOrb
+        -- Pick the pre-built shape mesh for a real orbital, choosing the bright
+        -- (paired, occ ≥ 2) or dim (singly occupied) variant.
+        meshForShape sh occ =
+          let
+            paired = occ >= 2
+          in
+            case sh of
+              O.S -> if paired then sOrb2 else sOrb1
+              O.Px -> if paired then px2 else px1
+              O.Py -> if paired then py2 else py1
+              O.Pz -> if paired then pz2 else pz1
+              O.Dz2 -> if paired then dz22 else dz21
+              O.Dxz -> if paired then dxz2 else dxz1
+              O.Dyz -> if paired then dyz2 else dyz1
+              O.Dx2y2 -> if paired then dx2y22 else dx2y21
+              O.Dxy -> if paired then dxy2 else dxy1
 
         -- One orbital lobe per OCCUPIED real orbital of the current element,
         -- concentric at the nucleus and scaled by its physical (Slater) radius.
-        -- The p/d meshes are pre-oriented, so no per-element rotation is needed.
+        -- The p/d meshes are pre-oriented, so no per-element rotation is needed;
+        -- occupancy (1 vs 2) selects the dim/bright variant (Hund visible).
         orbitalEntities :: State -> Array Entity
         orbitalEntities s =
           map
@@ -309,7 +326,7 @@ main = do
                 let
                   r = O.rScale s.element o.n o.l
                 in
-                  { mesh: Solid (meshForShape o.kind), modelMatrix: \_ -> M.scale r r r }
+                  { mesh: Solid (meshForShape o.kind o.occ), modelMatrix: \_ -> M.scale r r r }
             )
             (filter (\o -> o.occ > 0) (O.orbitalsFor s.element))
 
@@ -359,10 +376,16 @@ neutronSphere = (Meshes.sphere 14 14 Atom.nucleonRadius) { color = { r: 0.62, g:
 orbitalRes :: Int
 orbitalRes = 18
 
--- A unit-size orbital shape mesh (scaled per element at render time), tinted
--- by sub-shell type so s/p/d read distinctly.
-orbitalShape :: O.OrbShape -> GL.Color -> Meshes.SolidSpec
-orbitalShape shape color = (Meshes.orbitalMesh orbitalRes orbitalRes 1.0 shape) { color = color }
+-- A unit-size orbital shape mesh (scaled per element at render time), tinted by
+-- sub-shell type (s/p/d) and dimmed by occupancy (singly-occupied orbitals are
+-- darker than paired ones, so Hund's rule reads visually).
+orbitalShape :: O.OrbShape -> GL.Color -> Int -> Meshes.SolidSpec
+orbitalShape shape color occ =
+  (Meshes.orbitalMesh orbitalRes orbitalRes 1.0 shape) { color = dim (O.occBrightness occ) color }
+
+-- Scale a colour's RGB by a brightness factor (alpha unchanged).
+dim :: Number -> GL.Color -> GL.Color
+dim f c = { r: c.r * f, g: c.g * f, b: c.b * f, a: c.a }
 
 -- s orbitals (cyan), p orbitals (blue), d orbitals (violet).
 orbitalSColor :: GL.Color

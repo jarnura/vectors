@@ -13,7 +13,7 @@ import Effect.Exception (throw)
 import Math.Matrix as M
 
 import Atom (configString, electronPositions, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, subshellCap, subshellInclination, subshellRadius)
-import Orbital (OrbShape(..), orbitalsFor, zEff, meanRadius, rScale)
+import Orbital (OrbShape(..), occBrightness, orbitalsFor, zEff, meanRadius, rScale)
 import Meshes (angularValue, groundPlane, gridFloor, orbitRing, orbitalMesh, sphere)
 import Scene (Scene(..), nextScene, sceneTitle)
 import Starfield (starPositions)
@@ -569,6 +569,20 @@ main = do
     all (\j -> approxEq (nLen dxyMesh j) 1.0) (range 0 (nVerts - 1))
 
   log "all QM orbital shape geometry properties hold."
+
+  -- ───── Hund occupancy brightness (qm M4) ────────────────────────────
+  log "Hund occupancy brightness properties:"
+
+  -- A paired orbital (occ 2) renders brighter than a singly-occupied one
+  -- (occ 1, Hund), which is brighter than an empty one — so Hund's rule reads
+  -- visually. Empty orbitals are not drawn at all (brightness 0).
+  check "occBrightness increases with occupancy (0<1<2)" $
+    occBrightness 0 < occBrightness 1 && occBrightness 1 < occBrightness 2
+  check "occBrightness 0 is dark (unrendered)" $ approxEq (occBrightness 0) 0.0
+  check "occBrightness 1 is half-brightness (Hund dim)" $ approxEq (occBrightness 1) 0.5
+  check "occBrightness 2 is full brightness" $ approxEq (occBrightness 2) 1.0
+
+  log "all Hund occupancy brightness properties hold."
 
   -- ───── Element selector input (atomos M5) ───────────────────────────
   log "element input properties:"
