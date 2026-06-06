@@ -28,11 +28,13 @@ test('center shows the main cube (foreground geometry present)', async ({ page }
 });
 
 // --- Milestone hooks (enabled as the world meshes land) ----------------------
-// M2: ground plane visible below the cube.
-test.skip('M2: ground band visible below cube', async ({ page }) => {
-  const sky = await readPixel(page, 0.5, 0.05);
-  const ground = await readPixel(page, 0.5, 0.9);
+// M2: ground plane visible below the cube (green ground vs white background).
+test('M2: ground band visible below cube', async ({ page }) => {
+  const sky = await readPixel(page, 0.5, 0.05);      // top: background
+  const ground = await readPixel(page, 0.5, 0.92);   // bottom: ground plane
+  // Ground is green (G dominant); background is white. They must differ.
   expect(ground).not.toEqual(sky);
+  expect(ground[1]).toBeGreaterThan(ground[0]); // green channel dominates red
 });
 
 // M3: grid lines alternate against the ground.

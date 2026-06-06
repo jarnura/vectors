@@ -22,16 +22,17 @@ import Math.Matrix (Matrix)
 import Math.Matrix as M
 import Meshes as Meshes
 import Vector as V
+import World (groundTransform, groundExtent)
 
 type State =
   { transform :: Matrix Number
-  , speed     :: Number
+  , speed :: Number
   , mouseLast :: Maybe { x :: Int, y :: Int }
-  , frame     :: Number
+  , frame :: Number
   }
 
 type Entity =
-  { mesh        :: SolidMesh
+  { mesh :: SolidMesh
   , modelMatrix :: State -> Matrix Number
   }
 
@@ -82,15 +83,27 @@ perspectiveProjection :: Number -> Number -> Matrix Number
 perspectiveProjection w h =
   let
     aspect = w / h
-    f      = 1.0 / tan (fov / 2.0)
-    p      = fromMaybe (M.zeros 4 4) $ M.fromArray 4 4
-      [ f / aspect , 0.0 , 0.0                                    , 0.0
-      , 0.0        , f   , 0.0                                    , 0.0
-      , 0.0        , 0.0 , (clipFar + clipNear) / (clipNear - clipFar)
-                         , (2.0 * clipFar * clipNear) / (clipNear - clipFar)
-      , 0.0        , 0.0 , -1.0                                   , 0.0
+    f = 1.0 / tan (fov / 2.0)
+    p = fromMaybe (M.zeros 4 4) $ M.fromArray 4 4
+      [ f / aspect
+      , 0.0
+      , 0.0
+      , 0.0
+      , 0.0
+      , f
+      , 0.0
+      , 0.0
+      , 0.0
+      , 0.0
+      , (clipFar + clipNear) / (clipNear - clipFar)
+      , (2.0 * clipFar * clipNear) / (clipNear - clipFar)
+      , 0.0
+      , 0.0
+      , -1.0
+      , 0.0
       ]
-  in M.multiply p (M.translate 0.0 0.0 (-cameraDistance))
+  in
+    M.multiply p (M.translate 0.0 0.0 (-cameraDistance))
 
 step :: Input -> State -> State
 step input =
@@ -98,53 +111,61 @@ step input =
     >>> applyMouse input.mouse
     >>> tickFrame
   where
-    tickFrame s = s { frame = s.frame + 1.0 }
+  tickFrame s = s { frame = s.frame + 1.0 }
 
 applyKey :: Maybe String -> State -> State
 applyKey Nothing s = s
 applyKey (Just key) s =
-  let nextSpeed = if s.speed < maxSpeed then s.speed + speedStep else s.speed
-      rotation  = case key of
-        "ArrowLeft"  -> Just (V.rotateY nextSpeed)
-        "ArrowRight" -> Just (V.rotateY (negate nextSpeed))
-        "ArrowUp"    -> Just (V.rotateX nextSpeed)
-        "ArrowDown"  -> Just (V.rotateX (negate nextSpeed))
-        _            -> Nothing
-  in case rotation of
-       Nothing -> s
-       Just r  -> s { transform = M.multiply r s.transform
-                    , speed     = nextSpeed
-                    }
+  let
+    nextSpeed = if s.speed < maxSpeed then s.speed + speedStep else s.speed
+    rotation = case key of
+      "ArrowLeft" -> Just (V.rotateY nextSpeed)
+      "ArrowRight" -> Just (V.rotateY (negate nextSpeed))
+      "ArrowUp" -> Just (V.rotateX nextSpeed)
+      "ArrowDown" -> Just (V.rotateX (negate nextSpeed))
+      _ -> Nothing
+  in
+    case rotation of
+      Nothing -> s
+      Just r -> s
+        { transform = M.multiply r s.transform
+        , speed = nextSpeed
+        }
 
 applyMouse :: Maybe { x :: Int, y :: Int } -> State -> State
 applyMouse Nothing s = s
 applyMouse (Just pos) s = case s.mouseLast of
-  Nothing   -> s { mouseLast = Just pos }
+  Nothing -> s { mouseLast = Just pos }
   Just last ->
-    let dx = toNumber pos.x - toNumber last.x
-        dy = toNumber pos.y - toNumber last.y
-        r  = M.multiply
-               (V.rotateX (negate (dy * mouseSensitivity)))
-               (V.rotateY        (dx * mouseSensitivity))
-    in s { transform = M.multiply r s.transform
-         , mouseLast = Just pos
-         }
+    let
+      dx = toNumber pos.x - toNumber last.x
+      dy = toNumber pos.y - toNumber last.y
+      r = M.multiply
+        (V.rotateX (negate (dy * mouseSensitivity)))
+        (V.rotateY (dx * mouseSensitivity))
+    in
+      s
+        { transform = M.multiply r s.transform
+        , mouseLast = Just pos
+        }
 
 -- Satellite's world-space transform: a circular orbit at constant Y=0.
 satelliteTransform :: State -> Matrix Number
 satelliteTransform s =
-  let angleRad = s.frame * satelliteDegreesPerFrame * pi / 180.0
-  in M.translate
-       (satelliteOrbitRadius * cos angleRad)
-       0.0
-       (satelliteOrbitRadius * sin angleRad)
+  let
+    angleRad = s.frame * satelliteDegreesPerFrame * pi / 180.0
+  in
+    M.translate
+      (satelliteOrbitRadius * cos angleRad)
+      0.0
+      (satelliteOrbitRadius * sin angleRad)
 
 updateViewport :: Renderer -> CanvasElement -> Effect Unit
 updateViewport renderer canvas = do
-  w <- getCanvasWidth  canvas
+  w <- getCanvasWidth canvas
   h <- getCanvasHeight canvas
   GL.resizeRenderer renderer { width: w, height: h }
-  GL.setProjection  renderer (M.toVector (perspectiveProjection w h))
+  GL.setProjection renderer (M.toVector (perspectiveProjection w h))
 
 main :: Effect Unit
 main = do
@@ -153,22 +174,26 @@ main = do
     Nothing -> log "Main: canvas element with id 'canvas' not found; aborting init"
     Just canvas -> do
       renderer <- GL.initRenderer canvas
+      groundMesh <- GL.createSolidMesh renderer (Meshes.groundPlane groundExtent)
       mainMesh <- GL.createSolidMesh renderer Meshes.solidMainCube
-      satMesh  <- GL.createSolidMesh renderer Meshes.solidSatelliteCube
-      let entities :: Array Entity
-          entities =
-            [ { mesh: mainMesh, modelMatrix: _.transform }
-            , { mesh: satMesh,  modelMatrix: satelliteTransform }
-            ]
+      satMesh <- GL.createSolidMesh renderer Meshes.solidSatelliteCube
+      let
+        entities :: Array Entity
+        entities =
+          -- Ground is a static Entity: its model matrix ignores State.
+          [ { mesh: groundMesh, modelMatrix: \_ -> groundTransform }
+          , { mesh: mainMesh, modelMatrix: _.transform }
+          , { mesh: satMesh, modelMatrix: satelliteTransform }
+          ]
       updateViewport renderer canvas
-      w0 <- getCanvasWidth  canvas
+      w0 <- getCanvasWidth canvas
       h0 <- getCanvasHeight canvas
       sizeRef <- Ref.new { w: w0, h: h0 }
       runLoop
         { initial: initialState
         , step
         , draw: \s -> do
-            w <- getCanvasWidth  canvas
+            w <- getCanvasWidth canvas
             h <- getCanvasHeight canvas
             prev <- Ref.read sizeRef
             when (prev.w /= w || prev.h /= h) do

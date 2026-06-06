@@ -13,6 +13,7 @@ import Math.Matrix as M
 
 import Meshes (groundPlane, gridFloor)
 import Vector (rotateX, rotateY, rotateZ)
+import World (groundTransform, groundY, groundExtent)
 
 -- Tolerance for floating-point matrix equality.
 -- sin/cos roundtrip at 360° produces error on the order of 1e-15;
@@ -157,6 +158,22 @@ main = do
     all (\v -> abs v <= 800.0 + epsilon) gf.vertices
 
   log "all world geometry properties hold."
+
+  -- ───── World placement (M2) ─────────────────────────────────────────
+  log "world placement properties:"
+
+  -- The ground's model matrix is a constant translation (no State input),
+  -- so it never moves when the cube rotates.
+  check "groundTransform = translate(0, groundY, 0)" $
+    approxEqMatrix groundTransform (M.translate 0.0 groundY 0.0)
+
+  -- The plane sits at the main cube's base (half-extent 100 ⇒ base at Y=-100).
+  check "groundY places plane at cube base (-100)" $ approxEq groundY (-100.0)
+
+  -- Extent stays within the far-plane budget (camera 1000 back, far 2000 ⇒ ≤ ~900).
+  check "groundExtent within far-plane budget (≤ 900)" $ groundExtent <= 900.0
+
+  log "all world placement properties hold."
 
 -- Extract every Nth element starting at `start` (used to pluck x/y/z columns).
 everyNth :: Int -> Int -> Array Number -> Array Number
