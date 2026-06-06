@@ -55,6 +55,26 @@ each frame; updates return new records rather than mutating.
 - `.github/workflows/jekyll-gh-pages.yml` — deploys to GitHub Pages on push to
   `master`.
 
+## Memory (Hindsight)
+
+This project has a dedicated [Hindsight](https://github.com/vectorize-io/hindsight)
+memory bank (`vectors`) holding the project's long-term context: git history
+(5 epochs, 2019→present), architecture/conventions seeded from this file, and
+the spago dependency list. It is exposed as an MCP server named `hindsight`.
+
+- **Config lives at local scope**, not in the repo — the server URL + bearer
+  token are in `~/.claude.json` (project-scoped `mcpServers`), so the secret is
+  never committed. There is intentionally no `.mcp.json` in the tree. To check:
+  `claude mcp get hindsight`. The MCP tools load automatically at session start.
+- **At the start of work, `recall`** relevant context, scoped by tag, e.g.
+  `recall(query="…", tags=["project:vectors"])`. Useful tags: `source:git-log`
+  (provenance), `source:CLAUDE.md` (architecture/conventions, `type:directive`),
+  `source:spago.yaml` (dependencies); epoch tags like `epoch:2026-webgl`.
+- **At the end of durable work, `retain`** new facts with
+  `tags=["project:vectors", …]` so the bank stays current. Memories tagged
+  `status:uncommitted` describe in-progress WIP and go stale once committed —
+  refresh them after committing.
+
 ## Babysitter
 
 This project is onboarded for [babysitter](https://github.com/) orchestration.
