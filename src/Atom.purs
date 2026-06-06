@@ -10,11 +10,14 @@ module Atom
   , nucleons
   , nucleusRadius
   , nucleonRadius
+  , shellRadius
+  , electronRadius
+  , electronPositions
   ) where
 
 import Prelude
 
-import Data.Array (mapWithIndex, range, uncons, (!!))
+import Data.Array (concat, mapWithIndex, range, uncons, (!!))
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Number (cos, pi, pow, sin, sqrt)
@@ -108,3 +111,39 @@ clusterPositions total = map place (range 0 (total - 1))
       theta = goldenAngle * fi
     in
       { x: rad * rr * cos theta, y: rad * y, z: rad * rr * sin theta }
+
+-- ───── Electrons: animated circular Bohr orbits ──────────────────────
+
+-- Radius of each electron sphere.
+electronRadius :: Number
+electronRadius = 11.0
+
+-- Radius of electron shell `s` (0-based), outside the nucleus and increasing.
+shellRadius :: Int -> Number
+shellRadius s = 140.0 + toNumber s * 80.0
+
+-- Electron world positions for an element at animation time `frame`. Each shell
+-- holds its quota of electrons, spread evenly around a circle; successive shells
+-- are tilted so their orbits don't all lie in one plane, and inner shells orbit
+-- faster. Every electron stays exactly on its shell radius.
+electronPositions :: Element -> Number -> Array V3
+electronPositions el frame =
+  concat (mapWithIndex shellElectrons (electronShells el.electrons))
+  where
+  shellElectrons s count =
+    let
+      r = shellRadius s
+      incl = toNumber s * (pi / 5.0)
+      speed = 0.02 / (toNumber s + 1.0)
+    in
+      map
+        ( \k ->
+            let
+              theta = 2.0 * pi * toNumber k / toNumber count + frame * speed
+            in
+              { x: r * cos theta
+              , y: -r * sin theta * sin incl
+              , z: r * sin theta * cos incl
+              }
+        )
+        (range 0 (count - 1))

@@ -12,7 +12,7 @@ import Effect.Console (log)
 import Effect.Exception (throw)
 import Math.Matrix as M
 
-import Atom (electronShells, elementOf, nucleusRadius, nucleons)
+import Atom (electronPositions, electronShells, elementOf, nucleusRadius, nucleons, shellRadius)
 import Meshes (groundPlane, gridFloor, sphere)
 import Scene (Scene(..), nextScene)
 import Starfield (starPositions)
@@ -327,6 +327,33 @@ main = do
     all (\n -> sqrt (n.pos.x * n.pos.x + n.pos.y * n.pos.y + n.pos.z * n.pos.z) <= nucleusRadius + epsilon) cNuc
 
   log "all atom model properties hold."
+
+  -- ───── Electrons / Bohr orbits (atomos M4) ──────────────────────────
+  log "electron orbit properties:"
+
+  let
+    el0 = electronPositions cEl 0.0
+    el1 = electronPositions cEl 60.0
+    dist p = sqrt (p.x * p.x + p.y * p.y + p.z * p.z)
+    e0 = fromMaybe { x: 0.0, y: 0.0, z: 0.0 } (index el0 0)
+    e0' = fromMaybe { x: 0.0, y: 0.0, z: 0.0 } (index el1 0)
+
+  -- One electron per electron in the atom (Carbon → 6).
+  check "electron count = Z (Carbon 6)" $ length el0 == 6
+
+  -- Shells get strictly larger radii outward.
+  check "shell radii strictly increase" $
+    shellRadius 0 < shellRadius 1 && shellRadius 1 < shellRadius 2
+
+  -- Every electron rides on one of the shell radii.
+  check "electrons lie on a shell radius" $
+    all (\p -> approxEq (dist p) (shellRadius 0) || approxEq (dist p) (shellRadius 1)) el0
+
+  -- The orbit advances with the frame (electrons move).
+  check "electron orbit advances with frame" $
+    not (approxEq e0.x e0'.x && approxEq e0.z e0'.z)
+
+  log "all electron orbit properties hold."
 
 -- Extract every Nth element starting at `start` (used to pluck x/y/z columns).
 everyNth :: Int -> Int -> Array Number -> Array Number

@@ -215,6 +215,7 @@ main = do
       starMesh <- GL.createSolidMesh renderer starSphere
       protonMesh <- GL.createSolidMesh renderer protonSphere
       neutronMesh <- GL.createSolidMesh renderer neutronSphere
+      electronMesh <- GL.createSolidMesh renderer electronSphere
       let
         cubeEntities :: Array Entity
         cubeEntities =
@@ -242,10 +243,17 @@ main = do
             )
             (Atom.nucleons (Atom.elementOf s.element))
 
+        -- Electrons orbit the nucleus; positions advance with the frame.
+        electronEntities :: State -> Array Entity
+        electronEntities s =
+          map
+            (\p -> { mesh: Solid electronMesh, modelMatrix: \_ -> M.translate p.x p.y p.z })
+            (Atom.electronPositions (Atom.elementOf s.element) s.frame)
+
         entitiesFor :: State -> Array Entity
         entitiesFor s = case s.scene of
           CubePoc -> cubeEntities
-          Atomos -> starEntities <> nucleusEntities s
+          Atomos -> starEntities <> nucleusEntities s <> electronEntities s
       updateViewport renderer canvas
       w0 <- getCanvasWidth canvas
       h0 <- getCanvasHeight canvas
@@ -279,3 +287,7 @@ protonSphere = (Meshes.sphere 14 14 Atom.nucleonRadius) { color = { r: 0.90, g: 
 
 neutronSphere :: Meshes.SolidSpec
 neutronSphere = (Meshes.sphere 14 14 Atom.nucleonRadius) { color = { r: 0.62, g: 0.64, b: 0.67, a: 1.0 } }
+
+-- Small bright-blue electron sphere (shared across all electrons).
+electronSphere :: Meshes.SolidSpec
+electronSphere = (Meshes.sphere 10 10 Atom.electronRadius) { color = { r: 0.35, g: 0.65, b: 1.0, a: 1.0 } }

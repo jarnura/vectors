@@ -108,6 +108,24 @@ test('atomos: nucleus visible at center', async ({ page }) => {
   expect(centerSum).toBeGreaterThan(spaceSum + 60);
 });
 
+// atomos M4: electrons orbit the nucleus — the ring region around it changes
+// across frames while the nucleus stays put.
+test('atomos: electrons orbit the nucleus', async ({ page }) => {
+  await page.click('#scene-toggle'); // → atomos
+  await page.waitForTimeout(300);
+
+  // A band around the nucleus (where electron shells sweep).
+  const ringA = await readRegion(page, 0.30, 0.30, 0.70, 0.70, 28, 16);
+  await page.waitForTimeout(700); // let electrons advance along their orbits
+  const ringB = await readRegion(page, 0.30, 0.30, 0.70, 0.70, 28, 16);
+
+  const moved = ringA.filter((p, i) =>
+    Math.abs(p[0] - ringB[i][0]) + Math.abs(p[1] - ringB[i][1]) + Math.abs(p[2] - ringB[i][2]) > 30
+  ).length;
+  // Several sampled points change as the electron spheres sweep through.
+  expect(moved).toBeGreaterThan(2);
+});
+
 // M4: sky backdrop (top is sky-blue, not white) + ground/sky differ.
 test('M4: sky backdrop and horizon transition', async ({ page }) => {
   const top = await readPixel(page, 0.5, 0.03);     // sky region
