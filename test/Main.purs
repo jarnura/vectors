@@ -2,7 +2,7 @@ module Test.Main where
 
 import Prelude
 
-import Data.Array (all, filter, index, length, mapWithIndex, range, zipWith)
+import Data.Array (all, any, filter, index, length, mapWithIndex, nub, range, zipWith)
 import Data.Foldable (maximum, minimum, sum)
 import Data.Maybe (fromMaybe, isNothing)
 import FRP.Loop (emptyInput)
@@ -12,7 +12,7 @@ import Effect.Console (log)
 import Effect.Exception (throw)
 import Math.Matrix as M
 
-import Atom (configString, electronPositions, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, subshellCap)
+import Atom (configString, electronPositions, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, subshellCap, subshellRadius)
 import Meshes (groundPlane, gridFloor, sphere)
 import Scene (Scene(..), nextScene, sceneTitle)
 import Starfield (starPositions)
@@ -385,19 +385,51 @@ main = do
   -- One electron per electron in the atom (Carbon → 6).
   check "electron count = Z (Carbon 6)" $ length el0 == 6
 
-  -- Shells get strictly larger radii outward.
+  -- Shells get strictly larger radii outward (shellRadius unchanged).
   check "shell radii strictly increase" $
     shellRadius 0 < shellRadius 1 && shellRadius 1 < shellRadius 2
-
-  -- Every electron rides on one of the shell radii.
-  check "electrons lie on a shell radius" $
-    all (\p -> approxEq (dist p) (shellRadius 0) || approxEq (dist p) (shellRadius 1)) el0
 
   -- The orbit advances with the frame (electrons move).
   check "electron orbit advances with frame" $
     not (approxEq e0.x e0'.x && approxEq e0.z e0'.z)
 
   log "all electron orbit properties hold."
+
+  -- ───── Distinct sub-shell orbital rendering (subshells M3) ──────────
+  log "subshell orbital rendering properties:"
+
+  let
+    -- Every distance an electron of element `z` may legitimately ride on: the
+    -- radius of one of its filled subshells.
+    subRadii z = map (\ss -> subshellRadius ss.n ss.l) (fillSubshells (elementOf z).electrons)
+    onSomeSubRadius z p = any (\r -> approxEq (dist p) r) (subRadii z)
+    feEl = elementOf 26
+    krEl = elementOf 36
+    fePos = electronPositions feEl 0.0
+    krPos = electronPositions krEl 0.0
+
+  -- Electron count equals Z across the extended range.
+  check "electron count = Z (Iron 26)" $ length fePos == 26
+  check "electron count = Z (Krypton 36)" $ length krPos == 36
+
+  -- Sub-shell radii grow with the principal shell n.
+  check "subshell radii grow with n (s subshells)" $
+    subshellRadius 1 0 < subshellRadius 2 0 && subshellRadius 2 0 < subshellRadius 3 0
+
+  -- Within a shell, distinct subshells (s/p/d) ride distinct radii — orbitals
+  -- are visually separated, not collapsed onto one ring.
+  check "subshells within a shell are separated (3s<3p<3d)" $
+    subshellRadius 3 0 < subshellRadius 3 1 && subshellRadius 3 1 < subshellRadius 3 2
+
+  -- Krypton's filled subshells all ride distinct radii (no two coincide).
+  check "Kr filled subshells have distinct radii" $
+    let rs = subRadii 36 in length (nub rs) == length rs
+
+  -- Every electron lands exactly on one of its element's subshell radii.
+  check "every Carbon electron lies on a subshell radius" $ all (onSomeSubRadius 6) el0
+  check "every Krypton electron lies on a subshell radius" $ all (onSomeSubRadius 36) krPos
+
+  log "all subshell orbital rendering properties hold."
 
   -- ───── Element selector input (atomos M5) ───────────────────────────
   log "element input properties:"

@@ -17,6 +17,7 @@ module Atom
   , nucleusRadius
   , nucleonRadius
   , shellRadius
+  , subshellRadius
   , electronRadius
   , electronPositions
   ) where
@@ -310,31 +311,44 @@ electronRadius :: Number
 electronRadius = 11.0
 
 -- Radius of electron shell `s` (0-based), outside the nucleus and increasing.
+-- Kept as the per-principal-shell base radius that subshellRadius builds on.
 shellRadius :: Int -> Number
 shellRadius s = 140.0 + toNumber s * 80.0
 
--- Electron world positions for an element at animation time `frame`. Each shell
--- holds its quota of electrons, spread evenly around a circle; successive shells
--- are tilted so their orbits don't all lie in one plane, and inner shells orbit
--- faster. Every electron stays exactly on its shell radius.
+-- Extra ring spacing between subshells of the same shell (s/p/d/f), so distinct
+-- orbitals are visually separated. Kept well under the 80-unit shell spacing so
+-- subshells never cross into the next shell's band.
+subshellGap :: Number
+subshellGap = 18.0
+
+-- Radius of the subshell with principal number `n` (1-based) and azimuthal `l`:
+-- the shell base radius plus a per-ℓ offset. Each (n, l) gets a distinct radius.
+subshellRadius :: Int -> Int -> Number
+subshellRadius n l = shellRadius (n - 1) + toNumber l * subshellGap
+
+-- Electron world positions for an element at animation time `frame`. Each filled
+-- SUBSHELL holds its electrons on its own ring (radius from subshellRadius),
+-- spread evenly; rings are tilted by (n, l) so orbitals don't all lie in one
+-- plane, and inner shells orbit faster. Every electron stays exactly on its
+-- subshell radius.
 electronPositions :: Element -> Number -> Array V3
 electronPositions el frame =
-  concat (mapWithIndex shellElectrons (electronShells el.electrons))
+  concat (map subshellElectrons (fillSubshells el.electrons))
   where
-  shellElectrons s count =
+  subshellElectrons ss =
     let
-      r = shellRadius s
-      incl = toNumber s * (pi / 5.0)
-      speed = 0.02 / (toNumber s + 1.0)
+      r = subshellRadius ss.n ss.l
+      incl = toNumber ss.n * (pi / 5.0) + toNumber ss.l * (pi / 9.0)
+      speed = 0.02 / (toNumber ss.n + 1.0)
     in
       map
         ( \k ->
             let
-              theta = 2.0 * pi * toNumber k / toNumber count + frame * speed
+              theta = 2.0 * pi * toNumber k / toNumber ss.count + frame * speed
             in
               { x: r * cos theta
               , y: -r * sin theta * sin incl
               , z: r * sin theta * cos incl
               }
         )
-        (range 0 (count - 1))
+        (range 0 (ss.count - 1))

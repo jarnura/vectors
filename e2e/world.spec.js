@@ -192,6 +192,43 @@ test('subshells M2: element table reaches Krypton (Z=36)', async ({ page }) => {
   expect(center[0] + center[1] + center[2]).toBeGreaterThan(40);
 });
 
+// subshells M3: Krypton (36 electrons across 8 subshells reaching well beyond
+// Carbon's 3) shows a denser orbital structure — more moving electron pixels
+// across frames than Carbon — and out-of-range Z stays render-safe.
+test('subshells M3: Krypton orbitals are denser than Carbon', async ({ page }) => {
+  await page.click('#scene-toggle'); // → atomos (default Carbon, Z=6)
+
+  const countMoved = (a, b) =>
+    a.filter((p, i) =>
+      Math.abs(p[0] - b[i][0]) + Math.abs(p[1] - b[i][1]) + Math.abs(p[2] - b[i][2]) > 28
+    ).length;
+  const sampleMotion = async () => {
+    const a = await readRegion(page, 0.18, 0.18, 0.82, 0.82, 34, 20);
+    await page.waitForTimeout(700); // let electrons advance along their orbits
+    const b = await readRegion(page, 0.18, 0.18, 0.82, 0.82, 34, 20);
+    return countMoved(a, b);
+  };
+
+  // Carbon: 6 electrons in a tight cluster of rings.
+  await page.fill('#element-value', '6');
+  await page.waitForTimeout(400);
+  const carbonMotion = await sampleMotion();
+
+  // Krypton: 36 electrons spread across many rings out to a larger radius.
+  await page.fill('#element-value', '36');
+  await page.waitForTimeout(400);
+  const kryptonMotion = await sampleMotion();
+
+  // The denser, wider-spread atom drives strictly more orbital motion.
+  expect(kryptonMotion).toBeGreaterThan(carbonMotion);
+
+  // Out-of-range Z must not crash: scene still renders lit geometry at center.
+  await page.fill('#element-value', '999');
+  await page.waitForTimeout(300);
+  const center = await readPixel(page, 0.5, 0.5);
+  expect(center[0] + center[1] + center[2]).toBeGreaterThan(40);
+});
+
 // overlay-text M2: the scene-title banner scrambles to the current scene name.
 test('overlay: scene title updates on scene switch', async ({ page }) => {
   const title = page.locator('#scene-title');
