@@ -7,7 +7,12 @@ on-screen switch:
   mouse/keyboard rotation and a **Shear** control.
 - **atomos** — a 3D atom visualizer in near-black space with a starfield: a
   nucleus of proton (red) + neutron (gray) spheres and electrons on animated
-  Bohr orbits. The atom is **configurable by element** (Z = 1..8) via a selector.
+  orbits. The atom is **configurable by element** (Z = 1..36, H…Kr) via a
+  selector. Electrons fill **sub-shells (orbitals)** in Madelung/Aufbau order
+  (each subshell capped at 4ℓ+2: s2 p6 d10 f14 g18), so e.g. Krypton resolves to
+  `1s² 2s² 2p⁶ 3s² 3p⁶ 4s² 3d¹⁰ 4p⁶` → shells `[2,8,18,8]`; each subshell renders
+  as its own distinct orbital ring. (Idealized Madelung filling — the Cr/Cu
+  ground-state anomalies are intentionally not modeled.)
 
 Each fundamental particle is a sphere. Perspective projection + canvas-resize
 throughout.
@@ -41,7 +46,7 @@ Module map (under `src/`):
 | `Meshes` | `Meshes.purs` | Geometry specs: cubes, world (`groundPlane`, `gridFloor`), and `sphere` (particles/stars) |
 | `World` | `World.purs` | Static world-backdrop constants/transforms (`groundTransform`, `gridTransform`, `skyColor`) |
 | `Scene` | `Scene.purs` | `Scene = CubePoc \| Atomos`, `nextScene`, atomos `spaceColor` |
-| `Atom` | `Atom.purs` | Element table (Z=1..8) + electron-shell filling + nucleon cluster + `electronPositions` (Bohr orbits) |
+| `Atom` | `Atom.purs` | Element table (Z=1..36, H…Kr) + Madelung sub-shell filling (`fillSubshells`/`subshellCap`/`configString`, per-shell totals derived via `electronShells`) + nucleon cluster + `electronPositions` (per-subshell orbital rings, `subshellRadius`) |
 | `Starfield` | `Starfield.purs` | Deterministic Fibonacci-sphere star positions for the atomos backdrop |
 | `Text` | `Text.purs` + `Text.js` | anime.js **HTML overlay-text** FFI (`scrambleInto`/`setVisible`) — DOM only, never WebGL. Drives the atomos element label + scene-title banner |
 | `FRP.Loop` | `FRP/Loop.purs` + `FRP/Loop.js` | rAF loop + input plumbing (keyboard, mouse, shear button, scene toggle, element selector → `Input`) |

@@ -6,15 +6,17 @@ on-screen switch:
 - **Cube POC** — a solid-lit cube + orbiting satellite inside a simple world
   (green ground, wireframe grid, sky-blue horizon).
 - **atomos** — a 3D atom visualizer in deep space: a nucleus of proton (red) and
-  neutron (gray) spheres with electrons on animated Bohr orbits, configurable by
-  element. An animated **element-name label** and a **scene-title banner**
-  (anime.js text scramble, HTML overlay) react to the controls.
+  neutron (gray) spheres with electrons on animated orbital rings, configurable
+  by element (Z = 1..36, H…Kr). Electrons fill **sub-shells** in Madelung/Aufbau
+  order (each subshell capped at 4ℓ+2), so each subshell renders as its own ring.
+  An animated **element-name label** and a **scene-title banner** (anime.js text
+  scramble, HTML overlay) react to the controls.
 
 ## Controls
 
 - **Switch scene** (top-left) — toggle Cube POC ↔ atomos.
-- **Element Z** (atomos) — choose the atom (Z = 1..8: H … O); nucleus and
-  electrons update live.
+- **Element Z** (atomos) — choose the atom (Z = 1..36: H … Kr); nucleus and
+  sub-shell electron rings update live.
 - **Arrow keys / mouse drag** — rotate the cube (Cube POC).
 - **Shear input + Apply** — shear the main cube by the entered value
   (`x' = x + k·y`); repeated clicks compound.
