@@ -10,14 +10,17 @@ on-screen switch:
   orbits. The atom is **configurable by element** (Z = 1..36, H…Kr) via a
   selector. Electrons fill **sub-shells** in Madelung/Aufbau order (each subshell
   capped at 4ℓ+2), so e.g. Krypton resolves to `1s² 2s² 2p⁶ 3s² 3p⁶ 4s² 3d¹⁰ 4p⁶`.
-  Each occupied **real orbital** is rendered as its true quantum-mechanical
-  **shape** (s spheres, p dumbbells, d cloverleafs — from the spherical-harmonic
-  angular functions), sized by a **physical radius** `r ∝ n²/Z_eff` with Z_eff
-  from **Slater's rules**, and **dimmed by occupancy** so **Hund's rule** is
-  visible (singly-occupied orbitals are darker than paired). Electron–electron
-  repulsion is represented the QM way — Hund + orbital orthogonality — not a
-  classical solver. An **orbital-info overlay** shows the live electron
-  configuration. (Idealized Madelung; Cr/Cu anomalies not modeled. Scope: s/p/d
+  Each electron renders as a discrete **bright particle** at its orbital's lobe
+  tip (physical Slater radius `r ∝ n²/Z_eff`), so electrons are **countable** (Z
+  dots); behind them the occupied **real orbitals** render as a **faint cloud**
+  in their true quantum-mechanical **shape** (s spheres, p dumbbells, d
+  cloverleafs from the spherical-harmonic angular functions). Orbitals fill by
+  Aufbau+Hund+Pauli — electron–electron repulsion is the QM way (Hund + orbital
+  orthogonality), with Hund visible (paired clouds brighter than singly). The
+  whole atom **auto-rotates** (the starfield stays put) so structure is visible
+  in 3D without dragging; the per-atom transform is factored as the hook for a
+  future inter-atom **bonding** phase. An **orbital-info overlay** shows the live
+  electron configuration. (Idealized Madelung; Cr/Cu anomalies not modeled. Scope: s/p/d
   only — Z≤36; analytic angular "balloon", not |ψ|² isosurfaces; no phase
   two-tone or transparency.)
 
@@ -51,7 +54,7 @@ Module map (under `src/`):
 | `Math.Matrix` | `Math/Matrix.purs` | Matrix linear algebra (multiply, projection, `translate`, `scale`, `shear`, etc.) |
 | `Vector` | `Vector.purs` | Rotation matrices (`rotateX/Y/Z`) and vector ops |
 | `Meshes` | `Meshes.purs` | Geometry specs: cubes, world (`groundPlane`, `gridFloor`), `sphere` (particles/stars), `orbitRing` (legacy ring line), and `orbitalMesh`/`angularValue` (real s/p/d orbital-shape "balloon" surfaces) |
-| `Orbital` | `Orbital.purs` | QM orbital model: real orbitals per sub-shell (`OrbShape`/`orbitalsFor`) filled by Aufbau+Hund+Pauli; Slater `zEff` + physical `rScale`/`meanRadius`; `occBrightness` (Hund occupancy) |
+| `Orbital` | `Orbital.purs` | QM orbital model: real orbitals per sub-shell (`OrbShape`/`orbitalsFor`) filled by Aufbau+Hund+Pauli; Slater `zEff` + physical `rScale`/`meanRadius`; `occBrightness` (Hund); `orbitalAxis`/`electronSites` (discrete electron-particle positions) |
 | `World` | `World.purs` | Static world-backdrop constants/transforms (`groundTransform`, `gridTransform`, `skyColor`) |
 | `Scene` | `Scene.purs` | `Scene = CubePoc \| Atomos`, `nextScene`, atomos `spaceColor` |
 | `Atom` | `Atom.purs` | Element table (Z=1..36, H…Kr) + Madelung sub-shell filling (`fillSubshells`/`subshellCap`/`configString`, per-shell totals via `electronShells`) + nucleon cluster. (`electronPositions`/`subshellRadius` retained but superseded by the `Orbital` model for rendering) |

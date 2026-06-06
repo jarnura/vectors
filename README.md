@@ -7,13 +7,13 @@ on-screen switch:
   (green ground, wireframe grid, sky-blue horizon).
 - **atomos** — a 3D atom visualizer in deep space: a nucleus of proton (red) and
   neutron (gray) spheres with electrons on animated orbital rings, configurable
-  by element (Z = 1..36, H…Kr). Each occupied **real orbital** is rendered as its
-  true **quantum-mechanical shape** (s spheres, p dumbbells, d cloverleafs from the
-  spherical-harmonic angular functions), sized by a physical radius `r ∝ n²/Z_eff`
-  (Slater's rules) and dimmed by occupancy so **Hund's rule** is visible. An
-  **element-name label**, a **scene-title banner**, and an **orbital-info overlay**
-  (live electron configuration) — anime.js text scramble, HTML overlay — react to
-  the controls.
+  by element (Z = 1..36, H…Kr). Each electron is a discrete **bright particle** at
+  its orbital's lobe tip (physical Slater radius) — countable Z dots — behind a
+  **faint orbital cloud** in its true **quantum-mechanical shape** (s spheres, p
+  dumbbells, d cloverleafs). The atom **auto-rotates** so its 3D structure is
+  visible without dragging. An **element-name label**, a **scene-title banner**,
+  and an **orbital-info overlay** (live electron configuration) — anime.js text
+  scramble, HTML overlay — react to the controls.
 
 ## Controls
 
