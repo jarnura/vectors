@@ -2,12 +2,11 @@ module Main where
 
 import Prelude
 
-import Data.Array (length, take)
+import Data.Array (filter)
 import Data.Foldable (for_)
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Number (cos, pi, sin, tan)
-import Data.Traversable (traverse)
 import Effect (Effect)
 import Effect.Console (log)
 import Effect.Ref as Ref
@@ -25,6 +24,7 @@ import Math.Matrix as M
 import Atom (Nucleon(..))
 import Atom as Atom
 import Meshes as Meshes
+import Orbital as O
 import Scene (Scene(..), nextScene, sceneTitle, spaceColor)
 import Starfield (starPositions)
 import Text as Text
@@ -76,10 +76,6 @@ clipNear = 1.0
 
 clipFar :: Number
 clipFar = 2000.0
-
--- Number of segments in each orbital ring line (smooth circle, thin wireframe).
-ringSegments :: Int
-ringSegments = 96
 
 -- Satellite orbits the world origin on the XZ plane.
 satelliteOrbitRadius :: Number
@@ -252,15 +248,18 @@ main = do
       starMesh <- GL.createSolidMesh renderer starSphere
       protonMesh <- GL.createSolidMesh renderer protonSphere
       neutronMesh <- GL.createSolidMesh renderer neutronSphere
-      electronMesh <- GL.createSolidMesh renderer electronSphere
-      -- One thin ring line per sub-shell, created ONCE for the maximal element
-      -- (Krypton). Radius/tilt depend only on (n, l), so a smaller element's
-      -- rings are an exact prefix of this list — never rebuilt per frame.
-      ringMeshes <- traverse
-        ( \ss -> GL.createWireframeMesh renderer
-            (Meshes.orbitRing ringSegments (Atom.subshellRadius ss.n ss.l) (Atom.subshellInclination ss.n ss.l))
-        )
-        (Atom.fillSubshells Atom.maxElectron)
+      -- Atomos QM-orbital meshes: one solid shape mesh per real orbital (s, the
+      -- three p, the five d), built ONCE at unit size and scaled per element at
+      -- render time. Never rebuilt per frame.
+      sOrb <- GL.createSolidMesh renderer (orbitalShape O.S orbitalSColor)
+      pxOrb <- GL.createSolidMesh renderer (orbitalShape O.Px orbitalPColor)
+      pyOrb <- GL.createSolidMesh renderer (orbitalShape O.Py orbitalPColor)
+      pzOrb <- GL.createSolidMesh renderer (orbitalShape O.Pz orbitalPColor)
+      dz2Orb <- GL.createSolidMesh renderer (orbitalShape O.Dz2 orbitalDColor)
+      dxzOrb <- GL.createSolidMesh renderer (orbitalShape O.Dxz orbitalDColor)
+      dyzOrb <- GL.createSolidMesh renderer (orbitalShape O.Dyz orbitalDColor)
+      dx2y2Orb <- GL.createSolidMesh renderer (orbitalShape O.Dx2y2 orbitalDColor)
+      dxyOrb <- GL.createSolidMesh renderer (orbitalShape O.Dxy orbitalDColor)
       let
         cubeEntities :: Array Entity
         cubeEntities =
@@ -288,25 +287,36 @@ main = do
             )
             (Atom.nucleons (Atom.elementOf s.element))
 
-        -- Electrons orbit the nucleus; positions advance with the frame.
-        electronEntities :: State -> Array Entity
-        electronEntities s =
-          map
-            (\p -> { mesh: Solid electronMesh, modelMatrix: \_ -> M.translate p.x p.y p.z })
-            (Atom.electronPositions (Atom.elementOf s.element) s.frame)
+        -- Pick the pre-built shape mesh for a real orbital.
+        meshForShape sh = case sh of
+          O.S -> sOrb
+          O.Px -> pxOrb
+          O.Py -> pyOrb
+          O.Pz -> pzOrb
+          O.Dz2 -> dz2Orb
+          O.Dxz -> dxzOrb
+          O.Dyz -> dyzOrb
+          O.Dx2y2 -> dx2y2Orb
+          O.Dxy -> dxyOrb
 
-        -- One thin ring per filled sub-shell of the current element: the first
-        -- `k` shared ring meshes, where `k` is the number of filled subshells
-        -- (Madelung prefix). Rings are world-centered, so the model is identity.
-        ringEntities :: State -> Array Entity
-        ringEntities s =
-          map (\m -> { mesh: Wire m, modelMatrix: \_ -> M.identity })
-            (take (length (Atom.fillSubshells (Atom.elementOf s.element).electrons)) ringMeshes)
+        -- One orbital lobe per OCCUPIED real orbital of the current element,
+        -- concentric at the nucleus and scaled by its physical (Slater) radius.
+        -- The p/d meshes are pre-oriented, so no per-element rotation is needed.
+        orbitalEntities :: State -> Array Entity
+        orbitalEntities s =
+          map
+            ( \o ->
+                let
+                  r = O.rScale s.element o.n o.l
+                in
+                  { mesh: Solid (meshForShape o.kind), modelMatrix: \_ -> M.scale r r r }
+            )
+            (filter (\o -> o.occ > 0) (O.orbitalsFor s.element))
 
         entitiesFor :: State -> Array Entity
         entitiesFor s = case s.scene of
           CubePoc -> cubeEntities
-          Atomos -> starEntities <> ringEntities s <> nucleusEntities s <> electronEntities s
+          Atomos -> starEntities <> orbitalEntities s <> nucleusEntities s
       updateViewport renderer canvas
       w0 <- getCanvasWidth canvas
       h0 <- getCanvasHeight canvas
@@ -343,6 +353,23 @@ protonSphere = (Meshes.sphere 14 14 Atom.nucleonRadius) { color = { r: 0.90, g: 
 neutronSphere :: Meshes.SolidSpec
 neutronSphere = (Meshes.sphere 14 14 Atom.nucleonRadius) { color = { r: 0.62, g: 0.64, b: 0.67, a: 1.0 } }
 
--- Small bright-blue electron sphere (shared across all electrons).
-electronSphere :: Meshes.SolidSpec
-electronSphere = (Meshes.sphere 10 10 Atom.electronRadius) { color = { r: 0.35, g: 0.65, b: 1.0, a: 1.0 } }
+-- ───── Orbital lobe meshes (atomos QM visualization) ──────────────────
+
+-- Latitude/longitude resolution of each orbital balloon surface.
+orbitalRes :: Int
+orbitalRes = 18
+
+-- A unit-size orbital shape mesh (scaled per element at render time), tinted
+-- by sub-shell type so s/p/d read distinctly.
+orbitalShape :: O.OrbShape -> GL.Color -> Meshes.SolidSpec
+orbitalShape shape color = (Meshes.orbitalMesh orbitalRes orbitalRes 1.0 shape) { color = color }
+
+-- s orbitals (cyan), p orbitals (blue), d orbitals (violet).
+orbitalSColor :: GL.Color
+orbitalSColor = { r: 0.35, g: 0.80, b: 0.85, a: 1.0 }
+
+orbitalPColor :: GL.Color
+orbitalPColor = { r: 0.40, g: 0.55, b: 1.0, a: 1.0 }
+
+orbitalDColor :: GL.Color
+orbitalDColor = { r: 0.70, g: 0.45, b: 0.95, a: 1.0 }

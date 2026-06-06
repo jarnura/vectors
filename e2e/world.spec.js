@@ -108,22 +108,25 @@ test('atomos: nucleus visible at center', async ({ page }) => {
   expect(centerSum).toBeGreaterThan(spaceSum + 60);
 });
 
-// atomos M4: electrons orbit the nucleus — the ring region around it changes
-// across frames while the nucleus stays put.
-test('atomos: electrons orbit the nucleus', async ({ page }) => {
+// atomos: the QM orbital lobes render as a lit, stable cloud around the nucleus
+// (orbitals are static probability shapes, not moving point electrons).
+test('atomos: orbital lobes form a stable lit cloud', async ({ page }) => {
   await page.click('#scene-toggle'); // → atomos
-  await page.waitForTimeout(300);
+  await page.fill('#element-value', '7'); // Nitrogen: filled p lobes around the core
+  await page.waitForTimeout(400);
 
-  // A band around the nucleus (where electron shells sweep).
-  const ringA = await readRegion(page, 0.30, 0.30, 0.70, 0.70, 28, 16);
-  await page.waitForTimeout(700); // let electrons advance along their orbits
-  const ringB = await readRegion(page, 0.30, 0.30, 0.70, 0.70, 28, 16);
+  // A band around the nucleus where the orbital lobes sit.
+  const cloudA = await readRegion(page, 0.30, 0.30, 0.70, 0.70, 28, 16);
+  await page.waitForTimeout(700);
+  const cloudB = await readRegion(page, 0.30, 0.30, 0.70, 0.70, 28, 16);
 
-  const moved = ringA.filter((p, i) =>
-    Math.abs(p[0] - ringB[i][0]) + Math.abs(p[1] - ringB[i][1]) + Math.abs(p[2] - ringB[i][2]) > 30
+  // The orbital structure is lit (more than one colour bucket) ...
+  expect(distinctColors(cloudA)).toBeGreaterThan(1);
+  // ... and static: the lobes do not sweep like the old point electrons.
+  const moved = cloudA.filter((p, i) =>
+    Math.abs(p[0] - cloudB[i][0]) + Math.abs(p[1] - cloudB[i][1]) + Math.abs(p[2] - cloudB[i][2]) > 30
   ).length;
-  // Several sampled points change as the electron spheres sweep through.
-  expect(moved).toBeGreaterThan(2);
+  expect(moved).toBeLessThan(cloudA.length / 2);
 });
 
 // atomos M5: the element selector reconfigures the atom (nucleus changes).
@@ -214,35 +217,23 @@ test('subshells M2: element table reaches Krypton (Z=36)', async ({ page }) => {
   expect(center[0] + center[1] + center[2]).toBeGreaterThan(40);
 });
 
-// subshells M3: Krypton (36 electrons across 8 subshells reaching well beyond
-// Carbon's 3) shows a denser orbital structure — more moving electron pixels
-// across frames than Carbon — and out-of-range Z stays render-safe.
-test('subshells M3: Krypton orbitals are denser than Carbon', async ({ page }) => {
-  await page.click('#scene-toggle'); // → atomos (default Carbon, Z=6)
+// qm M3: every element renders a substantial lit orbital cloud (the occupied
+// orbital lobes scaled by their physical radii), and out-of-range Z is safe.
+test('qm M3: occupied orbitals render a lit cloud', async ({ page }) => {
+  await page.click('#scene-toggle'); // → atomos
 
-  const countMoved = (a, b) =>
-    a.filter((p, i) =>
-      Math.abs(p[0] - b[i][0]) + Math.abs(p[1] - b[i][1]) + Math.abs(p[2] - b[i][2]) > 28
-    ).length;
-  const sampleMotion = async () => {
-    const a = await readRegion(page, 0.18, 0.18, 0.82, 0.82, 34, 20);
-    await page.waitForTimeout(700); // let electrons advance along their orbits
-    const b = await readRegion(page, 0.18, 0.18, 0.82, 0.82, 34, 20);
-    return countMoved(a, b);
+  const litCount = async () => {
+    const r = await readRegion(page, 0.20, 0.20, 0.80, 0.80, 32, 20);
+    return r.filter((p) => p[0] + p[1] + p[2] > 60).length;
   };
 
-  // Carbon: 6 electrons in a tight cluster of rings.
-  await page.fill('#element-value', '6');
+  await page.fill('#element-value', '6'); // Carbon: 1s 2s 2p
   await page.waitForTimeout(400);
-  const carbonMotion = await sampleMotion();
+  expect(await litCount()).toBeGreaterThan(3);
 
-  // Krypton: 36 electrons spread across many rings out to a larger radius.
-  await page.fill('#element-value', '36');
+  await page.fill('#element-value', '36'); // Krypton: through 4p incl. 3d
   await page.waitForTimeout(400);
-  const kryptonMotion = await sampleMotion();
-
-  // The denser, wider-spread atom drives strictly more orbital motion.
-  expect(kryptonMotion).toBeGreaterThan(carbonMotion);
+  expect(await litCount()).toBeGreaterThan(3);
 
   // Out-of-range Z must not crash: scene still renders lit geometry at center.
   await page.fill('#element-value', '999');
@@ -251,30 +242,22 @@ test('subshells M3: Krypton orbitals are denser than Carbon', async ({ page }) =
   expect(center[0] + center[1] + center[2]).toBeGreaterThan(40);
 });
 
-// orbital-lines M1: each sub-shell draws a thin static ring line. With Krypton
-// (rings out to a large radius) an off-centre band that is empty space without
-// rings now shows persistent line structure that survives across frames (the
-// rings are static while electrons move).
-test('orbital-lines M1: thin orbital rings render as static structure', async ({ page }) => {
+// qm M3: switching element reconfigures the orbital cloud (Carbon's s/p cloud
+// differs from Iron's, which adds violet 3d cloverleaf lobes).
+test('qm M3: element switch reconfigures the orbital cloud', async ({ page }) => {
   await page.click('#scene-toggle'); // → atomos
-  await page.fill('#element-value', '36'); // Krypton: most rings, widest spread
+  await page.fill('#element-value', '6'); // Carbon
   await page.waitForTimeout(400);
+  const carbon = await readRegion(page, 0.25, 0.25, 0.75, 0.75, 30, 18);
 
-  // Off-centre band (left of the nucleus), where only outer ring arcs reach.
-  const A = await readRegion(page, 0.12, 0.42, 0.42, 0.58, 28, 10);
-  await page.waitForTimeout(700); // electrons advance; rings stay put
-  const B = await readRegion(page, 0.12, 0.42, 0.42, 0.58, 28, 10);
+  await page.fill('#element-value', '26'); // Iron — adds 3d lobes
+  await page.waitForTimeout(400);
+  const iron = await readRegion(page, 0.25, 0.25, 0.75, 0.75, 30, 18);
 
-  // The band is not flat black — ring lines (and any electrons) add colour.
-  expect(distinctColors(A)).toBeGreaterThan(1);
-
-  // Persistent lit pixels that barely change across frames = static ring lines.
-  const isLit = (p) => p[0] + p[1] + p[2] > 36;
-  const stableLit = A.filter((p, i) =>
-    isLit(p) && isLit(B[i]) &&
-    Math.abs(p[0] - B[i][0]) + Math.abs(p[1] - B[i][1]) + Math.abs(p[2] - B[i][2]) < 14
+  const changed = carbon.filter((p, i) =>
+    Math.abs(p[0] - iron[i][0]) + Math.abs(p[1] - iron[i][1]) + Math.abs(p[2] - iron[i][2]) > 30
   ).length;
-  expect(stableLit).toBeGreaterThan(2);
+  expect(changed).toBeGreaterThan(4);
 });
 
 // overlay-text M2: the scene-title banner scrambles to the current scene name.
