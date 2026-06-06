@@ -108,31 +108,25 @@ test('atomos: nucleus visible at center', async ({ page }) => {
   expect(centerSum).toBeGreaterThan(spaceSum + 60);
 });
 
-// atomos: the atom auto-rotates so its 3D structure is visible without dragging
-// — the central atom region changes across frames while the starfield stays put.
-test('atomos: the atom auto-rotates (structure visible in 3D)', async ({ page }) => {
+// atomos: discrete electrons orbit on the orbital rings — the region around the
+// nucleus changes across frames as the electron dots sweep their rings.
+test('atomos: electrons orbit on the rings', async ({ page }) => {
   await page.click('#scene-toggle'); // → atomos
-  await page.fill('#element-value', '7'); // Nitrogen: filled p lobes around the core
+  await page.fill('#element-value', '7'); // Nitrogen
   await page.waitForTimeout(400);
 
-  // A band around the nucleus where the orbital structure sits.
-  const cloudA = await readRegion(page, 0.30, 0.30, 0.70, 0.70, 28, 16);
-  // The backdrop corner (starfield) — should NOT rotate.
-  const bgA = await readPixel(page, 0.06, 0.06);
-  await page.waitForTimeout(800); // let the atom spin (~19° at 0.4°/frame·60fps; fps-sensitive)
-  const cloudB = await readRegion(page, 0.30, 0.30, 0.70, 0.70, 28, 16);
-  const bgB = await readPixel(page, 0.06, 0.06);
+  // A band around the nucleus where the rings + electrons sit.
+  const ringA = await readRegion(page, 0.30, 0.30, 0.70, 0.70, 28, 16);
+  await page.waitForTimeout(700); // let the electrons advance along their rings
+  const ringB = await readRegion(page, 0.30, 0.30, 0.70, 0.70, 28, 16);
 
-  // Lit structure present ...
-  expect(distinctColors(cloudA)).toBeGreaterThan(1);
-  // ... and the atom rotates: a meaningful fraction of the region changes.
-  const moved = cloudA.filter((p, i) =>
-    Math.abs(p[0] - cloudB[i][0]) + Math.abs(p[1] - cloudB[i][1]) + Math.abs(p[2] - cloudB[i][2]) > 30
+  // Ring/electron structure is lit ...
+  expect(distinctColors(ringA)).toBeGreaterThan(1);
+  // ... and the electrons orbit: several sampled points change across frames.
+  const moved = ringA.filter((p, i) =>
+    Math.abs(p[0] - ringB[i][0]) + Math.abs(p[1] - ringB[i][1]) + Math.abs(p[2] - ringB[i][2]) > 30
   ).length;
-  expect(moved).toBeGreaterThan(12);
-
-  // The backdrop stays put (starfield is not spun with the atom).
-  expect(Math.abs(bgA[0] - bgB[0]) + Math.abs(bgA[1] - bgB[1]) + Math.abs(bgA[2] - bgB[2])).toBeLessThan(20);
+  expect(moved).toBeGreaterThan(2);
 });
 
 // atomos M5: the element selector reconfigures the atom (nucleus changes).
@@ -223,9 +217,9 @@ test('subshells M2: element table reaches Krypton (Z=36)', async ({ page }) => {
   expect(center[0] + center[1] + center[2]).toBeGreaterThan(40);
 });
 
-// qm M3: every element renders a substantial lit orbital cloud (the occupied
-// orbital lobes scaled by their physical radii), and out-of-range Z is safe.
-test('qm M3: occupied orbitals render a lit cloud', async ({ page }) => {
+// atomos: orbital ring lines + discrete electrons render lit structure for any
+// element, and out-of-range Z is render-safe.
+test('atomos: orbital rings + electrons render lit structure', async ({ page }) => {
   await page.click('#scene-toggle'); // → atomos
 
   const litCount = async () => {
@@ -233,11 +227,11 @@ test('qm M3: occupied orbitals render a lit cloud', async ({ page }) => {
     return r.filter((p) => p[0] + p[1] + p[2] > 60).length;
   };
 
-  await page.fill('#element-value', '6'); // Carbon: 1s 2s 2p
+  await page.fill('#element-value', '6'); // Carbon
   await page.waitForTimeout(400);
   expect(await litCount()).toBeGreaterThan(3);
 
-  await page.fill('#element-value', '36'); // Krypton: through 4p incl. 3d
+  await page.fill('#element-value', '36'); // Krypton (many rings)
   await page.waitForTimeout(400);
   expect(await litCount()).toBeGreaterThan(3);
 
@@ -248,15 +242,15 @@ test('qm M3: occupied orbitals render a lit cloud', async ({ page }) => {
   expect(center[0] + center[1] + center[2]).toBeGreaterThan(40);
 });
 
-// qm M3: switching element reconfigures the orbital cloud (Carbon's s/p cloud
-// differs from Iron's, which adds violet 3d cloverleaf lobes).
-test('qm M3: element switch reconfigures the orbital cloud', async ({ page }) => {
+// atomos: switching element reconfigures the atom (Carbon's rings/electrons
+// differ from Iron's, which adds an inner d sub-shell + more electrons).
+test('atomos: element switch reconfigures the atom', async ({ page }) => {
   await page.click('#scene-toggle'); // → atomos
   await page.fill('#element-value', '6'); // Carbon
   await page.waitForTimeout(400);
   const carbon = await readRegion(page, 0.25, 0.25, 0.75, 0.75, 30, 18);
 
-  await page.fill('#element-value', '26'); // Iron — adds 3d lobes
+  await page.fill('#element-value', '26'); // Iron
   await page.waitForTimeout(400);
   const iron = await readRegion(page, 0.25, 0.25, 0.75, 0.75, 30, 18);
 
@@ -266,61 +260,25 @@ test('qm M3: element switch reconfigures the orbital cloud', async ({ page }) =>
   expect(changed).toBeGreaterThan(4);
 });
 
-// qm M4: a fuller atom reads brighter — Neon (10 electrons, 2p fully paired)
-// shows more bright pixels than Nitrogen (7 electrons, 2p singly occupied):
-// more electron particles plus brighter (paired) orbital cloud.
-test('qm M4: paired orbitals (Neon) are brighter than singly-occupied (Nitrogen)', async ({ page }) => {
+// atomos: electrons are discrete — a many-electron atom (Argon, 18) lights up
+// noticeably more electron/ring structure than a one-electron atom (Hydrogen).
+test('atomos: more electrons show more discrete structure', async ({ page }) => {
   await page.click('#scene-toggle'); // → atomos
 
-  const brightCount = async () => {
-    const r = await readRegion(page, 0.25, 0.25, 0.75, 0.75, 30, 18);
-    return r.filter((p) => p[0] + p[1] + p[2] > 150).length;
+  const litCount = async () => {
+    const r = await readRegion(page, 0.18, 0.18, 0.82, 0.82, 36, 24);
+    return r.filter((p) => p[0] + p[1] + p[2] > 90).length;
   };
 
-  await page.fill('#element-value', '7'); // Nitrogen: 2p = [1,1,1] (all dim)
+  await page.fill('#element-value', '1'); // Hydrogen: 1 electron, 1 ring
   await page.waitForTimeout(400);
-  const nitrogenBright = await brightCount();
+  const hydrogen = await litCount();
 
-  await page.fill('#element-value', '10'); // Neon: 2p = [2,2,2] (all paired, bright)
+  await page.fill('#element-value', '18'); // Argon: 18 electrons, more rings
   await page.waitForTimeout(400);
-  const neonBright = await brightCount();
+  const argon = await litCount();
 
-  // The fully-paired atom shows strictly more bright (paired-orbital) pixels.
-  expect(neonBright).toBeGreaterThan(nitrogenBright);
-});
-
-// electron-particles M3: electrons render as discrete bright particles, so they
-// are countable — more electrons (higher Z) show more bright dots than fewer.
-test('atomos: discrete electron particles are countable', async ({ page }) => {
-  await page.click('#scene-toggle'); // → atomos
-
-  // Bright electron-particle pixels (the dots are far brighter than the faint cloud).
-  const dotPixels = async () => {
-    const r = await readRegion(page, 0.12, 0.12, 0.88, 0.88, 44, 28);
-    return r.filter((p) => p[0] + p[1] + p[2] > 150).length;
-  };
-
-  await page.fill('#element-value', '1'); // Hydrogen: 1 electron
-  await page.waitForTimeout(400);
-  const hydrogen = await dotPixels();
-
-  await page.fill('#element-value', '6'); // Carbon: 6 electrons
-  await page.waitForTimeout(400);
-  const carbon = await dotPixels();
-
-  await page.fill('#element-value', '18'); // Argon: 18 electrons
-  await page.waitForTimeout(400);
-  const argon = await dotPixels();
-
-  // More electrons ⇒ more bright dots.
-  expect(carbon).toBeGreaterThan(hydrogen);
-  expect(argon).toBeGreaterThan(carbon);
-
-  // Out-of-range Z stays render-safe (lit structure remains).
-  await page.fill('#element-value', '999');
-  await page.waitForTimeout(300);
-  const r = await readRegion(page, 0.30, 0.30, 0.70, 0.70, 20, 14);
-  expect(r.filter((p) => p[0] + p[1] + p[2] > 60).length).toBeGreaterThan(2);
+  expect(argon).toBeGreaterThan(hydrogen);
 });
 
 // overlay-text M2: the scene-title banner scrambles to the current scene name.

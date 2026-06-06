@@ -2,11 +2,12 @@ module Main where
 
 import Prelude
 
-import Data.Array (filter)
+import Data.Array (length, take)
 import Data.Foldable (for_)
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Number (cos, pi, sin, tan)
+import Data.Traversable (traverse)
 import Effect (Effect)
 import Effect.Console (log)
 import Effect.Ref as Ref
@@ -24,7 +25,6 @@ import Math.Matrix as M
 import Atom (Nucleon(..))
 import Atom as Atom
 import Meshes as Meshes
-import Orbital as O
 import Scene (Scene(..), nextScene, sceneTitle, spaceColor)
 import Starfield (starPositions)
 import Text as Text
@@ -224,24 +224,9 @@ satelliteTransform s =
       0.0
       (satelliteOrbitRadius * sin angleRad)
 
--- Degrees the atomos atom spins per frame (slow, so structure reads in 3D).
-atomSpinDegreesPerFrame :: Number
-atomSpinDegreesPerFrame = 0.4
-
--- Fixed tilt so the spin axis isn't edge-on to the camera.
-atomTiltDegrees :: Number
-atomTiltDegrees = 18.0
-
--- Frame-driven rotation of the whole atom (a slow Y spin under a fixed tilt).
-atomSpin :: Number -> Matrix Number
-atomSpin frame =
-  M.multiply (V.rotateX atomTiltDegrees) (V.rotateY (frame * atomSpinDegreesPerFrame))
-
--- Compose the atom's auto-rotation onto an entity's base model matrix. Factored
--- as a per-atom transform so a future bonding phase can offset a second atom by
--- pre-multiplying a translation, without touching the pure model.
-atomModel :: Number -> Matrix Number -> Matrix Number
-atomModel frame base = M.multiply (atomSpin frame) base
+-- Number of segments in each orbital ring line (smooth circle, thin wireframe).
+ringSegments :: Int
+ringSegments = 96
 
 updateViewport :: Renderer -> CanvasElement -> Effect Unit
 updateViewport renderer canvas = do
@@ -267,31 +252,15 @@ main = do
       starMesh <- GL.createSolidMesh renderer starSphere
       protonMesh <- GL.createSolidMesh renderer protonSphere
       neutronMesh <- GL.createSolidMesh renderer neutronSphere
-      -- Atomos QM-orbital meshes: one solid shape mesh per real orbital (s, the
-      -- three p, the five d), built ONCE at unit size and scaled per element at
-      -- render time. Never rebuilt per frame.
-      -- Two brightness variants per shape: dim (singly occupied) and bright
-      -- (paired), so Hund's rule is visible.
-      sOrb1 <- GL.createSolidMesh renderer (orbitalShape O.S orbitalSColor 1)
-      sOrb2 <- GL.createSolidMesh renderer (orbitalShape O.S orbitalSColor 2)
-      px1 <- GL.createSolidMesh renderer (orbitalShape O.Px orbitalPColor 1)
-      px2 <- GL.createSolidMesh renderer (orbitalShape O.Px orbitalPColor 2)
-      py1 <- GL.createSolidMesh renderer (orbitalShape O.Py orbitalPColor 1)
-      py2 <- GL.createSolidMesh renderer (orbitalShape O.Py orbitalPColor 2)
-      pz1 <- GL.createSolidMesh renderer (orbitalShape O.Pz orbitalPColor 1)
-      pz2 <- GL.createSolidMesh renderer (orbitalShape O.Pz orbitalPColor 2)
-      dz21 <- GL.createSolidMesh renderer (orbitalShape O.Dz2 orbitalDColor 1)
-      dz22 <- GL.createSolidMesh renderer (orbitalShape O.Dz2 orbitalDColor 2)
-      dxz1 <- GL.createSolidMesh renderer (orbitalShape O.Dxz orbitalDColor 1)
-      dxz2 <- GL.createSolidMesh renderer (orbitalShape O.Dxz orbitalDColor 2)
-      dyz1 <- GL.createSolidMesh renderer (orbitalShape O.Dyz orbitalDColor 1)
-      dyz2 <- GL.createSolidMesh renderer (orbitalShape O.Dyz orbitalDColor 2)
-      dx2y21 <- GL.createSolidMesh renderer (orbitalShape O.Dx2y2 orbitalDColor 1)
-      dx2y22 <- GL.createSolidMesh renderer (orbitalShape O.Dx2y2 orbitalDColor 2)
-      dxy1 <- GL.createSolidMesh renderer (orbitalShape O.Dxy orbitalDColor 1)
-      dxy2 <- GL.createSolidMesh renderer (orbitalShape O.Dxy orbitalDColor 2)
-      -- One bright electron particle sphere, instanced at every electron site.
-      electronMesh <- GL.createSolidMesh renderer electronParticle
+      -- One thin orbital ring line per sub-shell, created ONCE for the maximal
+      -- element (Krypton); a smaller element's rings are an exact prefix. Plus a
+      -- discrete electron sphere instanced at every electron position.
+      ringMeshes <- traverse
+        ( \ss -> GL.createWireframeMesh renderer
+            (Meshes.orbitRing ringSegments (Atom.subshellRadius ss.n ss.l) (Atom.subshellInclination ss.n ss.l))
+        )
+        (Atom.fillSubshells Atom.maxElectron)
+      electronMesh <- GL.createSolidMesh renderer electronSphere
       let
         cubeEntities :: Array Entity
         cubeEntities =
@@ -314,61 +283,29 @@ main = do
           map
             ( \n ->
                 { mesh: Solid (if n.kind == Proton then protonMesh else neutronMesh)
-                , modelMatrix: \st -> atomModel st.frame (M.translate n.pos.x n.pos.y n.pos.z)
+                , modelMatrix: \_ -> M.translate n.pos.x n.pos.y n.pos.z
                 }
             )
             (Atom.nucleons (Atom.elementOf s.element))
 
-        -- Pick the pre-built shape mesh for a real orbital, choosing the bright
-        -- (paired, occ ≥ 2) or dim (singly occupied) variant.
-        meshForShape sh occ =
-          let
-            paired = occ >= 2
-          in
-            case sh of
-              O.S -> if paired then sOrb2 else sOrb1
-              O.Px -> if paired then px2 else px1
-              O.Py -> if paired then py2 else py1
-              O.Pz -> if paired then pz2 else pz1
-              O.Dz2 -> if paired then dz22 else dz21
-              O.Dxz -> if paired then dxz2 else dxz1
-              O.Dyz -> if paired then dyz2 else dyz1
-              O.Dx2y2 -> if paired then dx2y22 else dx2y21
-              O.Dxy -> if paired then dxy2 else dxy1
+        -- One thin ring per filled sub-shell of the current element: the first
+        -- `k` shared ring meshes (Madelung prefix). Rings are world-centered.
+        ringEntities :: State -> Array Entity
+        ringEntities s =
+          map (\m -> { mesh: Wire m, modelMatrix: \_ -> M.identity })
+            (take (length (Atom.fillSubshells (Atom.elementOf s.element).electrons)) ringMeshes)
 
-        -- One orbital lobe per OCCUPIED real orbital of the current element,
-        -- concentric at the nucleus and scaled by its physical (Slater) radius.
-        -- The p/d meshes are pre-oriented, so no per-element rotation is needed;
-        -- occupancy (1 vs 2) selects the dim/bright variant (Hund visible).
-        orbitalEntities :: State -> Array Entity
-        orbitalEntities s =
-          map
-            ( \o ->
-                let
-                  r = O.rScale s.element o.n o.l
-                in
-                  { mesh: Solid (meshForShape o.kind o.occ)
-                  , modelMatrix: \st -> atomModel st.frame (M.scale r r r)
-                  }
-            )
-            (filter (\o -> o.occ > 0) (O.orbitalsFor s.element))
-
-        -- One bright electron particle per electron, at its orbital lobe tip
-        -- (Slater radius), riding the atom's auto-rotation. Countable: Z dots.
+        -- Discrete electrons orbiting on the rings; positions advance with frame.
         electronEntities :: State -> Array Entity
         electronEntities s =
           map
-            ( \p ->
-                { mesh: Solid electronMesh
-                , modelMatrix: \st -> atomModel st.frame (M.translate p.x p.y p.z)
-                }
-            )
-            (O.electronSites s.element)
+            (\p -> { mesh: Solid electronMesh, modelMatrix: \_ -> M.translate p.x p.y p.z })
+            (Atom.electronPositions (Atom.elementOf s.element) s.frame)
 
         entitiesFor :: State -> Array Entity
         entitiesFor s = case s.scene of
           CubePoc -> cubeEntities
-          Atomos -> starEntities <> orbitalEntities s <> electronEntities s <> nucleusEntities s
+          Atomos -> starEntities <> ringEntities s <> nucleusEntities s <> electronEntities s
       updateViewport renderer canvas
       w0 <- getCanvasWidth canvas
       h0 <- getCanvasHeight canvas
@@ -405,43 +342,8 @@ protonSphere = (Meshes.sphere 14 14 Atom.nucleonRadius) { color = { r: 0.90, g: 
 neutronSphere :: Meshes.SolidSpec
 neutronSphere = (Meshes.sphere 14 14 Atom.nucleonRadius) { color = { r: 0.62, g: 0.64, b: 0.67, a: 1.0 } }
 
--- ───── Orbital lobe meshes (atomos QM visualization) ──────────────────
-
--- Latitude/longitude resolution of each orbital balloon surface.
-orbitalRes :: Int
-orbitalRes = 18
-
--- A unit-size orbital shape mesh (scaled per element at render time), tinted by
--- sub-shell type (s/p/d) and dimmed by occupancy (singly-occupied orbitals are
--- darker than paired ones, so Hund's rule reads visually).
-orbitalShape :: O.OrbShape -> GL.Color -> Int -> Meshes.SolidSpec
-orbitalShape shape color occ =
-  (Meshes.orbitalMesh orbitalRes orbitalRes 1.0 shape)
-    { color = dim (cloudDim * O.occBrightness occ) color }
-
--- How faint the orbital "cloud" is rendered, so the bright electron particles
--- stand out in front of it (the lobes are a soft halo, not a solid wall).
-cloudDim :: Number
-cloudDim = 0.3
-
--- Scale a colour's RGB by a brightness factor (alpha unchanged).
-dim :: Number -> GL.Color -> GL.Color
-dim f c = { r: c.r * f, g: c.g * f, b: c.b * f, a: c.a }
-
--- A single bright electron particle sphere (reused for every electron site).
-electronParticleRadius :: Number
-electronParticleRadius = 24.0
-
-electronParticle :: Meshes.SolidSpec
-electronParticle =
-  (Meshes.sphere 12 12 electronParticleRadius) { color = { r: 1.0, g: 0.95, b: 0.55, a: 1.0 } }
-
--- s orbitals (cyan), p orbitals (blue), d orbitals (violet).
-orbitalSColor :: GL.Color
-orbitalSColor = { r: 0.35, g: 0.80, b: 0.85, a: 1.0 }
-
-orbitalPColor :: GL.Color
-orbitalPColor = { r: 0.40, g: 0.55, b: 1.0, a: 1.0 }
-
-orbitalDColor :: GL.Color
-orbitalDColor = { r: 0.70, g: 0.45, b: 0.95, a: 1.0 }
+-- A single discrete electron sphere, instanced at every electron position on
+-- the orbital rings.
+electronSphere :: Meshes.SolidSpec
+electronSphere =
+  (Meshes.sphere 12 12 Atom.electronRadius) { color = { r: 0.55, g: 0.80, b: 1.0, a: 1.0 } }
