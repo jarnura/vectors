@@ -166,9 +166,13 @@ updateOverlay ref s = do
   when sceneChanged do
     Text.scrambleInto "scene-title" (sceneTitle s.scene)
     Text.setVisible "atom-label" inAtomos
-    when inAtomos (Text.scrambleInto "atom-label" (Atom.elementName s.element))
+    Text.setVisible "orbital-info" inAtomos
+    when inAtomos do
+      Text.scrambleInto "atom-label" (Atom.elementName s.element)
+      Text.scrambleInto "orbital-info" (Atom.configString s.element)
   when (elementChanged && inAtomos) do
     Text.scrambleInto "atom-label" (Atom.elementName s.element)
+    Text.scrambleInto "orbital-info" (Atom.configString s.element)
   when (sceneChanged || elementChanged) do
     Ref.write { scene: s.scene, element: s.element } ref
 

@@ -53,12 +53,27 @@
         text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
         display: none;
       }
+      #orbital-info {
+        position: absolute;
+        bottom: 16px;
+        left: 0;
+        right: 0;
+        z-index: 1;
+        text-align: center;
+        font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+        font-size: 18px;
+        letter-spacing: 1px;
+        color: #7fb0e6;
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+        display: none;
+      }
     </style>
   </head>
   <body>
     <canvas id="canvas"></canvas>
     <div id="scene-title">Cube POC</div>
     <div id="atom-label">Carbon</div>
+    <div id="orbital-info">1s2 2s2 2p2</div>
     <div id="controls">
       <button id="scene-toggle" type="button">Switch scene</button>
       <label for="element-value">Element&nbsp;Z</label>

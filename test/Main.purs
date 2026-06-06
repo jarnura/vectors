@@ -366,7 +366,10 @@ main = do
   check "fillSubshells totals to clamped Z (Kr)" $
     sum (map _.count (fillSubshells 36)) == 36
 
-  -- Human-readable configuration string in standard (n,l)-sorted order.
+  -- Human-readable configuration string in standard (n,l)-sorted order. This is
+  -- the exact text payload shown by the atomos orbital-info overlay.
+  check "configString 1 = Hydrogen config" $ configString 1 == "1s1"
+  check "configString 6 = Carbon config" $ configString 6 == "1s2 2s2 2p2"
   check "configString 36 = Krypton config" $
     configString 36 == "1s2 2s2 2p6 3s2 3p6 3d10 4s2 4p6"
 

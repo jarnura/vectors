@@ -174,6 +174,28 @@ test('overlay: element label shows/updates the element name', async ({ page }) =
   await expect(label).toBeHidden();
 });
 
+// orbital-lines M2: the orbital-info overlay shows the electron configuration of
+// the selected element and updates when the element changes; atomos-only.
+test('overlay: orbital-info shows the electron configuration', async ({ page }) => {
+  const info = page.locator('#orbital-info');
+
+  // Hidden in the cube POC scene.
+  await expect(info).toBeHidden();
+
+  await page.click('#scene-toggle'); // → atomos (default Carbon, Z=6)
+  await expect(info).toBeVisible();
+  // Settles to Carbon's configuration.
+  await expect(info).toHaveText('1s2 2s2 2p2', { timeout: 4000 });
+
+  // Switching element re-scrambles to the new configuration.
+  await page.fill('#element-value', '36');
+  await expect(info).toHaveText('1s2 2s2 2p6 3s2 3p6 3d10 4s2 4p6', { timeout: 4000 });
+
+  // Hidden again back in the cube POC scene.
+  await page.click('#scene-toggle');
+  await expect(info).toBeHidden();
+});
+
 // subshells M2: the element table now spans Z=1..36, so the selector reaches
 // Krypton and the label shows the new name; the scene still renders.
 test('subshells M2: element table reaches Krypton (Z=36)', async ({ page }) => {
