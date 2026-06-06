@@ -122,6 +122,7 @@ perspectiveProjection w h =
 step :: Input -> State -> State
 step input =
   applyToggle input.toggleScene
+    >>> applyElement input.element
     >>> applyShear input.shear
     >>> applyKey input.lastKey
     >>> applyMouse input.mouse
@@ -133,6 +134,12 @@ step input =
 applyToggle :: Boolean -> State -> State
 applyToggle false s = s
 applyToggle true s = s { scene = nextScene s.scene }
+
+-- Select the rendered element (atomic number) from the selector. Out-of-range
+-- values are clamped downstream by Atom.elementOf.
+applyElement :: Maybe Int -> State -> State
+applyElement Nothing s = s
+applyElement (Just z) s = s { element = z }
 
 -- The backdrop (clear) color for the current scene.
 clearColorFor :: Scene -> GL.Color

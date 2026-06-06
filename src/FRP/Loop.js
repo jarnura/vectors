@@ -25,6 +25,17 @@ export const installSceneToggle = (effect) => () => {
   button.addEventListener("click", () => effect());
 };
 
+export const installElementInput = (cb) => () => {
+  const input = document.getElementById("element-value");
+  if (!input) return;
+  const fire = () => {
+    const z = parseInt(input.value, 10);
+    if (!Number.isNaN(z)) cb(z)();
+  };
+  input.addEventListener("input", fire);
+  input.addEventListener("change", fire);
+};
+
 export const requestAnimationFrame = (effect) => () => {
   window.requestAnimationFrame(() => effect());
 };

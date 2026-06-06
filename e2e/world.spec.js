@@ -126,6 +126,32 @@ test('atomos: electrons orbit the nucleus', async ({ page }) => {
   expect(moved).toBeGreaterThan(2);
 });
 
+// atomos M5: the element selector reconfigures the atom (nucleus changes).
+test('atomos: element selector changes the atom', async ({ page }) => {
+  await expect(page.locator('#element-value')).toBeVisible();
+  await page.click('#scene-toggle'); // → atomos (default Carbon, Z=6)
+  await page.waitForTimeout(300);
+
+  // Tight center region = the nucleus (electrons sweep further out).
+  const carbonNucleus = await readRegion(page, 0.42, 0.42, 0.58, 0.58, 18, 18);
+
+  // Switch to Hydrogen (Z=1): a single nucleon — a much sparser nucleus.
+  await page.fill('#element-value', '1');
+  await page.waitForTimeout(400);
+  const hydrogenNucleus = await readRegion(page, 0.42, 0.42, 0.58, 0.58, 18, 18);
+
+  const changed = carbonNucleus.filter((p, i) =>
+    Math.abs(p[0] - hydrogenNucleus[i][0]) + Math.abs(p[1] - hydrogenNucleus[i][1]) + Math.abs(p[2] - hydrogenNucleus[i][2]) > 24
+  ).length;
+  expect(changed).toBeGreaterThan(3);
+
+  // Out-of-range Z must not crash: scene still renders something at center.
+  await page.fill('#element-value', '999');
+  await page.waitForTimeout(300);
+  const afterBad = await readPixel(page, 0.5, 0.5);
+  expect(afterBad[0] + afterBad[1] + afterBad[2]).toBeGreaterThan(40);
+});
+
 // M4: sky backdrop (top is sky-blue, not white) + ground/sky differ.
 test('M4: sky backdrop and horizon transition', async ({ page }) => {
   const top = await readPixel(page, 0.5, 0.03);     // sky region

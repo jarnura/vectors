@@ -355,6 +355,18 @@ main = do
 
   log "all electron orbit properties hold."
 
+  -- ───── Element selector input (atomos M5) ───────────────────────────
+  log "element input properties:"
+
+  -- The Input has an element channel, empty until the selector is used.
+  check "emptyInput.element is Nothing" $ isNothing emptyInput.element
+
+  -- Selecting a different Z yields a different atom (pure mapping).
+  check "selecting O (8) differs from C (6)" $
+    (elementOf 8).protons /= (elementOf 6).protons
+
+  log "all element input properties hold."
+
 -- Extract every Nth element starting at `start` (used to pluck x/y/z columns).
 everyNth :: Int -> Int -> Array Number -> Array Number
 everyNth step start xs =
