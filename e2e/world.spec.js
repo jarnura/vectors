@@ -6,7 +6,7 @@
 // horizon transition) are added/enabled as M1–M4 land.
 import { test } from '@playwright/test';
 import {
-  expect, waitForRenderedCanvas, readPixel, readRow, distinctColors,
+  expect, waitForRenderedCanvas, readPixel, readRow, readRegion, distinctColors,
 } from './helpers.js';
 
 test.beforeEach(async ({ page }) => {
@@ -37,10 +37,12 @@ test('M2: ground band visible below cube', async ({ page }) => {
   expect(ground[1]).toBeGreaterThan(ground[0]); // green channel dominates red
 });
 
-// M3: grid lines alternate against the ground.
-test.skip('M3: grid lines visible on ground', async ({ page }) => {
-  const row = await readRow(page, 0.85, 32);
-  expect(distinctColors(row)).toBeGreaterThan(1);
+// M3: grid lines add color variation over the otherwise-flat ground.
+test('M3: grid lines visible on ground', async ({ page }) => {
+  // Sample a 2D region of the ground (lower-center). A flat solid ground would
+  // be ~1 color bucket; the grid lines introduce additional buckets.
+  const region = await readRegion(page, 0.25, 0.6, 0.75, 0.95, 30, 14);
+  expect(distinctColors(region)).toBeGreaterThan(1);
 });
 
 // M4: sky backdrop (top corner not white) + horizon transition.

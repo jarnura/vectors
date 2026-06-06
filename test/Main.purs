@@ -13,7 +13,7 @@ import Math.Matrix as M
 
 import Meshes (groundPlane, gridFloor)
 import Vector (rotateX, rotateY, rotateZ)
-import World (groundTransform, groundY, groundExtent)
+import World (groundTransform, groundY, groundExtent, gridDivisions)
 
 -- Tolerance for floating-point matrix equality.
 -- sin/cos roundtrip at 360° produces error on the order of 1e-15;
@@ -174,6 +174,27 @@ main = do
   check "groundExtent within far-plane budget (≤ 900)" $ groundExtent <= 900.0
 
   log "all world placement properties hold."
+
+  -- ───── Grid floor wiring (M3) ───────────────────────────────────────
+  log "grid wiring properties:"
+
+  -- The grid the app actually renders (extent × divisions).
+  let
+    appGrid = gridFloor groundExtent gridDivisions
+    appGridVerts = (length appGrid.vertices) / 3
+
+  -- n divisions ⇒ 2*(n+1) line segments ⇒ 4*(n+1) index entries.
+  check "app grid has 2*(n+1) segments" $
+    length appGrid.indices == 4 * (gridDivisions + 1)
+
+  -- Every index addresses a real vertex (no out-of-range index).
+  check "app grid indices in range" $
+    all (\i -> i >= 0 && i < appGridVerts) appGrid.indices
+
+  -- Vertex count stays under the Uint16 index-buffer cap (65536).
+  check "app grid within Uint16 cap" $ appGridVerts < 65536
+
+  log "all grid wiring properties hold."
 
 -- Extract every Nth element starting at `start` (used to pluck x/y/z columns).
 everyNth :: Int -> Int -> Array Number -> Array Number

@@ -16,13 +16,13 @@ import Graphics.Canvas
   , getCanvasHeight
   , getCanvasWidth
   )
-import Graphics.GL (Renderer, SolidMesh)
+import Graphics.GL (Mesh, Renderer, SolidMesh)
 import Graphics.GL as GL
 import Math.Matrix (Matrix)
 import Math.Matrix as M
 import Meshes as Meshes
 import Vector as V
-import World (groundTransform, groundExtent)
+import World (groundTransform, gridTransform, groundExtent, gridDivisions)
 
 type State =
   { transform :: Matrix Number
@@ -31,8 +31,14 @@ type State =
   , frame :: Number
   }
 
+-- A renderable mesh is either a solid lit mesh or a wireframe mesh; the draw
+-- loop dispatches on the constructor (exhaustively).
+data EntityMesh
+  = Solid SolidMesh
+  | Wire Mesh
+
 type Entity =
-  { mesh :: SolidMesh
+  { mesh :: EntityMesh
   , modelMatrix :: State -> Matrix Number
   }
 
@@ -175,15 +181,17 @@ main = do
     Just canvas -> do
       renderer <- GL.initRenderer canvas
       groundMesh <- GL.createSolidMesh renderer (Meshes.groundPlane groundExtent)
+      gridMesh <- GL.createWireframeMesh renderer (Meshes.gridFloor groundExtent gridDivisions)
       mainMesh <- GL.createSolidMesh renderer Meshes.solidMainCube
       satMesh <- GL.createSolidMesh renderer Meshes.solidSatelliteCube
       let
         entities :: Array Entity
         entities =
-          -- Ground is a static Entity: its model matrix ignores State.
-          [ { mesh: groundMesh, modelMatrix: \_ -> groundTransform }
-          , { mesh: mainMesh, modelMatrix: _.transform }
-          , { mesh: satMesh, modelMatrix: satelliteTransform }
+          -- Ground + grid are static Entities: their model matrices ignore State.
+          [ { mesh: Solid groundMesh, modelMatrix: \_ -> groundTransform }
+          , { mesh: Wire gridMesh, modelMatrix: \_ -> gridTransform }
+          , { mesh: Solid mainMesh, modelMatrix: _.transform }
+          , { mesh: Solid satMesh, modelMatrix: satelliteTransform }
           ]
       updateViewport renderer canvas
       w0 <- getCanvasWidth canvas
@@ -201,5 +209,7 @@ main = do
               updateViewport renderer canvas
             GL.beginFrame renderer
             for_ entities \e ->
-              GL.drawSolidMesh renderer e.mesh (M.toVector (e.modelMatrix s))
+              case e.mesh of
+                Solid m -> GL.drawSolidMesh renderer m (M.toVector (e.modelMatrix s))
+                Wire m -> GL.drawMesh renderer m (M.toVector (e.modelMatrix s))
         }

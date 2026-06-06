@@ -5,6 +5,7 @@ module World
   , groundExtent
   , gridDivisions
   , groundTransform
+  , gridTransform
   ) where
 
 import Prelude
@@ -30,3 +31,8 @@ gridDivisions = 16
 -- State, so the ground never moves when the cube rotates.
 groundTransform :: Matrix Number
 groundTransform = M.translate 0.0 groundY 0.0
+
+-- The grid sits a hair above the ground plane so the coplanar lines don't
+-- z-fight with the solid quad.
+gridTransform :: Matrix Number
+gridTransform = M.translate 0.0 (groundY + 0.5) 0.0

@@ -48,6 +48,28 @@ export async function readRow(page, fy, samples = 16) {
   }, { fy, samples });
 }
 
+// Sample a rectangular region of the canvas as a grid of rows×cols pixels.
+// fx0..fx1 / fy0..fy1 are normalized bounds (top-left origin). Returns [r,g,b,a][].
+export async function readRegion(page, fx0, fy0, fx1, fy1, cols = 24, rows = 12) {
+  return page.evaluate(({ fx0, fy0, fx1, fy1, cols, rows }) => {
+    const c = document.querySelector('#canvas');
+    const gl = c.getContext('webgl2', { preserveDrawingBuffer: true });
+    const out = [];
+    for (let r = 0; r < rows; r++) {
+      const fy = fy0 + (r / (rows - 1)) * (fy1 - fy0);
+      const y = Math.floor((1 - fy) * (c.height - 1));
+      for (let i = 0; i < cols; i++) {
+        const fx = fx0 + (i / (cols - 1)) * (fx1 - fx0);
+        const x = Math.floor(fx * (c.width - 1));
+        const buf = new Uint8Array(4);
+        gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+        out.push(Array.from(buf));
+      }
+    }
+    return out;
+  }, { fx0, fy0, fx1, fy1, cols, rows });
+}
+
 // True if two colors differ by more than `tol` in any RGB channel.
 export function colorsDiffer(a, b, tol = 16) {
   return Math.abs(a[0] - b[0]) > tol || Math.abs(a[1] - b[1]) > tol || Math.abs(a[2] - b[2]) > tol;
