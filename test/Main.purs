@@ -2,7 +2,7 @@ module Test.Main where
 
 import Prelude
 
-import Data.Array (all, any, filter, index, length, mapWithIndex, nub, range, zipWith)
+import Data.Array (all, any, filter, index, length, mapWithIndex, nub, range, sortBy, zipWith)
 import Data.Foldable (maximum, minimum, sum)
 import Data.Maybe (fromMaybe, isNothing)
 import FRP.Loop (emptyInput)
@@ -13,6 +13,7 @@ import Effect.Exception (throw)
 import Math.Matrix as M
 
 import Atom (configString, electronPositions, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, subshellCap, subshellInclination, subshellRadius)
+import Orbital (OrbShape(..), orbitalsFor, zEff, meanRadius, rScale)
 import Meshes (groundPlane, gridFloor, orbitRing, sphere)
 import Scene (Scene(..), nextScene, sceneTitle)
 import Starfield (starPositions)
@@ -465,6 +466,53 @@ main = do
     approxEq (vAt 0) ringR && approxEq (vAt 1) 0.0 && approxEq (vAt 2) 0.0
 
   log "all orbital ring line properties hold."
+
+  -- ───── QM orbital model: occupancy + Slater Z_eff + radii (qm M1) ────
+  log "QM orbital model properties:"
+
+  let
+    -- Occupancies of the (n,l) sub-shell's real orbitals, sorted high→low.
+    occOf z nn ll =
+      sortBy (\a b -> compare b a)
+        (map _.occ (filter (\o -> o.n == nn && o.l == ll) (orbitalsFor z)))
+
+  -- Real orbitals per sub-shell: s→1, p→3, d→5. Neon (1s 2s 2p) = 5 orbitals.
+  check "Neon has 5 real orbitals (1s,2s,2p×3)" $ length (orbitalsFor 10) == 5
+  check "2p sub-shell has 3 real orbitals (Carbon)" $
+    length (filter (\o -> o.n == 2 && o.l == 1) (orbitalsFor 6)) == 3
+  check "3d sub-shell has 5 real orbitals (Iron)" $
+    length (filter (\o -> o.n == 3 && o.l == 2) (orbitalsFor 26)) == 5
+
+  -- Hund + Pauli occupancy anchors (singly fill degenerate orbitals first).
+  check "Nitrogen 2p occupancy = [1,1,1] (Hund)" $ occOf 7 2 1 == [ 1, 1, 1 ]
+  check "Oxygen 2p occupancy = [2,1,1] (one pair)" $ occOf 8 2 1 == [ 2, 1, 1 ]
+  check "Neon 2p occupancy = [2,2,2] (full)" $ occOf 10 2 1 == [ 2, 2, 2 ]
+  check "Iron 3d occupancy = [2,1,1,1,1] (Hund)" $ occOf 26 3 2 == [ 2, 1, 1, 1, 1 ]
+
+  -- Occupancies always sum to the (clamped) electron count.
+  check "orbital occupancies sum to Z (Nitrogen 7)" $
+    sum (map _.occ (orbitalsFor 7)) == 7
+  check "orbital occupancies sum to Z (Krypton 36)" $
+    sum (map _.occ (orbitalsFor 36)) == 36
+
+  -- The 2p orbitals are the three real p shapes Px/Py/Pz.
+  check "2p orbitals are Px,Py,Pz" $
+    nub (map _.kind (filter (\o -> o.n == 2 && o.l == 1) (orbitalsFor 10)))
+      == [ Px, Py, Pz ]
+
+  -- Slater's rules: Carbon Z_eff anchors (textbook values).
+  check "Carbon 2p Z_eff = 3.25 (Slater)" $ approxEq (zEff 6 2 1) 3.25
+  check "Carbon 1s Z_eff = 5.70 (Slater)" $ approxEq (zEff 6 1 0) 5.70
+
+  -- Mean radius (n²/Z_eff, unnormalized) shrinks as Z grows: He 1s ≫ Ne 1s.
+  check "1s mean radius shrinks with Z (He > Ne)" $
+    meanRadius 2 1 0 > meanRadius 10 1 0
+
+  -- Normalized rScale grows with n within an element (Argon 1s < 2s < 3s).
+  check "rScale grows with n within an atom (Ar 1s<2s<3s)" $
+    rScale 18 1 0 < rScale 18 2 0 && rScale 18 2 0 < rScale 18 3 0
+
+  log "all QM orbital model properties hold."
 
   -- ───── Element selector input (atomos M5) ───────────────────────────
   log "element input properties:"
