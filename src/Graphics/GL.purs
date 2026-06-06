@@ -9,6 +9,7 @@ module Graphics.GL
   , drawMesh
   , drawSolidMesh
   , beginFrame
+  , setClearColor
   , setProjection
   , resizeRenderer
   ) where
@@ -48,6 +49,9 @@ foreign import createSolidMesh
      , color :: Color
      }
   -> Effect SolidMesh
+
+-- Set the clear (background) color used by beginFrame.
+foreign import setClearColor :: Renderer -> Color -> Effect Unit
 
 -- Clear the framebuffer at the start of a frame.
 foreign import beginFrame :: Renderer -> Effect Unit

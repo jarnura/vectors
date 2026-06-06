@@ -6,10 +6,12 @@ module World
   , gridDivisions
   , groundTransform
   , gridTransform
+  , skyColor
   ) where
 
 import Prelude
 
+import Graphics.GL (Color)
 import Math.Matrix (Matrix)
 import Math.Matrix as M
 
@@ -36,3 +38,8 @@ groundTransform = M.translate 0.0 groundY 0.0
 -- z-fight with the solid quad.
 gridTransform :: Matrix Number
 gridTransform = M.translate 0.0 (groundY + 0.5) 0.0
+
+-- Sky-blue backdrop, used as the GL clear color. Blue-dominant and distinct
+-- from the green ground and indigo cube so the horizon reads clearly.
+skyColor :: Color
+skyColor = { r: 0.53, g: 0.81, b: 0.92, a: 1.0 }

@@ -45,9 +45,14 @@ test('M3: grid lines visible on ground', async ({ page }) => {
   expect(distinctColors(region)).toBeGreaterThan(1);
 });
 
-// M4: sky backdrop (top corner not white) + horizon transition.
-test.skip('M4: sky backdrop and horizon transition', async ({ page }) => {
-  const top = await readPixel(page, 0.5, 0.03);
-  const white = [255, 255, 255, 255];
-  expect(top).not.toEqual(white);
+// M4: sky backdrop (top is sky-blue, not white) + ground/sky differ.
+test('M4: sky backdrop and horizon transition', async ({ page }) => {
+  const top = await readPixel(page, 0.5, 0.03);     // sky region
+  const ground = await readPixel(page, 0.5, 0.92);  // ground region
+  // No longer white.
+  expect(top).not.toEqual([255, 255, 255, 255]);
+  // Sky is blue-dominant.
+  expect(top[2]).toBeGreaterThan(top[0]);
+  // There is a horizon: sky and ground are different colors.
+  expect(top).not.toEqual(ground);
 });

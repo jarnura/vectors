@@ -13,7 +13,7 @@ import Math.Matrix as M
 
 import Meshes (groundPlane, gridFloor)
 import Vector (rotateX, rotateY, rotateZ)
-import World (groundTransform, groundY, groundExtent, gridDivisions)
+import World (groundTransform, groundY, groundExtent, gridDivisions, skyColor)
 
 -- Tolerance for floating-point matrix equality.
 -- sin/cos roundtrip at 360° produces error on the order of 1e-15;
@@ -195,6 +195,25 @@ main = do
   check "app grid within Uint16 cap" $ appGridVerts < 65536
 
   log "all grid wiring properties hold."
+
+  -- ───── Sky backdrop (M4) ────────────────────────────────────────────
+  log "sky backdrop properties:"
+
+  let inUnit v = v >= 0.0 && v <= 1.0
+
+  -- Every channel is a valid normalized color component.
+  check "skyColor channels in [0,1]" $
+    inUnit skyColor.r && inUnit skyColor.g && inUnit skyColor.b && inUnit skyColor.a
+
+  -- Regression guard: the backdrop is no longer plain white.
+  check "skyColor is not white" $
+    not (approxEq skyColor.r 1.0 && approxEq skyColor.g 1.0 && approxEq skyColor.b 1.0)
+
+  -- A sky reads blue-dominant (blue ≥ red and ≥ green).
+  check "skyColor is blue-dominant" $
+    skyColor.b >= skyColor.r && skyColor.b >= skyColor.g
+
+  log "all sky backdrop properties hold."
 
 -- Extract every Nth element starting at `start` (used to pluck x/y/z columns).
 everyNth :: Int -> Int -> Array Number -> Array Number

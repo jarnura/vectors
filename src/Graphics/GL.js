@@ -188,6 +188,11 @@ export const createSolidMesh = (renderer) => (spec) => () => {
   };
 };
 
+export const setClearColor = (renderer) => (color) => () => {
+  const { gl } = renderer;
+  gl.clearColor(color.r, color.g, color.b, color.a);
+};
+
 export const beginFrame = (renderer) => () => {
   const { gl } = renderer;
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);

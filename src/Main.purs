@@ -22,7 +22,7 @@ import Math.Matrix (Matrix)
 import Math.Matrix as M
 import Meshes as Meshes
 import Vector as V
-import World (groundTransform, gridTransform, groundExtent, gridDivisions)
+import World (groundTransform, gridTransform, groundExtent, gridDivisions, skyColor)
 
 type State =
   { transform :: Matrix Number
@@ -180,6 +180,7 @@ main = do
     Nothing -> log "Main: canvas element with id 'canvas' not found; aborting init"
     Just canvas -> do
       renderer <- GL.initRenderer canvas
+      GL.setClearColor renderer skyColor
       groundMesh <- GL.createSolidMesh renderer (Meshes.groundPlane groundExtent)
       gridMesh <- GL.createWireframeMesh renderer (Meshes.gridFloor groundExtent gridDivisions)
       mainMesh <- GL.createSolidMesh renderer Meshes.solidMainCube
