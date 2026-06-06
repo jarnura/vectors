@@ -2,10 +2,12 @@ module Main where
 
 import Prelude
 
+import Data.Array (length, take)
 import Data.Foldable (for_)
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Number (cos, pi, sin, tan)
+import Data.Traversable (traverse)
 import Effect (Effect)
 import Effect.Console (log)
 import Effect.Ref as Ref
@@ -74,6 +76,10 @@ clipNear = 1.0
 
 clipFar :: Number
 clipFar = 2000.0
+
+-- Number of segments in each orbital ring line (smooth circle, thin wireframe).
+ringSegments :: Int
+ringSegments = 96
 
 -- Satellite orbits the world origin on the XZ plane.
 satelliteOrbitRadius :: Number
@@ -243,6 +249,14 @@ main = do
       protonMesh <- GL.createSolidMesh renderer protonSphere
       neutronMesh <- GL.createSolidMesh renderer neutronSphere
       electronMesh <- GL.createSolidMesh renderer electronSphere
+      -- One thin ring line per sub-shell, created ONCE for the maximal element
+      -- (Krypton). Radius/tilt depend only on (n, l), so a smaller element's
+      -- rings are an exact prefix of this list — never rebuilt per frame.
+      ringMeshes <- traverse
+        ( \ss -> GL.createWireframeMesh renderer
+            (Meshes.orbitRing ringSegments (Atom.subshellRadius ss.n ss.l) (Atom.subshellInclination ss.n ss.l))
+        )
+        (Atom.fillSubshells Atom.maxElectron)
       let
         cubeEntities :: Array Entity
         cubeEntities =
@@ -277,10 +291,18 @@ main = do
             (\p -> { mesh: Solid electronMesh, modelMatrix: \_ -> M.translate p.x p.y p.z })
             (Atom.electronPositions (Atom.elementOf s.element) s.frame)
 
+        -- One thin ring per filled sub-shell of the current element: the first
+        -- `k` shared ring meshes, where `k` is the number of filled subshells
+        -- (Madelung prefix). Rings are world-centered, so the model is identity.
+        ringEntities :: State -> Array Entity
+        ringEntities s =
+          map (\m -> { mesh: Wire m, modelMatrix: \_ -> M.identity })
+            (take (length (Atom.fillSubshells (Atom.elementOf s.element).electrons)) ringMeshes)
+
         entitiesFor :: State -> Array Entity
         entitiesFor s = case s.scene of
           CubePoc -> cubeEntities
-          Atomos -> starEntities <> nucleusEntities s <> electronEntities s
+          Atomos -> starEntities <> ringEntities s <> nucleusEntities s <> electronEntities s
       updateViewport renderer canvas
       w0 <- getCanvasWidth canvas
       h0 <- getCanvasHeight canvas

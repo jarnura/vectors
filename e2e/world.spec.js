@@ -229,6 +229,32 @@ test('subshells M3: Krypton orbitals are denser than Carbon', async ({ page }) =
   expect(center[0] + center[1] + center[2]).toBeGreaterThan(40);
 });
 
+// orbital-lines M1: each sub-shell draws a thin static ring line. With Krypton
+// (rings out to a large radius) an off-centre band that is empty space without
+// rings now shows persistent line structure that survives across frames (the
+// rings are static while electrons move).
+test('orbital-lines M1: thin orbital rings render as static structure', async ({ page }) => {
+  await page.click('#scene-toggle'); // → atomos
+  await page.fill('#element-value', '36'); // Krypton: most rings, widest spread
+  await page.waitForTimeout(400);
+
+  // Off-centre band (left of the nucleus), where only outer ring arcs reach.
+  const A = await readRegion(page, 0.12, 0.42, 0.42, 0.58, 28, 10);
+  await page.waitForTimeout(700); // electrons advance; rings stay put
+  const B = await readRegion(page, 0.12, 0.42, 0.42, 0.58, 28, 10);
+
+  // The band is not flat black — ring lines (and any electrons) add colour.
+  expect(distinctColors(A)).toBeGreaterThan(1);
+
+  // Persistent lit pixels that barely change across frames = static ring lines.
+  const isLit = (p) => p[0] + p[1] + p[2] > 36;
+  const stableLit = A.filter((p, i) =>
+    isLit(p) && isLit(B[i]) &&
+    Math.abs(p[0] - B[i][0]) + Math.abs(p[1] - B[i][1]) + Math.abs(p[2] - B[i][2]) < 14
+  ).length;
+  expect(stableLit).toBeGreaterThan(2);
+});
+
 // overlay-text M2: the scene-title banner scrambles to the current scene name.
 test('overlay: scene title updates on scene switch', async ({ page }) => {
   const title = page.locator('#scene-title');

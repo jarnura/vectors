@@ -16,8 +16,10 @@ module Atom
   , nucleons
   , nucleusRadius
   , nucleonRadius
+  , maxElectron
   , shellRadius
   , subshellRadius
+  , subshellInclination
   , electronRadius
   , electronPositions
   ) where
@@ -326,6 +328,11 @@ subshellGap = 18.0
 subshellRadius :: Int -> Int -> Number
 subshellRadius n l = shellRadius (n - 1) + toNumber l * subshellGap
 
+-- Tilt of the subshell's orbital plane, a pure function of (n, l). Shared by the
+-- electrons AND the orbital ring line so the ring traces the electron path exactly.
+subshellInclination :: Int -> Int -> Number
+subshellInclination n l = toNumber n * (pi / 5.0) + toNumber l * (pi / 9.0)
+
 -- Electron world positions for an element at animation time `frame`. Each filled
 -- SUBSHELL holds its electrons on its own ring (radius from subshellRadius),
 -- spread evenly; rings are tilted by (n, l) so orbitals don't all lie in one
@@ -338,7 +345,7 @@ electronPositions el frame =
   subshellElectrons ss =
     let
       r = subshellRadius ss.n ss.l
-      incl = toNumber ss.n * (pi / 5.0) + toNumber ss.l * (pi / 9.0)
+      incl = subshellInclination ss.n ss.l
       speed = 0.02 / (toNumber ss.n + 1.0)
     in
       map

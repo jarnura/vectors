@@ -6,14 +6,14 @@ import Data.Array (all, any, filter, index, length, mapWithIndex, nub, range, zi
 import Data.Foldable (maximum, minimum, sum)
 import Data.Maybe (fromMaybe, isNothing)
 import FRP.Loop (emptyInput)
-import Data.Number (abs, sqrt)
+import Data.Number (abs, pi, sqrt)
 import Effect (Effect)
 import Effect.Console (log)
 import Effect.Exception (throw)
 import Math.Matrix as M
 
-import Atom (configString, electronPositions, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, subshellCap, subshellRadius)
-import Meshes (groundPlane, gridFloor, sphere)
+import Atom (configString, electronPositions, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, subshellCap, subshellInclination, subshellRadius)
+import Meshes (groundPlane, gridFloor, orbitRing, sphere)
 import Scene (Scene(..), nextScene, sceneTitle)
 import Starfield (starPositions)
 import Vector (rotateX, rotateY, rotateZ)
@@ -430,6 +430,38 @@ main = do
   check "every Krypton electron lies on a subshell radius" $ all (onSomeSubRadius 36) krPos
 
   log "all subshell orbital rendering properties hold."
+
+  -- ───── Orbital ring lines (orbital-lines M1) ────────────────────────
+  log "orbital ring line properties:"
+
+  -- Inclination is a shared, pure function of (n, l): the SAME tilt the
+  -- electrons ride on, so the ring line traces the electron path exactly.
+  check "subshellInclination 1 0 = pi/5" $
+    approxEq (subshellInclination 1 0) (pi / 5.0)
+  check "subshellInclination 3 2 = 3·pi/5 + 2·pi/9" $
+    approxEq (subshellInclination 3 2) (3.0 * (pi / 5.0) + 2.0 * (pi / 9.0))
+
+  let
+    ringSeg = 64
+    ringR = subshellRadius 2 1
+    ringIncl = subshellInclination 2 1
+    ring = orbitRing ringSeg ringR ringIncl
+    vAt j = fromMaybe 0.0 (index ring.vertices j)
+    vDist j = sqrt (vAt (3 * j) * vAt (3 * j) + vAt (3 * j + 1) * vAt (3 * j + 1) + vAt (3 * j + 2) * vAt (3 * j + 2))
+
+  -- A ring is `segments` vertices (3 floats each) drawn as a closed GL_LINES loop.
+  check "orbitRing has `segments` vertices" $ length ring.vertices == ringSeg * 3
+  check "orbitRing is a closed loop (2·segments indices)" $ length ring.indices == 2 * ringSeg
+
+  -- Every ring vertex lies exactly on the subshell radius.
+  check "every ring vertex lies on the subshell radius" $
+    all (\j -> approxEq (vDist j) ringR) (range 0 (ringSeg - 1))
+
+  -- The ring's first vertex (θ=0) is {r, 0, 0} — the electron-path start.
+  check "ring vertex 0 is {r,0,0}" $
+    approxEq (vAt 0) ringR && approxEq (vAt 1) 0.0 && approxEq (vAt 2) 0.0
+
+  log "all orbital ring line properties hold."
 
   -- ───── Element selector input (atomos M5) ───────────────────────────
   log "element input properties:"

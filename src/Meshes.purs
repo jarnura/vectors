@@ -7,6 +7,7 @@ module Meshes
   , solidSatelliteCube
   , groundPlane
   , gridFloor
+  , orbitRing
   , sphere
   ) where
 
@@ -386,6 +387,27 @@ gridVertices e n =
 gridIndices :: Int -> Array Int
 gridIndices n = 0 .. (4 * (n + 1) - 1)
 
+-- ───── Orbital ring line (atomos: one thin ring per sub-shell) ─────────
+
+-- A thin wireframe ring (closed GL_LINES loop) of `segments` points at radius
+-- `r`, lying in an orbital plane tilted by `incl`. The vertex formula is exactly
+-- the electron-path formula from Atom.electronPositions, so the ring traces the
+-- electrons' orbit. `segments` vertices ⇒ 2·`segments` index entries (loop closed
+-- by joining the last point back to the first).
+orbitRing :: Int -> Number -> Number -> MeshSpec
+orbitRing segments r incl =
+  { vertices: concatMap vertex (0 .. (segments - 1))
+  , indices: concatMap segment (0 .. (segments - 1))
+  , color: orbitBlue
+  }
+  where
+  vertex k =
+    let
+      theta = 2.0 * pi * toNumber k / toNumber segments
+    in
+      [ r * cos theta, -r * sin theta * sin incl, r * sin theta * cos incl ]
+  segment k = [ k, mod (k + 1) segments ]
+
 -- ───── UV sphere (atomos: protons/neutrons/electrons/stars) ───────────
 
 -- A solid UV sphere of `latSeg` latitude bands × `longSeg` longitude bands and
@@ -457,6 +479,11 @@ gridGray = { r: 0.13, g: 0.20, b: 0.15, a: 1.0 }
 -- Neutral default for spheres; callers override per particle.
 sphereWhite :: Color
 sphereWhite = { r: 0.90, g: 0.90, b: 0.90, a: 1.0 }
+
+-- Dim blue for the orbital ring lines: visible against near-black space as a
+-- subtle guide, without competing with the bright electron/nucleon spheres.
+orbitBlue :: Color
+orbitBlue = { r: 0.30, g: 0.45, b: 0.70, a: 1.0 }
 
 -- Deeper blue-purple — looks more vibrant under directional light than
 -- pure black.
