@@ -18,8 +18,8 @@ import Prelude
 import Effect (Effect)
 import Graphics.Canvas (CanvasElement)
 
-foreign import data Renderer  :: Type
-foreign import data Mesh      :: Type
+foreign import data Renderer :: Type
+foreign import data Mesh :: Type
 foreign import data SolidMesh :: Type
 
 type Color = { r :: Number, g :: Number, b :: Number, a :: Number }
@@ -33,8 +33,8 @@ foreign import initRenderer :: CanvasElement -> Effect Renderer
 foreign import createWireframeMesh
   :: Renderer
   -> { vertices :: Array Number
-     , indices  :: Array Int
-     , color    :: Color
+     , indices :: Array Int
+     , color :: Color
      }
   -> Effect Mesh
 
@@ -43,9 +43,9 @@ foreign import createWireframeMesh
 foreign import createSolidMesh
   :: Renderer
   -> { vertices :: Array Number
-     , normals  :: Array Number
-     , indices  :: Array Int
-     , color    :: Color
+     , normals :: Array Number
+     , indices :: Array Int
+     , color :: Color
      }
   -> Effect SolidMesh
 

@@ -41,28 +41,64 @@ zeros r c = mkMatrix r c (replicate (r * c) 0.0)
 -- 4x4 identity matrix.
 identity :: Matrix Number
 identity = mkMatrix 4 4
-  [ 1.0, 0.0, 0.0, 0.0
-  , 0.0, 1.0, 0.0, 0.0
-  , 0.0, 0.0, 1.0, 0.0
-  , 0.0, 0.0, 0.0, 1.0
+  [ 1.0
+  , 0.0
+  , 0.0
+  , 0.0
+  , 0.0
+  , 1.0
+  , 0.0
+  , 0.0
+  , 0.0
+  , 0.0
+  , 1.0
+  , 0.0
+  , 0.0
+  , 0.0
+  , 0.0
+  , 1.0
   ]
 
 -- 4x4 translation matrix: shifts a point by (tx, ty, tz).
 translate :: Number -> Number -> Number -> Matrix Number
 translate tx ty tz = mkMatrix 4 4
-  [ 1.0, 0.0, 0.0, tx
-  , 0.0, 1.0, 0.0, ty
-  , 0.0, 0.0, 1.0, tz
-  , 0.0, 0.0, 0.0, 1.0
+  [ 1.0
+  , 0.0
+  , 0.0
+  , tx
+  , 0.0
+  , 1.0
+  , 0.0
+  , ty
+  , 0.0
+  , 0.0
+  , 1.0
+  , tz
+  , 0.0
+  , 0.0
+  , 0.0
+  , 1.0
   ]
 
 -- 4x4 non-uniform scale matrix.
 scale :: Number -> Number -> Number -> Matrix Number
 scale sx sy sz = mkMatrix 4 4
-  [ sx , 0.0, 0.0, 0.0
-  , 0.0, sy , 0.0, 0.0
-  , 0.0, 0.0, sz , 0.0
-  , 0.0, 0.0, 0.0, 1.0
+  [ sx
+  , 0.0
+  , 0.0
+  , 0.0
+  , 0.0
+  , sy
+  , 0.0
+  , 0.0
+  , 0.0
+  , 0.0
+  , sz
+  , 0.0
+  , 0.0
+  , 0.0
+  , 0.0
+  , 1.0
   ]
 
 at :: Matrix Number -> Int -> Int -> Number

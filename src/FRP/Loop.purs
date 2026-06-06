@@ -12,7 +12,7 @@ import Effect.Ref as Ref
 
 type Input =
   { lastKey :: Maybe String
-  , mouse   :: Maybe { x :: Int, y :: Int }
+  , mouse :: Maybe { x :: Int, y :: Int }
   }
 
 emptyInput :: Input
@@ -30,8 +30,8 @@ foreign import requestAnimationFrame
 runLoop
   :: forall s
    . { initial :: s
-     , step    :: Input -> s -> s
-     , draw    :: s -> Effect Unit
+     , step :: Input -> s -> s
+     , draw :: s -> Effect Unit
      }
   -> Effect Unit
 runLoop spec = do
@@ -41,11 +41,12 @@ runLoop spec = do
     Ref.modify_ (_ { lastKey = Just k }) inputRef
   installMouseMoveListener \x y ->
     Ref.modify_ (_ { mouse = Just { x, y } }) inputRef
-  let tick = do
-        i <- Ref.read inputRef
-        Ref.write emptyInput inputRef
-        Ref.modify_ (spec.step i) stateRef
-        s <- Ref.read stateRef
-        spec.draw s
-        requestAnimationFrame tick
+  let
+    tick = do
+      i <- Ref.read inputRef
+      Ref.write emptyInput inputRef
+      Ref.modify_ (spec.step i) stateRef
+      s <- Ref.read stateRef
+      spec.draw s
+      requestAnimationFrame tick
   requestAnimationFrame tick
