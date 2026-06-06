@@ -14,7 +14,7 @@ import Math.Matrix as M
 
 import Atom (configString, electronPositions, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, subshellCap, subshellInclination, subshellRadius)
 import Orbital (OrbShape(..), orbitalsFor, zEff, meanRadius, rScale)
-import Meshes (groundPlane, gridFloor, orbitRing, sphere)
+import Meshes (angularValue, groundPlane, gridFloor, orbitRing, orbitalMesh, sphere)
 import Scene (Scene(..), nextScene, sceneTitle)
 import Starfield (starPositions)
 import Vector (rotateX, rotateY, rotateZ)
@@ -513,6 +513,62 @@ main = do
     rScale 18 1 0 < rScale 18 2 0 && rScale 18 2 0 < rScale 18 3 0
 
   log "all QM orbital model properties hold."
+
+  -- ───── QM orbital-shape geometry (qm M2) ────────────────────────────
+  log "QM orbital shape geometry properties:"
+
+  -- angularValue is the real-orbital angular function f(d) for a unit direction.
+  check "angularValue S = 1 (spherical) anywhere" $
+    approxEq (angularValue S 0.3 0.4 0.5) 1.0
+  check "angularValue Pz: +1 on +z axis, 0 on +x" $
+    approxEq (angularValue Pz 0.0 0.0 1.0) 1.0 && approxEq (angularValue Pz 1.0 0.0 0.0) 0.0
+  check "angularValue Px: +1 on +x axis, 0 on +z" $
+    approxEq (angularValue Px 1.0 0.0 0.0) 1.0 && approxEq (angularValue Px 0.0 0.0 1.0) 0.0
+  check "angularValue Dz2 = 2 on +z axis, -1 on +x" $
+    approxEq (angularValue Dz2 0.0 0.0 1.0) 2.0 && approxEq (angularValue Dz2 1.0 0.0 0.0) (-1.0)
+
+  let
+    latSeg = 12
+    longSeg = 12
+    base = 100.0
+    sMesh = orbitalMesh latSeg longSeg base S
+    pzMesh = orbitalMesh latSeg longSeg base Pz
+    pxMesh = orbitalMesh latSeg longSeg base Px
+    dxyMesh = orbitalMesh latSeg longSeg base Dx2y2
+    nVerts = (latSeg + 1) * (longSeg + 1)
+    comp arr j c = fromMaybe 0.0 (index arr (3 * j + c))
+    maxAbs spec c =
+      fromMaybe 0.0 (maximum (map (\j -> abs (comp spec.vertices j c)) (range 0 (nVerts - 1))))
+    vDist spec j = sqrt (comp spec.vertices j 0 * comp spec.vertices j 0 + comp spec.vertices j 1 * comp spec.vertices j 1 + comp spec.vertices j 2 * comp spec.vertices j 2)
+    nLen spec j = sqrt (comp spec.normals j 0 * comp spec.normals j 0 + comp spec.normals j 1 * comp spec.normals j 1 + comp spec.normals j 2 * comp spec.normals j 2)
+
+  -- Mesh validity (same invariants as the UV sphere).
+  check "orbitalMesh vertex/normal counts match the UV grid" $
+    length sMesh.vertices == nVerts * 3 && length sMesh.normals == nVerts * 3
+  check "orbitalMesh index count = lat·long·6" $
+    length pzMesh.indices == latSeg * longSeg * 6
+
+  -- The s orbital is a sphere of radius `base`.
+  check "S orbital is a sphere of radius base" $
+    all (\j -> approxEq (vDist sMesh j) base) (range 0 (nVerts - 1))
+
+  -- pz is a dumbbell along z; px along x.
+  check "Pz orbital extends along z (dumbbell)" $
+    maxAbs pzMesh 2 > maxAbs pzMesh 0 && maxAbs pzMesh 2 > maxAbs pzMesh 1
+  check "Px orbital extends along x (dumbbell)" $
+    maxAbs pxMesh 0 > maxAbs pxMesh 1 && maxAbs pxMesh 0 > maxAbs pxMesh 2
+
+  -- dx²−y² has four lobes along ±x and ±y, ~nothing along z.
+  check "Dx2y2 lobes along x and y, not z" $
+    maxAbs dxyMesh 0 > maxAbs dxyMesh 2 && maxAbs dxyMesh 1 > maxAbs dxyMesh 2
+
+  -- Recomputed normals are unit length (no NaN at angular nodes).
+  check "Pz orbital normals are unit length" $
+    all (\j -> approxEq (nLen pzMesh j) 1.0) (range 0 (nVerts - 1))
+  check "Dx2y2 orbital normals are unit length" $
+    all (\j -> approxEq (nLen dxyMesh j) 1.0) (range 0 (nVerts - 1))
+
+  log "all QM orbital shape geometry properties hold."
 
   -- ───── Element selector input (atomos M5) ───────────────────────────
   log "element input properties:"
