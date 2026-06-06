@@ -9,17 +9,14 @@ module Meshes
   , gridFloor
   , orbitRing
   , sphere
-  , angularValue
-  , orbitalMesh
   ) where
 
 import Prelude
 
 import Data.Array (concatMap, (..))
 import Data.Int (toNumber)
-import Data.Number (abs, cos, pi, sin, sqrt)
+import Data.Number (cos, pi, sin)
 import Graphics.GL (Color)
-import Orbital (OrbShape(..))
 
 type MeshSpec =
   { vertices :: Array Number
@@ -410,98 +407,6 @@ orbitRing segments r incl =
     in
       [ r * cos theta, -r * sin theta * sin incl, r * sin theta * cos incl ]
   segment k = [ k, mod (k + 1) segments ]
-
--- ───── Real-orbital shape meshes (atomos: s/p/d "balloon" surfaces) ────
-
--- The real-orbital angular function f(d) for a unit direction d = (dx,dy,dz),
--- with the orbital's principal axis taken as +z. The orbital surface is the
--- "balloon" r(d) = base·|f(d)|; the sign of f is the wavefunction phase.
-angularValue :: OrbShape -> Number -> Number -> Number -> Number
-angularValue shape dx dy dz = case shape of
-  S -> 1.0
-  Px -> dx
-  Py -> dy
-  Pz -> dz
-  Dz2 -> 3.0 * dz * dz - 1.0
-  Dxz -> dx * dz
-  Dyz -> dy * dz
-  Dx2y2 -> dx * dx - dy * dy
-  Dxy -> dx * dy
-
--- Minimum |f| so the surface never collapses to the origin at an angular node
--- (keeps finite-difference normals well-defined / NaN-free).
-orbitalNodeEps :: Number
-orbitalNodeEps = 1.0e-3
-
--- A solid orbital-shape mesh: the UV sphere parameterization deformed by the
--- angular function — radius = base·max(eps,|f(θ,φ)|) along each direction — with
--- normals recomputed for the deformed surface (finite-difference tangents). One
--- colour per orbital (the renderer is uniform-colour); the shape conveys the
--- orbital. Callers override `color` via record update.
-orbitalMesh :: Int -> Int -> Number -> OrbShape -> SolidSpec
-orbitalMesh latSeg longSeg base shape =
-  { vertices: gridFlatMap point
-  , normals: gridFlatMap normal
-  , indices: sphereIndices latSeg longSeg
-  , color: orbitalDefault
-  }
-  where
-  gridFlatMap f =
-    concatMap (\i -> concatMap (\j -> f i j) (0 .. longSeg)) (0 .. latSeg)
-
-  -- Surface point at grid (i, j): r(θ,φ)·dir(θ,φ).
-  surfaceAt theta phi =
-    let
-      dx = sin theta * cos phi
-      dy = cos theta
-      dz = sin theta * sin phi
-      r = base * max orbitalNodeEps (abs (angularValue shape dx dy dz))
-    in
-      { x: r * dx, y: r * dy, z: r * dz, dirx: dx, diry: dy, dirz: dz }
-
-  thetaOf i = pi * toNumber i / toNumber latSeg
-  phiOf j = 2.0 * pi * toNumber j / toNumber longSeg
-
-  point i j =
-    let
-      p = surfaceAt (thetaOf i) (phiOf j)
-    in
-      [ p.x, p.y, p.z ]
-
-  -- Outward unit normal via central differences of the deformed surface.
-  normal i j =
-    let
-      theta = thetaOf i
-      phi = phiOf j
-      d = 1.0e-3
-      pT1 = surfaceAt (theta + d) phi
-      pT0 = surfaceAt (theta - d) phi
-      pP1 = surfaceAt theta (phi + d)
-      pP0 = surfaceAt theta (phi - d)
-      tThx = pT1.x - pT0.x
-      tThy = pT1.y - pT0.y
-      tThz = pT1.z - pT0.z
-      tPhx = pP1.x - pP0.x
-      tPhy = pP1.y - pP0.y
-      tPhz = pP1.z - pP0.z
-      -- cross(tTheta, tPhi)
-      cx = tThy * tPhz - tThz * tPhy
-      cy = tThz * tPhx - tThx * tPhz
-      cz = tThx * tPhy - tThy * tPhx
-      len = sqrt (cx * cx + cy * cy + cz * cz)
-      p = surfaceAt theta phi
-      -- Fall back to the radial direction at degenerate points (poles/nodes).
-      n =
-        if len < 1.0e-9 then { x: p.dirx, y: p.diry, z: p.dirz }
-        else { x: cx / len, y: cy / len, z: cz / len }
-      -- Orient outward (along the surface direction).
-      outward = n.x * p.dirx + n.y * p.diry + n.z * p.dirz
-    in
-      if outward < 0.0 then [ -n.x, -n.y, -n.z ] else [ n.x, n.y, n.z ]
-
--- Default orbital colour (overridden per orbital at render time).
-orbitalDefault :: Color
-orbitalDefault = { r: 0.40, g: 0.60, b: 0.95, a: 1.0 }
 
 -- ───── UV sphere (atomos: protons/neutrons/electrons/stars) ───────────
 

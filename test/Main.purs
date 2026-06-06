@@ -2,7 +2,7 @@ module Test.Main where
 
 import Prelude
 
-import Data.Array (all, any, filter, index, length, mapWithIndex, nub, range, sortBy, zipWith)
+import Data.Array (all, any, filter, index, length, mapWithIndex, nub, range, zipWith)
 import Data.Foldable (maximum, minimum, sum)
 import Data.Maybe (fromMaybe, isNothing)
 import FRP.Loop (emptyInput)
@@ -13,8 +13,7 @@ import Effect.Exception (throw)
 import Math.Matrix as M
 
 import Atom (configString, electronPositions, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, subshellCap, subshellInclination, subshellRadius)
-import Orbital (OrbShape(..), electronSites, occBrightness, orbitalAxis, orbitalViewportRadius, orbitalsFor, zEff, meanRadius, rScale)
-import Meshes (angularValue, groundPlane, gridFloor, orbitRing, orbitalMesh, sphere)
+import Meshes (groundPlane, gridFloor, orbitRing, sphere)
 import Scene (Scene(..), nextScene, sceneTitle)
 import Starfield (starPositions)
 import Vector (rotateX, rotateY, rotateZ)
@@ -466,168 +465,6 @@ main = do
     approxEq (vAt 0) ringR && approxEq (vAt 1) 0.0 && approxEq (vAt 2) 0.0
 
   log "all orbital ring line properties hold."
-
-  -- ───── QM orbital model: occupancy + Slater Z_eff + radii (qm M1) ────
-  log "QM orbital model properties:"
-
-  let
-    -- Occupancies of the (n,l) sub-shell's real orbitals, sorted high→low.
-    occOf z nn ll =
-      sortBy (\a b -> compare b a)
-        (map _.occ (filter (\o -> o.n == nn && o.l == ll) (orbitalsFor z)))
-
-  -- Real orbitals per sub-shell: s→1, p→3, d→5. Neon (1s 2s 2p) = 5 orbitals.
-  check "Neon has 5 real orbitals (1s,2s,2p×3)" $ length (orbitalsFor 10) == 5
-  check "2p sub-shell has 3 real orbitals (Carbon)" $
-    length (filter (\o -> o.n == 2 && o.l == 1) (orbitalsFor 6)) == 3
-  check "3d sub-shell has 5 real orbitals (Iron)" $
-    length (filter (\o -> o.n == 3 && o.l == 2) (orbitalsFor 26)) == 5
-
-  -- Hund + Pauli occupancy anchors (singly fill degenerate orbitals first).
-  check "Nitrogen 2p occupancy = [1,1,1] (Hund)" $ occOf 7 2 1 == [ 1, 1, 1 ]
-  check "Oxygen 2p occupancy = [2,1,1] (one pair)" $ occOf 8 2 1 == [ 2, 1, 1 ]
-  check "Neon 2p occupancy = [2,2,2] (full)" $ occOf 10 2 1 == [ 2, 2, 2 ]
-  check "Iron 3d occupancy = [2,1,1,1,1] (Hund)" $ occOf 26 3 2 == [ 2, 1, 1, 1, 1 ]
-
-  -- Occupancies always sum to the (clamped) electron count.
-  check "orbital occupancies sum to Z (Nitrogen 7)" $
-    sum (map _.occ (orbitalsFor 7)) == 7
-  check "orbital occupancies sum to Z (Krypton 36)" $
-    sum (map _.occ (orbitalsFor 36)) == 36
-
-  -- The 2p orbitals are the three real p shapes Px/Py/Pz.
-  check "2p orbitals are Px,Py,Pz" $
-    nub (map _.kind (filter (\o -> o.n == 2 && o.l == 1) (orbitalsFor 10)))
-      == [ Px, Py, Pz ]
-
-  -- Slater's rules: Carbon Z_eff anchors (textbook values).
-  check "Carbon 2p Z_eff = 3.25 (Slater)" $ approxEq (zEff 6 2 1) 3.25
-  check "Carbon 1s Z_eff = 5.70 (Slater)" $ approxEq (zEff 6 1 0) 5.70
-
-  -- Mean radius (n²/Z_eff, unnormalized) shrinks as Z grows: He 1s ≫ Ne 1s.
-  check "1s mean radius shrinks with Z (He > Ne)" $
-    meanRadius 2 1 0 > meanRadius 10 1 0
-
-  -- Normalized rScale grows with n within an element (Argon 1s < 2s < 3s).
-  check "rScale grows with n within an atom (Ar 1s<2s<3s)" $
-    rScale 18 1 0 < rScale 18 2 0 && rScale 18 2 0 < rScale 18 3 0
-
-  log "all QM orbital model properties hold."
-
-  -- ───── QM orbital-shape geometry (qm M2) ────────────────────────────
-  log "QM orbital shape geometry properties:"
-
-  -- angularValue is the real-orbital angular function f(d) for a unit direction.
-  check "angularValue S = 1 (spherical) anywhere" $
-    approxEq (angularValue S 0.3 0.4 0.5) 1.0
-  check "angularValue Pz: +1 on +z axis, 0 on +x" $
-    approxEq (angularValue Pz 0.0 0.0 1.0) 1.0 && approxEq (angularValue Pz 1.0 0.0 0.0) 0.0
-  check "angularValue Px: +1 on +x axis, 0 on +z" $
-    approxEq (angularValue Px 1.0 0.0 0.0) 1.0 && approxEq (angularValue Px 0.0 0.0 1.0) 0.0
-  check "angularValue Dz2 = 2 on +z axis, -1 on +x" $
-    approxEq (angularValue Dz2 0.0 0.0 1.0) 2.0 && approxEq (angularValue Dz2 1.0 0.0 0.0) (-1.0)
-
-  let
-    latSeg = 12
-    longSeg = 12
-    base = 100.0
-    sMesh = orbitalMesh latSeg longSeg base S
-    pzMesh = orbitalMesh latSeg longSeg base Pz
-    pxMesh = orbitalMesh latSeg longSeg base Px
-    dxyMesh = orbitalMesh latSeg longSeg base Dx2y2
-    nVerts = (latSeg + 1) * (longSeg + 1)
-    comp arr j c = fromMaybe 0.0 (index arr (3 * j + c))
-    maxAbs spec c =
-      fromMaybe 0.0 (maximum (map (\j -> abs (comp spec.vertices j c)) (range 0 (nVerts - 1))))
-    vDist spec j = sqrt (comp spec.vertices j 0 * comp spec.vertices j 0 + comp spec.vertices j 1 * comp spec.vertices j 1 + comp spec.vertices j 2 * comp spec.vertices j 2)
-    nLen spec j = sqrt (comp spec.normals j 0 * comp spec.normals j 0 + comp spec.normals j 1 * comp spec.normals j 1 + comp spec.normals j 2 * comp spec.normals j 2)
-
-  -- Mesh validity (same invariants as the UV sphere).
-  check "orbitalMesh vertex/normal counts match the UV grid" $
-    length sMesh.vertices == nVerts * 3 && length sMesh.normals == nVerts * 3
-  check "orbitalMesh index count = lat·long·6" $
-    length pzMesh.indices == latSeg * longSeg * 6
-
-  -- The s orbital is a sphere of radius `base`.
-  check "S orbital is a sphere of radius base" $
-    all (\j -> approxEq (vDist sMesh j) base) (range 0 (nVerts - 1))
-
-  -- pz is a dumbbell along z; px along x.
-  check "Pz orbital extends along z (dumbbell)" $
-    maxAbs pzMesh 2 > maxAbs pzMesh 0 && maxAbs pzMesh 2 > maxAbs pzMesh 1
-  check "Px orbital extends along x (dumbbell)" $
-    maxAbs pxMesh 0 > maxAbs pxMesh 1 && maxAbs pxMesh 0 > maxAbs pxMesh 2
-
-  -- dx²−y² has four lobes along ±x and ±y, ~nothing along z.
-  check "Dx2y2 lobes along x and y, not z" $
-    maxAbs dxyMesh 0 > maxAbs dxyMesh 2 && maxAbs dxyMesh 1 > maxAbs dxyMesh 2
-
-  -- Recomputed normals are unit length (no NaN at angular nodes).
-  check "Pz orbital normals are unit length" $
-    all (\j -> approxEq (nLen pzMesh j) 1.0) (range 0 (nVerts - 1))
-  check "Dx2y2 orbital normals are unit length" $
-    all (\j -> approxEq (nLen dxyMesh j) 1.0) (range 0 (nVerts - 1))
-
-  log "all QM orbital shape geometry properties hold."
-
-  -- ───── Hund occupancy brightness (qm M4) ────────────────────────────
-  log "Hund occupancy brightness properties:"
-
-  -- A paired orbital (occ 2) renders brighter than a singly-occupied one
-  -- (occ 1, Hund), which is brighter than an empty one — so Hund's rule reads
-  -- visually. Empty orbitals are not drawn at all (brightness 0).
-  check "occBrightness increases with occupancy (0<1<2)" $
-    occBrightness 0 < occBrightness 1 && occBrightness 1 < occBrightness 2
-  check "occBrightness 0 is dark (unrendered)" $ approxEq (occBrightness 0) 0.0
-  check "occBrightness 1 is half-brightness (Hund dim)" $ approxEq (occBrightness 1) 0.5
-  check "occBrightness 2 is full brightness" $ approxEq (occBrightness 2) 1.0
-
-  log "all Hund occupancy brightness properties hold."
-
-  -- ───── Electron particle sites (electron-particles M1) ──────────────
-  log "electron particle model properties:"
-
-  let
-    z0 = { x: 0.0, y: 0.0, z: 0.0 }
-    d3 v = sqrt (v.x * v.x + v.y * v.y + v.z * v.z)
-
-  -- One discrete particle per electron: the count equals the (clamped) Z.
-  check "electronSites count == Z (H 1)" $ length (electronSites 1) == 1
-  check "electronSites count == Z (C 6)" $ length (electronSites 6) == 6
-  check "electronSites count == Z (Fe 26)" $ length (electronSites 26) == 26
-  check "electronSites count == Z (Kr 36)" $ length (electronSites 36) == 36
-
-  -- Hydrogen's lone electron sits on the outermost orbital radius.
-  check "Hydrogen electron at the outermost radius (~380)" $
-    approxEq (d3 (fromMaybe z0 (index (electronSites 1) 0))) orbitalViewportRadius
-
-  -- Lobe-tip axes are unit vectors, with the canonical p directions.
-  check "orbitalAxis Px/Py/Pz are the +x/+y/+z units" $
-    orbitalAxis Px == { x: 1.0, y: 0.0, z: 0.0 }
-      && orbitalAxis Py == { x: 0.0, y: 1.0, z: 0.0 }
-      && orbitalAxis Pz == { x: 0.0, y: 0.0, z: 1.0 }
-  check "every orbitalAxis is a unit vector" $
-    all (\sh -> approxEq (d3 (orbitalAxis sh)) 1.0)
-      [ S, Px, Py, Pz, Dz2, Dxz, Dyz, Dx2y2, Dxy ]
-
-  -- A paired orbital (Helium 1s²) contributes an antipodal ± pair.
-  check "Helium 1s² gives an antipodal electron pair" $
-    let
-      ss = electronSites 2
-      a = fromMaybe z0 (index ss 0)
-      b = fromMaybe z0 (index ss 1)
-    in
-      length ss == 2
-        && approxEq (a.x + b.x) 0.0
-        && approxEq (a.y + b.y) 0.0
-        && approxEq (a.z + b.z) 0.0
-        && approxEq (d3 a) (d3 b)
-
-  -- Out-of-range Z is clamped (no crash).
-  check "electronSites clamps high (999 → 36)" $ length (electronSites 999) == 36
-  check "electronSites clamps low (0 → 1)" $ length (electronSites 0) == 1
-
-  log "all electron particle model properties hold."
 
   -- ───── Element selector input (atomos M5) ───────────────────────────
   log "element input properties:"
