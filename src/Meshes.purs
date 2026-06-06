@@ -1,7 +1,10 @@
 module Meshes
   ( MeshSpec
+  , SolidSpec
   , mainCube
   , satelliteCube
+  , solidMainCube
+  , solidSatelliteCube
   ) where
 
 import Prelude
@@ -14,24 +17,30 @@ type MeshSpec =
   , color    :: Color
   }
 
--- The main user-controlled cube. Sized to match the original visual
--- (~200 px wide at 1280×720 with the current perspective).
+type SolidSpec =
+  { vertices :: Array Number
+  , normals  :: Array Number
+  , indices  :: Array Int
+  , color    :: Color
+  }
+
+-- ───── Wireframe variants ─────────────────────────────────────────────
+
 mainCube :: MeshSpec
-mainCube = cubeAt 100.0 black
+mainCube = wireCubeAt 100.0 black
 
--- A smaller satellite cube that orbits the main one.
 satelliteCube :: MeshSpec
-satelliteCube = cubeAt 25.0 red
+satelliteCube = wireCubeAt 25.0 red
 
-cubeAt :: Number -> Color -> MeshSpec
-cubeAt halfExtent color =
-  { vertices: cubeVerticesAt halfExtent
-  , indices:  cubeEdgeIndices
+wireCubeAt :: Number -> Color -> MeshSpec
+wireCubeAt h color =
+  { vertices: wireCubeVertices h
+  , indices:  wireCubeIndices
   , color
   }
 
-cubeVerticesAt :: Number -> Array Number
-cubeVerticesAt h =
+wireCubeVertices :: Number -> Array Number
+wireCubeVertices h =
   [ -h, -h,  h   -- 0: front bottom-left
   ,  h, -h,  h   -- 1: front bottom-right
   ,  h,  h,  h   -- 2: front top-right
@@ -42,15 +51,80 @@ cubeVerticesAt h =
   ,  h, -h, -h   -- 7: back bottom-right
   ]
 
-cubeEdgeIndices :: Array Int
-cubeEdgeIndices =
+wireCubeIndices :: Array Int
+wireCubeIndices =
   [ 0,1, 1,2, 2,3, 3,0   -- front face
   , 4,5, 5,6, 6,7, 7,4   -- back face
   , 0,4, 1,7, 2,6, 3,5   -- connecting edges
   ]
+
+-- ───── Solid lit variants ─────────────────────────────────────────────
+
+solidMainCube :: SolidSpec
+solidMainCube = solidCubeAt 100.0 indigo
+
+solidSatelliteCube :: SolidSpec
+solidSatelliteCube = solidCubeAt 25.0 red
+
+solidCubeAt :: Number -> Color -> SolidSpec
+solidCubeAt h color =
+  { vertices: solidCubeVertices h
+  , normals:  solidCubeNormals
+  , indices:  solidCubeIndices
+  , color
+  }
+
+-- 24 vertices: 4 per face × 6 faces. Each face's vertices are listed CCW
+-- when viewed from outside, so triangles are wound counter-clockwise for
+-- the GPU's CCW front-face convention.
+solidCubeVertices :: Number -> Array Number
+solidCubeVertices h =
+  [ -- Front (+Z): A,B,C,D
+    -h,-h, h,    h,-h, h,    h, h, h,   -h, h, h
+    -- Back (-Z): F,E,H,G
+  ,  h,-h,-h,   -h,-h,-h,   -h, h,-h,    h, h,-h
+    -- Top (+Y): D,C,G,H
+  , -h, h, h,    h, h, h,    h, h,-h,   -h, h,-h
+    -- Bottom (-Y): E,F,B,A
+  , -h,-h,-h,    h,-h,-h,    h,-h, h,   -h,-h, h
+    -- Right (+X): B,F,G,C
+  ,  h,-h, h,    h,-h,-h,    h, h,-h,    h, h, h
+    -- Left (-X): E,A,D,H
+  , -h,-h,-h,   -h,-h, h,   -h, h, h,   -h, h,-h
+  ]
+
+solidCubeNormals :: Array Number
+solidCubeNormals =
+  [  0.0, 0.0, 1.0,    0.0, 0.0, 1.0,    0.0, 0.0, 1.0,    0.0, 0.0, 1.0
+  ,  0.0, 0.0,-1.0,    0.0, 0.0,-1.0,    0.0, 0.0,-1.0,    0.0, 0.0,-1.0
+  ,  0.0, 1.0, 0.0,    0.0, 1.0, 0.0,    0.0, 1.0, 0.0,    0.0, 1.0, 0.0
+  ,  0.0,-1.0, 0.0,    0.0,-1.0, 0.0,    0.0,-1.0, 0.0,    0.0,-1.0, 0.0
+  ,  1.0, 0.0, 0.0,    1.0, 0.0, 0.0,    1.0, 0.0, 0.0,    1.0, 0.0, 0.0
+  , -1.0, 0.0, 0.0,   -1.0, 0.0, 0.0,   -1.0, 0.0, 0.0,   -1.0, 0.0, 0.0
+  ]
+
+-- 36 indices = 6 faces × 2 triangles × 3 vertices.
+-- For face starting at vertex i (i, i+1, i+2, i+3), the two triangles are
+-- (i, i+1, i+2) and (i, i+2, i+3).
+solidCubeIndices :: Array Int
+solidCubeIndices =
+  [  0, 1, 2,    0, 2, 3   -- front
+  ,  4, 5, 6,    4, 6, 7   -- back
+  ,  8, 9,10,    8,10,11   -- top
+  , 12,13,14,   12,14,15   -- bottom
+  , 16,17,18,   16,18,19   -- right
+  , 20,21,22,   20,22,23   -- left
+  ]
+
+-- ───── Colors ─────────────────────────────────────────────────────────
 
 black :: Color
 black = { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }
 
 red :: Color
 red = { r: 0.85, g: 0.20, b: 0.20, a: 1.0 }
+
+-- Deeper blue-purple — looks more vibrant under directional light than
+-- pure black.
+indigo :: Color
+indigo = { r: 0.20, g: 0.30, b: 0.85, a: 1.0 }

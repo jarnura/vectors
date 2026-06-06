@@ -16,7 +16,7 @@ import Graphics.Canvas
   , getCanvasHeight
   , getCanvasWidth
   )
-import Graphics.GL (Mesh, Renderer)
+import Graphics.GL (Renderer, SolidMesh)
 import Graphics.GL as GL
 import Math.Matrix (Matrix)
 import Math.Matrix as M
@@ -31,7 +31,7 @@ type State =
   }
 
 type Entity =
-  { mesh        :: Mesh
+  { mesh        :: SolidMesh
   , modelMatrix :: State -> Matrix Number
   }
 
@@ -153,8 +153,8 @@ main = do
     Nothing -> log "Main: canvas element with id 'canvas' not found; aborting init"
     Just canvas -> do
       renderer <- GL.initRenderer canvas
-      mainMesh <- GL.createWireframeMesh renderer Meshes.mainCube
-      satMesh  <- GL.createWireframeMesh renderer Meshes.satelliteCube
+      mainMesh <- GL.createSolidMesh renderer Meshes.solidMainCube
+      satMesh  <- GL.createSolidMesh renderer Meshes.solidSatelliteCube
       let entities :: Array Entity
           entities =
             [ { mesh: mainMesh, modelMatrix: _.transform }
@@ -176,5 +176,5 @@ main = do
               updateViewport renderer canvas
             GL.beginFrame renderer
             for_ entities \e ->
-              GL.drawMesh renderer e.mesh (M.toVector (e.modelMatrix s))
+              GL.drawSolidMesh renderer e.mesh (M.toVector (e.modelMatrix s))
         }
