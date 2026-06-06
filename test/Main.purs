@@ -2,7 +2,7 @@ module Test.Main where
 
 import Prelude
 
-import Data.Array (all, any, filter, index, length, mapWithIndex, nub, range, zipWith)
+import Data.Array (all, any, concat, filter, index, length, mapWithIndex, nub, range, zipWith)
 import Data.Foldable (maximum, minimum, sum)
 import Data.Maybe (fromMaybe, isNothing)
 import FRP.Loop (emptyInput)
@@ -12,7 +12,8 @@ import Effect.Console (log)
 import Effect.Exception (throw)
 import Math.Matrix as M
 
-import Atom (configString, electronPositions, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, subshellCap, subshellInclination, subshellRadius)
+import Atom (configString, electronPositions, electronPositionsBySubshell, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, subshellCap, subshellInclination, subshellRadius)
+import Palette (shellColor, subshellColor)
 import Meshes (groundPlane, gridFloor, orbitRing, sphere)
 import Scene (Scene(..), nextScene, sceneTitle)
 import Starfield (starPositions)
@@ -465,6 +466,67 @@ main = do
     approxEq (vAt 0) ringR && approxEq (vAt 1) 0.0 && approxEq (vAt 2) 0.0
 
   log "all orbital ring line properties hold."
+
+  -- ───── Shell / sub-shell colour palette (colours M1) ────────────────
+  log "shell/sub-shell palette properties:"
+
+  let
+    csum c = c.r + c.g + c.b
+    -- Which RGB channel dominates (0=r, 1=g, 2=b) — the colour's "hue family".
+    dominant c
+      | c.r >= c.g && c.r >= c.b = 0
+      | c.g >= c.b = 1
+      | otherwise = 2
+
+  -- Each principal shell gets a distinct colour.
+  check "shell colours are distinct (1≠2≠3≠4)" $
+    shellColor 1 /= shellColor 2
+      && shellColor 2 /= shellColor 3
+      && shellColor 3 /= shellColor 4
+      && shellColor 1 /= shellColor 3
+
+  -- A sub-shell's ℓ=0 is exactly the shell base colour.
+  check "subshellColor n 0 == shellColor n (base)" $
+    subshellColor 2 0 == shellColor 2 && subshellColor 4 0 == shellColor 4
+
+  -- Higher ℓ is lighter (blended toward white → larger channel sum).
+  check "sub-shells get lighter with ℓ" $
+    csum (subshellColor 3 0) < csum (subshellColor 3 1)
+      && csum (subshellColor 3 1) < csum (subshellColor 3 2)
+
+  -- Same shell colour, just lighter: the dominant channel (hue) is preserved.
+  check "sub-shell keeps the shell hue" $
+    dominant (subshellColor 1 1) == dominant (shellColor 1)
+      && dominant (subshellColor 4 2) == dominant (shellColor 4)
+
+  -- Channels stay within [0,1] even at high ℓ.
+  check "sub-shell colour channels clamp to [0,1]" $
+    let c = subshellColor 1 3 in c.r <= 1.0 && c.g <= 1.0 && c.b <= 1.0 && c.r >= 0.0
+
+  log "all shell/sub-shell palette properties hold."
+
+  -- ───── Electron positions grouped by sub-shell (colours M1) ─────────
+  log "grouped electron position properties:"
+
+  let
+    cElc = elementOf 6
+    groups0 = electronPositionsBySubshell cElc 0.0
+
+  -- The grouped positions flatten back to the original flat positions.
+  check "concat of sub-shell groups == electronPositions (Carbon)" $
+    concat groups0 == electronPositions cElc 0.0
+
+  -- One group per filled sub-shell, each holding that sub-shell's electrons.
+  check "group count == number of filled sub-shells (Carbon)" $
+    length groups0 == length (fillSubshells cElc.electrons)
+  check "group lengths == sub-shell electron counts (Carbon)" $
+    map length groups0 == map _.count (fillSubshells cElc.electrons)
+
+  -- Clamp-safe for the full range.
+  check "grouped positions total to Z (Krypton 36)" $
+    length (concat (electronPositionsBySubshell (elementOf 36) 0.0)) == 36
+
+  log "all grouped electron position properties hold."
 
   -- ───── Element selector input (atomos M5) ───────────────────────────
   log "element input properties:"

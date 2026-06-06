@@ -22,6 +22,7 @@ module Atom
   , subshellInclination
   , electronRadius
   , electronPositions
+  , electronPositionsBySubshell
   ) where
 
 import Prelude
@@ -339,8 +340,14 @@ subshellInclination n l = toNumber n * (pi / 5.0) + toNumber l * (pi / 9.0)
 -- plane, and inner shells orbit faster. Every electron stays exactly on its
 -- subshell radius.
 electronPositions :: Element -> Number -> Array V3
-electronPositions el frame =
-  concat (map subshellElectrons (fillSubshells el.electrons))
+electronPositions el frame = concat (electronPositionsBySubshell el frame)
+
+-- Electron world positions GROUPED by filled sub-shell (Madelung order), so each
+-- group can be coloured by its sub-shell. `concat` of the groups is exactly
+-- `electronPositions`.
+electronPositionsBySubshell :: Element -> Number -> Array (Array V3)
+electronPositionsBySubshell el frame =
+  map subshellElectrons (fillSubshells el.electrons)
   where
   subshellElectrons ss =
     let
