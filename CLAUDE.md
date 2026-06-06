@@ -8,12 +8,18 @@ on-screen switch:
 - **atomos** — a 3D atom visualizer in near-black space with a starfield: a
   nucleus of proton (red) + neutron (gray) spheres and electrons on animated
   orbits. The atom is **configurable by element** (Z = 1..36, H…Kr) via a
-  selector. Electrons fill **sub-shells (orbitals)** in Madelung/Aufbau order
-  (each subshell capped at 4ℓ+2: s2 p6 d10 f14 g18), so e.g. Krypton resolves to
-  `1s² 2s² 2p⁶ 3s² 3p⁶ 4s² 3d¹⁰ 4p⁶` → shells `[2,8,18,8]`. Each sub-shell draws a
-  **thin orbital ring line** tracing its electron orbit, and an **orbital-info
-  overlay** shows the live electron-configuration string. (Idealized Madelung
-  filling — the Cr/Cu ground-state anomalies are intentionally not modeled.)
+  selector. Electrons fill **sub-shells** in Madelung/Aufbau order (each subshell
+  capped at 4ℓ+2), so e.g. Krypton resolves to `1s² 2s² 2p⁶ 3s² 3p⁶ 4s² 3d¹⁰ 4p⁶`.
+  Each occupied **real orbital** is rendered as its true quantum-mechanical
+  **shape** (s spheres, p dumbbells, d cloverleafs — from the spherical-harmonic
+  angular functions), sized by a **physical radius** `r ∝ n²/Z_eff` with Z_eff
+  from **Slater's rules**, and **dimmed by occupancy** so **Hund's rule** is
+  visible (singly-occupied orbitals are darker than paired). Electron–electron
+  repulsion is represented the QM way — Hund + orbital orthogonality — not a
+  classical solver. An **orbital-info overlay** shows the live electron
+  configuration. (Idealized Madelung; Cr/Cu anomalies not modeled. Scope: s/p/d
+  only — Z≤36; analytic angular "balloon", not |ψ|² isosurfaces; no phase
+  two-tone or transparency.)
 
 Each fundamental particle is a sphere. Perspective projection + canvas-resize
 throughout.
@@ -44,10 +50,11 @@ Module map (under `src/`):
 | `Graphics.GL` | `GL.purs` + `GL.js` | WebGL2 FFI: renderer, meshes, colors, clear color, draw calls |
 | `Math.Matrix` | `Math/Matrix.purs` | Matrix linear algebra (multiply, projection, `translate`, `scale`, `shear`, etc.) |
 | `Vector` | `Vector.purs` | Rotation matrices (`rotateX/Y/Z`) and vector ops |
-| `Meshes` | `Meshes.purs` | Geometry specs: cubes, world (`groundPlane`, `gridFloor`), `sphere` (particles/stars), and `orbitRing` (thin per-sub-shell orbital line) |
+| `Meshes` | `Meshes.purs` | Geometry specs: cubes, world (`groundPlane`, `gridFloor`), `sphere` (particles/stars), `orbitRing` (legacy ring line), and `orbitalMesh`/`angularValue` (real s/p/d orbital-shape "balloon" surfaces) |
+| `Orbital` | `Orbital.purs` | QM orbital model: real orbitals per sub-shell (`OrbShape`/`orbitalsFor`) filled by Aufbau+Hund+Pauli; Slater `zEff` + physical `rScale`/`meanRadius`; `occBrightness` (Hund occupancy) |
 | `World` | `World.purs` | Static world-backdrop constants/transforms (`groundTransform`, `gridTransform`, `skyColor`) |
 | `Scene` | `Scene.purs` | `Scene = CubePoc \| Atomos`, `nextScene`, atomos `spaceColor` |
-| `Atom` | `Atom.purs` | Element table (Z=1..36, H…Kr) + Madelung sub-shell filling (`fillSubshells`/`subshellCap`/`configString`, per-shell totals derived via `electronShells`) + nucleon cluster + `electronPositions` (per-subshell orbital rings, `subshellRadius`) |
+| `Atom` | `Atom.purs` | Element table (Z=1..36, H…Kr) + Madelung sub-shell filling (`fillSubshells`/`subshellCap`/`configString`, per-shell totals via `electronShells`) + nucleon cluster. (`electronPositions`/`subshellRadius` retained but superseded by the `Orbital` model for rendering) |
 | `Starfield` | `Starfield.purs` | Deterministic Fibonacci-sphere star positions for the atomos backdrop |
 | `Text` | `Text.purs` + `Text.js` | anime.js **HTML overlay-text** FFI (`scrambleInto`/`setVisible`) — DOM only, never WebGL. Drives the atomos element label, scene-title banner, and orbital-info (electron-configuration) overlay |
 | `FRP.Loop` | `FRP/Loop.purs` + `FRP/Loop.js` | rAF loop + input plumbing (keyboard, mouse, shear button, scene toggle, element selector → `Input`) |
