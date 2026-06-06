@@ -3,7 +3,7 @@ module Test.Main where
 import Prelude
 
 import Data.Array (all, filter, index, length, mapWithIndex, range, zipWith)
-import Data.Foldable (maximum, minimum)
+import Data.Foldable (maximum, minimum, sum)
 import Data.Maybe (fromMaybe, isNothing)
 import FRP.Loop (emptyInput)
 import Data.Number (abs, sqrt)
@@ -12,6 +12,7 @@ import Effect.Console (log)
 import Effect.Exception (throw)
 import Math.Matrix as M
 
+import Atom (electronShells, elementOf, nucleusRadius, nucleons)
 import Meshes (groundPlane, gridFloor, sphere)
 import Scene (Scene(..), nextScene)
 import Starfield (starPositions)
@@ -294,6 +295,38 @@ main = do
     all (\p -> sqrt (p.x * p.x + p.y * p.y + p.z * p.z) > 800.0) starPositions
 
   log "all scene + starfield properties hold."
+
+  -- ───── Atom model + nucleus (atomos M3) ─────────────────────────────
+  log "atom model properties:"
+
+  let
+    cEl = elementOf 6
+    oEl = elementOf 8
+    heEl = elementOf 2
+    hEl = elementOf 1
+
+  -- Element table: protons = Z, neutrons (common isotope), electrons = Z.
+  check "Carbon = 6p 6n 6e" $ cEl.protons == 6 && cEl.neutrons == 6 && cEl.electrons == 6
+  check "Oxygen = 8p 8n 8e" $ oEl.protons == 8 && oEl.neutrons == 8 && oEl.electrons == 8
+  check "Helium = 2p 2n 2e" $ heEl.protons == 2 && heEl.neutrons == 2 && heEl.electrons == 2
+  check "Hydrogen = 1p 0n 1e" $ hEl.protons == 1 && hEl.neutrons == 0 && hEl.electrons == 1
+
+  -- Electron shells fill 2, 8, 8, …
+  check "Carbon shells = [2,4]" $ electronShells 6 == [ 2, 4 ]
+  check "Oxygen shells = [2,6]" $ electronShells 8 == [ 2, 6 ]
+  check "Helium shells = [2]" $ electronShells 2 == [ 2 ]
+  check "shells sum to electron count (C)" $ sum (electronShells 6) == 6
+
+  -- Out-of-range Z clamps into the supported table (no crash).
+  check "Z is clamped to a valid element" $ (elementOf 999).protons >= 1
+
+  -- The nucleus is a cluster of protons+neutrons spheres within the nucleus radius.
+  let cNuc = nucleons cEl
+  check "Carbon nucleus has 12 nucleons" $ length cNuc == 12
+  check "nucleons sit within the nucleus radius" $
+    all (\n -> sqrt (n.pos.x * n.pos.x + n.pos.y * n.pos.y + n.pos.z * n.pos.z) <= nucleusRadius + epsilon) cNuc
+
+  log "all atom model properties hold."
 
 -- Extract every Nth element starting at `start` (used to pluck x/y/z columns).
 everyNth :: Int -> Int -> Array Number -> Array Number

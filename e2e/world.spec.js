@@ -94,6 +94,20 @@ test('atomos: scene switch flips backdrop sky-blue → near-black', async ({ pag
   expect(skyAgain[2]).toBeGreaterThan(120);
 });
 
+// atomos M3: in atomos, a nucleus (proton/neutron spheres) is visible at center.
+test('atomos: nucleus visible at center', async ({ page }) => {
+  await page.click('#scene-toggle'); // → atomos
+  await page.waitForTimeout(300);
+
+  const space = await readPixel(page, 0.5, 0.04);   // deep-space backdrop (dark)
+  const center = await readPixel(page, 0.5, 0.5);    // nucleus cluster at center
+
+  // The center is lit nucleon geometry, clearly brighter than the dark backdrop.
+  const spaceSum = space[0] + space[1] + space[2];
+  const centerSum = center[0] + center[1] + center[2];
+  expect(centerSum).toBeGreaterThan(spaceSum + 60);
+});
+
 // M4: sky backdrop (top is sky-blue, not white) + ground/sky differ.
 test('M4: sky backdrop and horizon transition', async ({ page }) => {
   const top = await readPixel(page, 0.5, 0.03);     // sky region

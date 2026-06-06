@@ -20,6 +20,8 @@ import Graphics.GL (Mesh, Renderer, SolidMesh)
 import Graphics.GL as GL
 import Math.Matrix (Matrix)
 import Math.Matrix as M
+import Atom (Nucleon(..))
+import Atom as Atom
 import Meshes as Meshes
 import Scene (Scene(..), nextScene, spaceColor)
 import Starfield (starPositions)
@@ -32,6 +34,7 @@ type State =
   , mouseLast :: Maybe { x :: Int, y :: Int }
   , frame :: Number
   , scene :: Scene
+  , element :: Int
   }
 
 -- A renderable mesh is either a solid lit mesh or a wireframe mesh; the draw
@@ -86,6 +89,7 @@ initialState =
   , mouseLast: Nothing
   , frame: 0.0
   , scene: CubePoc
+  , element: 6 -- Carbon by default
   }
 
 -- Perspective projection composed with a camera-distance translation.
@@ -206,8 +210,11 @@ main = do
       gridMesh <- GL.createWireframeMesh renderer (Meshes.gridFloor groundExtent gridDivisions)
       mainMesh <- GL.createSolidMesh renderer Meshes.solidMainCube
       satMesh <- GL.createSolidMesh renderer Meshes.solidSatelliteCube
-      -- Atomos scene meshes: one shared star sphere reused across all stars.
+      -- Atomos scene meshes: shared spheres reused (with different model
+      -- matrices) across all stars / protons / neutrons.
       starMesh <- GL.createSolidMesh renderer starSphere
+      protonMesh <- GL.createSolidMesh renderer protonSphere
+      neutronMesh <- GL.createSolidMesh renderer neutronSphere
       let
         cubeEntities :: Array Entity
         cubeEntities =
@@ -217,18 +224,28 @@ main = do
           , { mesh: Solid satMesh, modelMatrix: satelliteTransform }
           ]
 
-        atomosEntities :: Array Entity
-        atomosEntities =
+        starEntities :: Array Entity
+        starEntities =
           map
-            ( \p ->
-                { mesh: Solid starMesh, modelMatrix: \_ -> M.translate p.x p.y p.z }
-            )
+            (\p -> { mesh: Solid starMesh, modelMatrix: \_ -> M.translate p.x p.y p.z })
             starPositions
+
+        -- Nucleus is rebuilt from the current element each frame (cheap, pure);
+        -- proton/neutron meshes are shared.
+        nucleusEntities :: State -> Array Entity
+        nucleusEntities s =
+          map
+            ( \n ->
+                { mesh: Solid (if n.kind == Proton then protonMesh else neutronMesh)
+                , modelMatrix: \_ -> M.translate n.pos.x n.pos.y n.pos.z
+                }
+            )
+            (Atom.nucleons (Atom.elementOf s.element))
 
         entitiesFor :: State -> Array Entity
         entitiesFor s = case s.scene of
           CubePoc -> cubeEntities
-          Atomos -> atomosEntities
+          Atomos -> starEntities <> nucleusEntities s
       updateViewport renderer canvas
       w0 <- getCanvasWidth canvas
       h0 <- getCanvasHeight canvas
@@ -255,3 +272,10 @@ main = do
 -- point in the starfield.
 starSphere :: Meshes.SolidSpec
 starSphere = (Meshes.sphere 8 8 10.0) { color = { r: 0.95, g: 0.95, b: 1.0, a: 1.0 } }
+
+-- Nucleon spheres: red protons, gray neutrons (shared across the nucleus).
+protonSphere :: Meshes.SolidSpec
+protonSphere = (Meshes.sphere 14 14 Atom.nucleonRadius) { color = { r: 0.90, g: 0.25, b: 0.22, a: 1.0 } }
+
+neutronSphere :: Meshes.SolidSpec
+neutronSphere = (Meshes.sphere 14 14 Atom.nucleonRadius) { color = { r: 0.62, g: 0.64, b: 0.67, a: 1.0 } }
