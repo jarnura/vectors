@@ -71,6 +71,29 @@ test('shear button: clicking shears the main cube', async ({ page }) => {
   expect(ground[1]).toBeGreaterThan(ground[0]); // still green-dominant
 });
 
+// atomos M2: the scene switch flips the cube POC (sky-blue) to atomos (near-black space).
+test('atomos: scene switch flips backdrop sky-blue → near-black', async ({ page }) => {
+  await expect(page.locator('#scene-toggle')).toBeVisible();
+
+  // Cube POC backdrop is sky-blue (blue-dominant, bright).
+  const skyBefore = await readPixel(page, 0.5, 0.04);
+  expect(skyBefore[2]).toBeGreaterThan(skyBefore[0]); // blue > red
+  expect(skyBefore[2]).toBeGreaterThan(120); // bright sky
+
+  await page.click('#scene-toggle');
+  await page.waitForTimeout(300);
+
+  // Atomos backdrop is near-black deep space.
+  const spaceAfter = await readPixel(page, 0.5, 0.04);
+  expect(spaceAfter[0] + spaceAfter[1] + spaceAfter[2]).toBeLessThan(120); // dark
+
+  // Switching back returns to the cube POC sky.
+  await page.click('#scene-toggle');
+  await page.waitForTimeout(300);
+  const skyAgain = await readPixel(page, 0.5, 0.04);
+  expect(skyAgain[2]).toBeGreaterThan(120);
+});
+
 // M4: sky backdrop (top is sky-blue, not white) + ground/sky differ.
 test('M4: sky backdrop and horizon transition', async ({ page }) => {
   const top = await readPixel(page, 0.5, 0.03);     // sky region

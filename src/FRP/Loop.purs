@@ -14,10 +14,12 @@ type Input =
   { lastKey :: Maybe String
   , mouse :: Maybe { x :: Int, y :: Int }
   , shear :: Maybe Number
+  , toggleScene :: Boolean
   }
 
 emptyInput :: Input
-emptyInput = { lastKey: Nothing, mouse: Nothing, shear: Nothing }
+emptyInput =
+  { lastKey: Nothing, mouse: Nothing, shear: Nothing, toggleScene: false }
 
 foreign import installKeyUpListener
   :: (String -> Effect Unit) -> Effect Unit
@@ -29,6 +31,10 @@ foreign import installMouseMoveListener
 -- the callback with the parsed number.
 foreign import installShearButton
   :: (Number -> Effect Unit) -> Effect Unit
+
+-- Wires the scene-switch button: runs the given effect on each click.
+foreign import installSceneToggle
+  :: Effect Unit -> Effect Unit
 
 foreign import requestAnimationFrame
   :: Effect Unit -> Effect Unit
@@ -49,6 +55,8 @@ runLoop spec = do
     Ref.modify_ (_ { mouse = Just { x, y } }) inputRef
   installShearButton \k ->
     Ref.modify_ (_ { shear = Just k }) inputRef
+  installSceneToggle
+    (Ref.modify_ (_ { toggleScene = true }) inputRef)
   let
     tick = do
       i <- Ref.read inputRef

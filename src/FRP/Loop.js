@@ -19,6 +19,12 @@ export const installShearButton = (cb) => () => {
   });
 };
 
+export const installSceneToggle = (effect) => () => {
+  const button = document.getElementById("scene-toggle");
+  if (!button) return;
+  button.addEventListener("click", () => effect());
+};
+
 export const requestAnimationFrame = (effect) => () => {
   window.requestAnimationFrame(() => effect());
 };

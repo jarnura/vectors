@@ -13,6 +13,8 @@ import Effect.Exception (throw)
 import Math.Matrix as M
 
 import Meshes (groundPlane, gridFloor, sphere)
+import Scene (Scene(..), nextScene)
+import Starfield (starPositions)
 import Vector (rotateX, rotateY, rotateZ)
 import World (groundTransform, groundY, groundExtent, gridDivisions, skyColor)
 
@@ -276,6 +278,22 @@ main = do
     all (\i -> i >= 0 && i < spVerts) sp.indices
 
   log "all sphere mesh properties hold."
+
+  -- ───── Scene switch + starfield (atomos M2) ─────────────────────────
+  log "scene + starfield properties:"
+
+  -- The on-screen switch toggles between the two scenes.
+  check "nextScene toggles CubePoc <-> Atomos" $
+    nextScene CubePoc == Atomos && nextScene Atomos == CubePoc
+
+  -- The starfield is a non-empty, deterministic set of points.
+  check "starfield has stars" $ length starPositions > 0
+
+  -- Stars sit far out (a backdrop), beyond the atom's region.
+  check "stars are far out (>800)" $
+    all (\p -> sqrt (p.x * p.x + p.y * p.y + p.z * p.z) > 800.0) starPositions
+
+  log "all scene + starfield properties hold."
 
 -- Extract every Nth element starting at `start` (used to pluck x/y/z columns).
 everyNth :: Int -> Int -> Array Number -> Array Number

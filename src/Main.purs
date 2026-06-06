@@ -21,6 +21,8 @@ import Graphics.GL as GL
 import Math.Matrix (Matrix)
 import Math.Matrix as M
 import Meshes as Meshes
+import Scene (Scene(..), nextScene, spaceColor)
+import Starfield (starPositions)
 import Vector as V
 import World (groundTransform, gridTransform, groundExtent, gridDivisions, skyColor)
 
@@ -29,6 +31,7 @@ type State =
   , speed :: Number
   , mouseLast :: Maybe { x :: Int, y :: Int }
   , frame :: Number
+  , scene :: Scene
   }
 
 -- A renderable mesh is either a solid lit mesh or a wireframe mesh; the draw
@@ -82,6 +85,7 @@ initialState =
   , speed: 0.0
   , mouseLast: Nothing
   , frame: 0.0
+  , scene: CubePoc
   }
 
 -- Perspective projection composed with a camera-distance translation.
@@ -113,12 +117,23 @@ perspectiveProjection w h =
 
 step :: Input -> State -> State
 step input =
-  applyShear input.shear
+  applyToggle input.toggleScene
+    >>> applyShear input.shear
     >>> applyKey input.lastKey
     >>> applyMouse input.mouse
     >>> tickFrame
   where
   tickFrame s = s { frame = s.frame + 1.0 }
+
+-- Flip between the cube POC and atomos when the scene switch is clicked.
+applyToggle :: Boolean -> State -> State
+applyToggle false s = s
+applyToggle true s = s { scene = nextScene s.scene }
+
+-- The backdrop (clear) color for the current scene.
+clearColorFor :: Scene -> GL.Color
+clearColorFor CubePoc = skyColor
+clearColorFor Atomos = spaceColor
 
 -- Apply a shear (by the button's input value) to the main cube's transform.
 applyShear :: Maybe Number -> State -> State
@@ -186,20 +201,34 @@ main = do
     Nothing -> log "Main: canvas element with id 'canvas' not found; aborting init"
     Just canvas -> do
       renderer <- GL.initRenderer canvas
-      GL.setClearColor renderer skyColor
+      -- Cube POC scene meshes.
       groundMesh <- GL.createSolidMesh renderer (Meshes.groundPlane groundExtent)
       gridMesh <- GL.createWireframeMesh renderer (Meshes.gridFloor groundExtent gridDivisions)
       mainMesh <- GL.createSolidMesh renderer Meshes.solidMainCube
       satMesh <- GL.createSolidMesh renderer Meshes.solidSatelliteCube
+      -- Atomos scene meshes: one shared star sphere reused across all stars.
+      starMesh <- GL.createSolidMesh renderer starSphere
       let
-        entities :: Array Entity
-        entities =
-          -- Ground + grid are static Entities: their model matrices ignore State.
+        cubeEntities :: Array Entity
+        cubeEntities =
           [ { mesh: Solid groundMesh, modelMatrix: \_ -> groundTransform }
           , { mesh: Wire gridMesh, modelMatrix: \_ -> gridTransform }
           , { mesh: Solid mainMesh, modelMatrix: _.transform }
           , { mesh: Solid satMesh, modelMatrix: satelliteTransform }
           ]
+
+        atomosEntities :: Array Entity
+        atomosEntities =
+          map
+            ( \p ->
+                { mesh: Solid starMesh, modelMatrix: \_ -> M.translate p.x p.y p.z }
+            )
+            starPositions
+
+        entitiesFor :: State -> Array Entity
+        entitiesFor s = case s.scene of
+          CubePoc -> cubeEntities
+          Atomos -> atomosEntities
       updateViewport renderer canvas
       w0 <- getCanvasWidth canvas
       h0 <- getCanvasHeight canvas
@@ -214,9 +243,15 @@ main = do
             when (prev.w /= w || prev.h /= h) do
               Ref.write { w, h } sizeRef
               updateViewport renderer canvas
+            GL.setClearColor renderer (clearColorFor s.scene)
             GL.beginFrame renderer
-            for_ entities \e ->
+            for_ (entitiesFor s) \e ->
               case e.mesh of
                 Solid m -> GL.drawSolidMesh renderer m (M.toVector (e.modelMatrix s))
                 Wire m -> GL.drawMesh renderer m (M.toVector (e.modelMatrix s))
         }
+
+-- A single small star sphere, reused (with different model matrices) for every
+-- point in the starfield.
+starSphere :: Meshes.SolidSpec
+starSphere = (Meshes.sphere 8 8 10.0) { color = { r: 0.95, g: 0.95, b: 1.0, a: 1.0 } }
