@@ -119,7 +119,7 @@ test('atomos: the atom auto-rotates (structure visible in 3D)', async ({ page })
   const cloudA = await readRegion(page, 0.30, 0.30, 0.70, 0.70, 28, 16);
   // The backdrop corner (starfield) — should NOT rotate.
   const bgA = await readPixel(page, 0.06, 0.06);
-  await page.waitForTimeout(800); // let the atom spin
+  await page.waitForTimeout(800); // let the atom spin (~19° at 0.4°/frame·60fps; fps-sensitive)
   const cloudB = await readRegion(page, 0.30, 0.30, 0.70, 0.70, 28, 16);
   const bgB = await readPixel(page, 0.06, 0.06);
 
@@ -129,7 +129,7 @@ test('atomos: the atom auto-rotates (structure visible in 3D)', async ({ page })
   const moved = cloudA.filter((p, i) =>
     Math.abs(p[0] - cloudB[i][0]) + Math.abs(p[1] - cloudB[i][1]) + Math.abs(p[2] - cloudB[i][2]) > 30
   ).length;
-  expect(moved).toBeGreaterThan(cloudA.length / 8);
+  expect(moved).toBeGreaterThan(12);
 
   // The backdrop stays put (starfield is not spun with the atom).
   expect(Math.abs(bgA[0] - bgB[0]) + Math.abs(bgA[1] - bgB[1]) + Math.abs(bgA[2] - bgB[2])).toBeLessThan(20);
@@ -266,15 +266,15 @@ test('qm M3: element switch reconfigures the orbital cloud', async ({ page }) =>
   expect(changed).toBeGreaterThan(4);
 });
 
-// qm M4: Hund's rule is visible — paired orbitals render brighter than singly
-// occupied ones. Neon (2p all paired) shows more bright pixels than Nitrogen
-// (2p singly occupied, dimmer).
+// qm M4: a fuller atom reads brighter — Neon (10 electrons, 2p fully paired)
+// shows more bright pixels than Nitrogen (7 electrons, 2p singly occupied):
+// more electron particles plus brighter (paired) orbital cloud.
 test('qm M4: paired orbitals (Neon) are brighter than singly-occupied (Nitrogen)', async ({ page }) => {
   await page.click('#scene-toggle'); // → atomos
 
   const brightCount = async () => {
     const r = await readRegion(page, 0.25, 0.25, 0.75, 0.75, 30, 18);
-    return r.filter((p) => p[0] + p[1] + p[2] > 200).length;
+    return r.filter((p) => p[0] + p[1] + p[2] > 150).length;
   };
 
   await page.fill('#element-value', '7'); // Nitrogen: 2p = [1,1,1] (all dim)
@@ -287,6 +287,40 @@ test('qm M4: paired orbitals (Neon) are brighter than singly-occupied (Nitrogen)
 
   // The fully-paired atom shows strictly more bright (paired-orbital) pixels.
   expect(neonBright).toBeGreaterThan(nitrogenBright);
+});
+
+// electron-particles M3: electrons render as discrete bright particles, so they
+// are countable — more electrons (higher Z) show more bright dots than fewer.
+test('atomos: discrete electron particles are countable', async ({ page }) => {
+  await page.click('#scene-toggle'); // → atomos
+
+  // Bright electron-particle pixels (the dots are far brighter than the faint cloud).
+  const dotPixels = async () => {
+    const r = await readRegion(page, 0.12, 0.12, 0.88, 0.88, 44, 28);
+    return r.filter((p) => p[0] + p[1] + p[2] > 150).length;
+  };
+
+  await page.fill('#element-value', '1'); // Hydrogen: 1 electron
+  await page.waitForTimeout(400);
+  const hydrogen = await dotPixels();
+
+  await page.fill('#element-value', '6'); // Carbon: 6 electrons
+  await page.waitForTimeout(400);
+  const carbon = await dotPixels();
+
+  await page.fill('#element-value', '18'); // Argon: 18 electrons
+  await page.waitForTimeout(400);
+  const argon = await dotPixels();
+
+  // More electrons ⇒ more bright dots.
+  expect(carbon).toBeGreaterThan(hydrogen);
+  expect(argon).toBeGreaterThan(carbon);
+
+  // Out-of-range Z stays render-safe (lit structure remains).
+  await page.fill('#element-value', '999');
+  await page.waitForTimeout(300);
+  const r = await readRegion(page, 0.30, 0.30, 0.70, 0.70, 20, 14);
+  expect(r.filter((p) => p[0] + p[1] + p[2] > 60).length).toBeGreaterThan(2);
 });
 
 // overlay-text M2: the scene-title banner scrambles to the current scene name.

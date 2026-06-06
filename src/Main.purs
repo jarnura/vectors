@@ -290,6 +290,8 @@ main = do
       dx2y22 <- GL.createSolidMesh renderer (orbitalShape O.Dx2y2 orbitalDColor 2)
       dxy1 <- GL.createSolidMesh renderer (orbitalShape O.Dxy orbitalDColor 1)
       dxy2 <- GL.createSolidMesh renderer (orbitalShape O.Dxy orbitalDColor 2)
+      -- One bright electron particle sphere, instanced at every electron site.
+      electronMesh <- GL.createSolidMesh renderer electronParticle
       let
         cubeEntities :: Array Entity
         cubeEntities =
@@ -351,10 +353,22 @@ main = do
             )
             (filter (\o -> o.occ > 0) (O.orbitalsFor s.element))
 
+        -- One bright electron particle per electron, at its orbital lobe tip
+        -- (Slater radius), riding the atom's auto-rotation. Countable: Z dots.
+        electronEntities :: State -> Array Entity
+        electronEntities s =
+          map
+            ( \p ->
+                { mesh: Solid electronMesh
+                , modelMatrix: \st -> atomModel st.frame (M.translate p.x p.y p.z)
+                }
+            )
+            (O.electronSites s.element)
+
         entitiesFor :: State -> Array Entity
         entitiesFor s = case s.scene of
           CubePoc -> cubeEntities
-          Atomos -> starEntities <> orbitalEntities s <> nucleusEntities s
+          Atomos -> starEntities <> orbitalEntities s <> electronEntities s <> nucleusEntities s
       updateViewport renderer canvas
       w0 <- getCanvasWidth canvas
       h0 <- getCanvasHeight canvas
@@ -402,11 +416,25 @@ orbitalRes = 18
 -- darker than paired ones, so Hund's rule reads visually).
 orbitalShape :: O.OrbShape -> GL.Color -> Int -> Meshes.SolidSpec
 orbitalShape shape color occ =
-  (Meshes.orbitalMesh orbitalRes orbitalRes 1.0 shape) { color = dim (O.occBrightness occ) color }
+  (Meshes.orbitalMesh orbitalRes orbitalRes 1.0 shape)
+    { color = dim (cloudDim * O.occBrightness occ) color }
+
+-- How faint the orbital "cloud" is rendered, so the bright electron particles
+-- stand out in front of it (the lobes are a soft halo, not a solid wall).
+cloudDim :: Number
+cloudDim = 0.3
 
 -- Scale a colour's RGB by a brightness factor (alpha unchanged).
 dim :: Number -> GL.Color -> GL.Color
 dim f c = { r: c.r * f, g: c.g * f, b: c.b * f, a: c.a }
+
+-- A single bright electron particle sphere (reused for every electron site).
+electronParticleRadius :: Number
+electronParticleRadius = 24.0
+
+electronParticle :: Meshes.SolidSpec
+electronParticle =
+  (Meshes.sphere 12 12 electronParticleRadius) { color = { r: 1.0, g: 0.95, b: 0.55, a: 1.0 } }
 
 -- s orbitals (cyan), p orbitals (blue), d orbitals (violet).
 orbitalSColor :: GL.Color
