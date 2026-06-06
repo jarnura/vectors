@@ -14,7 +14,7 @@ import Math.Matrix as M
 
 import Atom (electronPositions, electronShells, elementName, elementOf, nucleusRadius, nucleons, shellRadius)
 import Meshes (groundPlane, gridFloor, sphere)
-import Scene (Scene(..), nextScene)
+import Scene (Scene(..), nextScene, sceneTitle)
 import Starfield (starPositions)
 import Vector (rotateX, rotateY, rotateZ)
 import World (groundTransform, groundY, groundExtent, gridDivisions, skyColor)
@@ -378,6 +378,14 @@ main = do
   check "elementName 999 is a valid clamped name" $ elementName 999 == "Oxygen"
 
   log "all element name properties hold."
+
+  -- ───── Scene titles for the banner (overlay-text M2) ────────────────
+  log "scene title properties:"
+
+  check "sceneTitle CubePoc = Cube POC" $ sceneTitle CubePoc == "Cube POC"
+  check "sceneTitle Atomos = atomos" $ sceneTitle Atomos == "atomos"
+
+  log "all scene title properties hold."
 
 -- Extract every Nth element starting at `start` (used to pluck x/y/z columns).
 everyNth :: Int -> Int -> Array Number -> Array Number

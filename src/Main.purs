@@ -23,7 +23,7 @@ import Math.Matrix as M
 import Atom (Nucleon(..))
 import Atom as Atom
 import Meshes as Meshes
-import Scene (Scene(..), nextScene, spaceColor)
+import Scene (Scene(..), nextScene, sceneTitle, spaceColor)
 import Starfield (starPositions)
 import Text as Text
 import Vector as V
@@ -158,6 +158,7 @@ updateOverlay ref s = do
     elementChanged = prev.element /= s.element
     inAtomos = s.scene == Atomos
   when sceneChanged do
+    Text.scrambleInto "scene-title" (sceneTitle s.scene)
     Text.setVisible "atom-label" inAtomos
     when inAtomos (Text.scrambleInto "atom-label" (Atom.elementName s.element))
   when (elementChanged && inAtomos) do

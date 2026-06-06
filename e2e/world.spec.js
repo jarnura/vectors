@@ -174,6 +174,18 @@ test('overlay: element label shows/updates the element name', async ({ page }) =
   await expect(label).toBeHidden();
 });
 
+// overlay-text M2: the scene-title banner scrambles to the current scene name.
+test('overlay: scene title updates on scene switch', async ({ page }) => {
+  const title = page.locator('#scene-title');
+  await expect(title).toHaveText('Cube POC');
+
+  await page.click('#scene-toggle'); // → atomos
+  await expect(title).toHaveText('atomos', { timeout: 4000 });
+
+  await page.click('#scene-toggle'); // → back to cube POC
+  await expect(title).toHaveText('Cube POC', { timeout: 4000 });
+});
+
 // M4: sky backdrop (top is sky-blue, not white) + ground/sky differ.
 test('M4: sky backdrop and horizon transition', async ({ page }) => {
   const top = await readPixel(page, 0.5, 0.03);     // sky region

@@ -4,6 +4,7 @@
 module Scene
   ( Scene(..)
   , nextScene
+  , sceneTitle
   , spaceColor
   ) where
 
@@ -21,6 +22,11 @@ derive instance eqScene :: Eq Scene
 nextScene :: Scene -> Scene
 nextScene CubePoc = Atomos
 nextScene Atomos = CubePoc
+
+-- Human-readable scene name, used by the overlay title banner.
+sceneTitle :: Scene -> String
+sceneTitle CubePoc = "Cube POC"
+sceneTitle Atomos = "atomos"
 
 -- Near-black "deep space" backdrop for the atomos scene.
 spaceColor :: Color
