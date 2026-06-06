@@ -8,9 +8,10 @@ on-screen switch:
 - **atomos** — a 3D atom visualizer in deep space: a nucleus of proton (red) and
   neutron (gray) spheres with electrons on animated orbital rings, configurable
   by element (Z = 1..36, H…Kr). Electrons fill **sub-shells** in Madelung/Aufbau
-  order (each subshell capped at 4ℓ+2), so each subshell renders as its own ring.
-  An animated **element-name label** and a **scene-title banner** (anime.js text
-  scramble, HTML overlay) react to the controls.
+  order (each subshell capped at 4ℓ+2); each sub-shell draws a **thin orbital ring
+  line** tracing its orbit. An **element-name label**, a **scene-title banner**,
+  and an **orbital-info overlay** (live electron configuration) — all anime.js
+  text scramble, HTML overlay — react to the controls.
 
 ## Controls
 
