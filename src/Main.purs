@@ -224,6 +224,25 @@ satelliteTransform s =
       0.0
       (satelliteOrbitRadius * sin angleRad)
 
+-- Degrees the atomos atom spins per frame (slow, so structure reads in 3D).
+atomSpinDegreesPerFrame :: Number
+atomSpinDegreesPerFrame = 0.4
+
+-- Fixed tilt so the spin axis isn't edge-on to the camera.
+atomTiltDegrees :: Number
+atomTiltDegrees = 18.0
+
+-- Frame-driven rotation of the whole atom (a slow Y spin under a fixed tilt).
+atomSpin :: Number -> Matrix Number
+atomSpin frame =
+  M.multiply (V.rotateX atomTiltDegrees) (V.rotateY (frame * atomSpinDegreesPerFrame))
+
+-- Compose the atom's auto-rotation onto an entity's base model matrix. Factored
+-- as a per-atom transform so a future bonding phase can offset a second atom by
+-- pre-multiplying a translation, without touching the pure model.
+atomModel :: Number -> Matrix Number -> Matrix Number
+atomModel frame base = M.multiply (atomSpin frame) base
+
 updateViewport :: Renderer -> CanvasElement -> Effect Unit
 updateViewport renderer canvas = do
   w <- getCanvasWidth canvas
@@ -293,7 +312,7 @@ main = do
           map
             ( \n ->
                 { mesh: Solid (if n.kind == Proton then protonMesh else neutronMesh)
-                , modelMatrix: \_ -> M.translate n.pos.x n.pos.y n.pos.z
+                , modelMatrix: \st -> atomModel st.frame (M.translate n.pos.x n.pos.y n.pos.z)
                 }
             )
             (Atom.nucleons (Atom.elementOf s.element))
@@ -326,7 +345,9 @@ main = do
                 let
                   r = O.rScale s.element o.n o.l
                 in
-                  { mesh: Solid (meshForShape o.kind o.occ), modelMatrix: \_ -> M.scale r r r }
+                  { mesh: Solid (meshForShape o.kind o.occ)
+                  , modelMatrix: \st -> atomModel st.frame (M.scale r r r)
+                  }
             )
             (filter (\o -> o.occ > 0) (O.orbitalsFor s.element))
 

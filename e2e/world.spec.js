@@ -108,25 +108,31 @@ test('atomos: nucleus visible at center', async ({ page }) => {
   expect(centerSum).toBeGreaterThan(spaceSum + 60);
 });
 
-// atomos: the QM orbital lobes render as a lit, stable cloud around the nucleus
-// (orbitals are static probability shapes, not moving point electrons).
-test('atomos: orbital lobes form a stable lit cloud', async ({ page }) => {
+// atomos: the atom auto-rotates so its 3D structure is visible without dragging
+// — the central atom region changes across frames while the starfield stays put.
+test('atomos: the atom auto-rotates (structure visible in 3D)', async ({ page }) => {
   await page.click('#scene-toggle'); // → atomos
   await page.fill('#element-value', '7'); // Nitrogen: filled p lobes around the core
   await page.waitForTimeout(400);
 
-  // A band around the nucleus where the orbital lobes sit.
+  // A band around the nucleus where the orbital structure sits.
   const cloudA = await readRegion(page, 0.30, 0.30, 0.70, 0.70, 28, 16);
-  await page.waitForTimeout(700);
+  // The backdrop corner (starfield) — should NOT rotate.
+  const bgA = await readPixel(page, 0.06, 0.06);
+  await page.waitForTimeout(800); // let the atom spin
   const cloudB = await readRegion(page, 0.30, 0.30, 0.70, 0.70, 28, 16);
+  const bgB = await readPixel(page, 0.06, 0.06);
 
-  // The orbital structure is lit (more than one colour bucket) ...
+  // Lit structure present ...
   expect(distinctColors(cloudA)).toBeGreaterThan(1);
-  // ... and static: the lobes do not sweep like the old point electrons.
+  // ... and the atom rotates: a meaningful fraction of the region changes.
   const moved = cloudA.filter((p, i) =>
     Math.abs(p[0] - cloudB[i][0]) + Math.abs(p[1] - cloudB[i][1]) + Math.abs(p[2] - cloudB[i][2]) > 30
   ).length;
-  expect(moved).toBeLessThan(cloudA.length / 2);
+  expect(moved).toBeGreaterThan(cloudA.length / 8);
+
+  // The backdrop stays put (starfield is not spun with the atom).
+  expect(Math.abs(bgA[0] - bgB[0]) + Math.abs(bgA[1] - bgB[1]) + Math.abs(bgA[2] - bgB[2])).toBeLessThan(20);
 });
 
 // atomos M5: the element selector reconfigures the atom (nucleus changes).
