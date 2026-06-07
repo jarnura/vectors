@@ -1,7 +1,8 @@
 # vectors
 
-A PureScript + WebGL2 3D graphics demo with two **scenes**, toggled by an
-on-screen switch:
+A PureScript + WebGL2 3D graphics demo — **slice 1 of a vertical-sliced
+"learn matter" learning platform** (atoms → chemistry → properties of matter) —
+with three **scenes**, toggled by an on-screen switch (`nextScene` 3-cycles):
 - **Cube POC** — a solid-lit main cube + orbiting satellite inside a world
   backdrop (green ground, wireframe grid, sky-blue horizon), with
   mouse/keyboard rotation and a **Shear** control.
@@ -20,6 +21,14 @@ on-screen switch:
   electrons ride those flat circles, and the nucleus flattens to the plane;
   unchecking restores the tilted 3D orbital system (sub-shell colours kept in
   both views). (Idealized Madelung; Cr/Cu anomalies not modeled.)
+- **Molecule** — a 3D **H₂ molecule** in the same near-black space: two hydrogen
+  nuclei whose covalent bond is rendered as a **shared electron pair** sitting in
+  the internuclear overlap (no stick), frame-animated. All controls are **anime.js**
+  driven: a **#bond-btn** ("Form bond") runs an anime.js bond-formation animation
+  that draws the two atoms together (tweening `State.bondProgress`), and an animated
+  **#molecule-info details panel** is populated **data-driven** from the molecule's
+  properties. The `Molecule` model is **open-ended** — a molecule registry of
+  records (atoms/bonds/properties) — so H₂ is just the first entry of a growing set.
 
 Each fundamental particle is a sphere. Perspective projection + canvas-resize
 throughout.
@@ -35,7 +44,8 @@ throughout.
 
 Toolchain: spago + purs 0.15.16 + esbuild, driven via npm. PureScript deps are
 declared in `spago.yaml`; npm holds the dev toolchain, Playwright, and
-**animejs** (used via the `Text` FFI for HTML overlay text only — never WebGL).
+**animejs** (used via the `Text` and `Controls` FFIs for HTML overlay text and
+molecule controls only — never WebGL).
 
 ## Architecture
 
@@ -46,24 +56,27 @@ Module map (under `src/`):
 
 | Module | Files | Role |
 |--------|-------|------|
-| `Main` | `Main.purs` | Entry point; wires canvas, renderer, loop, input; builds per-scene `Entity` lists and selects on `State.scene`. `EntityMesh = Solid \| Wire` dispatch |
+| `Main` | `Main.purs` | Entry point; wires canvas, renderer, loop, input; builds per-scene `Entity` lists and selects on `State.scene`. `EntityMesh = Solid \| Wire` dispatch. Molecule scene renders two nuclei + the shared electron pair model-driven; `#bond-btn` runs the anime.js bond animation (drawing atoms together via `State.bondProgress`); `updateOverlay` shows `#molecule-info` only in the molecule scene |
 | `Graphics.GL` | `GL.purs` + `GL.js` | WebGL2 FFI: renderer, meshes, colors, clear color, draw calls |
 | `Math.Matrix` | `Math/Matrix.purs` | Matrix linear algebra (multiply, projection, `translate`, `scale`, `shear`, etc.) |
 | `Vector` | `Vector.purs` | Rotation matrices (`rotateX/Y/Z`) and vector ops |
 | `Meshes` | `Meshes.purs` | Geometry specs: cubes, world (`groundPlane`, `gridFloor`), `sphere` (particles/stars), `orbitRing` (thin per-sub-shell orbital ring line), and `orbitRingFlat` (flat XY-plane ring for the 2D Bohr view) |
 | `World` | `World.purs` | Static world-backdrop constants/transforms (`groundTransform`, `gridTransform`, `skyColor`) |
-| `Scene` | `Scene.purs` | `Scene = CubePoc \| Atomos`, `nextScene`, atomos `spaceColor` |
+| `Scene` | `Scene.purs` | `Scene = CubePoc \| Atomos \| Molecule` (3 scenes), `nextScene` (3-cycles), atomos `spaceColor` |
 | `Atom` | `Atom.purs` | Element table (Z=1..36, H…Kr) + Madelung sub-shell filling (`fillSubshells`/`subshellCap`/`configString`, per-shell totals via `electronShells`) + nucleon cluster + `electronPositions` (discrete electrons on per-sub-shell orbital rings, `subshellRadius`/`subshellInclination`; `electronPositionsBySubshell2D` gives flat XY-plane positions for the 2D Bohr view) |
+| `Molecule` | `Molecule.purs` | Pure, open-ended molecule model: records `Bond {a,b,order,shared}` / `MolAtom {element,center}` / `Property {label,value}` / `Molecule {name,formula,atoms,bonds,properties}`; a `molecules` registry + total/clamp-safe `moleculeOf`; `bondLength`; `sharedElectronPositions` (the shared covalent pair in the internuclear overlap, frame-animated); `moleculeNucleons` (reuses `Atom.nucleons` per atom, translated). Imports `Atom` only |
+| `Controls` | `Controls.purs` + `Controls.js` | DOM-only **anime.js** controls FFI (imports only animejs; never WebGL): `renderInfoPanel` (data-driven `#molecule-info` rows + anime.js stagger reveal), `installBondButton`, `runBondAnimation` (tweens a JS value → `State.bondProgress`). Sibling to `Text` |
 | `Palette` | `Palette.purs` | Shell/sub-shell colours: `shellColor n` (distinct per shell) + `subshellColor n l` (shell hue, lighter by ℓ). Pure |
 | `Starfield` | `Starfield.purs` | Deterministic Fibonacci-sphere star positions for the atomos backdrop |
-| `Text` | `Text.purs` + `Text.js` | anime.js **HTML overlay-text** FFI (`scrambleInto`/`setVisible`) — DOM only, never WebGL. Drives the atomos element label, scene-title banner, and orbital-info (electron-configuration) overlay |
-| `FRP.Loop` | `FRP/Loop.purs` + `FRP/Loop.js` | rAF loop + input plumbing (keyboard, mouse, shear button, scene toggle, element selector, `#view-2d` checkbox via `installView2DToggle` → `Input`) |
+| `Text` | `Text.purs` + `Text.js` | anime.js **HTML overlay-text** FFI (`scrambleInto`/`setVisible`) — DOM only, never WebGL. Drives the atomos element label, scene-title banner, and orbital-info (electron-configuration) overlay. (`Controls` is the sibling control FFI for the molecule scene.) |
+| `FRP.Loop` | `FRP/Loop.purs` + `FRP/Loop.js` | rAF loop + input plumbing (keyboard, mouse, shear button, scene toggle, element selector, `#view-2d` checkbox via `installView2DToggle`, and a `bondProgress` channel via `installBondButton` → `Input`) |
 
 State is a plain record (`transform`, `speed`, `mouseLast`, `frame`, `scene`,
-`element`, `view2D`) advanced each frame (the `Input` channel gained `toggle2D`,
-applied via `Main.applyToggle2D`); updates return new records rather than mutating.
-The world meshes, nucleus, and starfield use scene-/element-derived transforms;
-electrons advance with `frame`.
+`element`, `view2D`, `bondProgress`) advanced each frame (the `Input` channel
+gained `toggle2D`, applied via `Main.applyToggle2D`, and a `bondProgress` channel
+fed by the anime.js bond animation); updates return new records rather than
+mutating. The world meshes, nucleus, and starfield use scene-/element-derived
+transforms; electrons and the shared molecule pair advance with `frame`.
 
 ## Conventions
 
@@ -72,9 +85,10 @@ electrons advance with `frame`.
 - Ship tests alongside behavior changes. Unit tests are hand-rolled assertions
   in `test/Main.purs` (`1e-10` tolerance) covering `Math.Matrix`, `Vector`,
   `Meshes` (world geometry), and `World`. Browser behavior is covered by
-  Playwright canvas-verification specs in `e2e/` (run with `npm run e2e`).
-  Untested: `Graphics.GL` FFI internals, `FRP.Loop`. PureScript is formatted
-  with `purs-tidy`.
+  Playwright canvas-verification specs in `e2e/` (run with `npm run e2e`;
+  `playwright.config.js` sets `retries: 2` for SwiftShader render-timing
+  robustness). Untested: `Graphics.GL` FFI internals, `FRP.Loop`. PureScript is
+  formatted with `purs-tidy`.
 - Do NOT commit build output. `dist/`, `output/`, `.spago/`, `node_modules/`
   are gitignored.
 - Keep each FFI `.js` file paired with its `.purs` module, and type all FFI

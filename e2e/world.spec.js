@@ -472,17 +472,28 @@ test('molecule: H₂ shows two nuclei flanking a shared electron pair', async ({
     return { left, middle, right };
   };
   const strip = () => readRegion(page, 0.10, 0.36, 0.90, 0.64, COLS, ROWS);
+  // Poll until the centre band has actually painted (the middle third is lit in
+  // both the centred atom and H₂), rather than trusting a fixed timeout — robust
+  // to slow cold-start frames under full-suite/CI load.
+  const sampleWhenReady = async () => {
+    for (let i = 0; i < 25; i++) {
+      const s = thirds(await strip());
+      if (s.middle > 0) return s;
+      await page.waitForTimeout(120);
+    }
+    return thirds(await strip());
+  };
 
   // --- atomos baseline: a single Hydrogen atom (sparsest, centred) -----------
   await page.click('#scene-toggle'); // → atomos
   await page.fill('#element-value', '1'); // Hydrogen: 1 centred proton
   await page.waitForTimeout(500);
-  const atom = thirds(await strip());
+  const atom = await sampleWhenReady();
 
   // --- molecule: H₂ ----------------------------------------------------------
   await page.click('#scene-toggle'); // → molecule
   await page.waitForTimeout(700); // let the H₂ scene render + animate
-  const mol = thirds(await strip());
+  const mol = await sampleWhenReady();
 
   // H₂ lights all three thirds: left nucleus, shared electrons, right nucleus.
   expect(mol.left).toBeGreaterThan(0);

@@ -1,7 +1,8 @@
 # vectors
 
-A small **PureScript + WebGL2** 3D graphics demo with two scenes, toggled by an
-on-screen switch:
+A small **PureScript + WebGL2** 3D graphics demo — slice 1 of a vertical-sliced
+**"learn matter"** platform (atoms → chemistry → properties of matter) — with
+three scenes, toggled by an on-screen switch:
 
 - **Cube POC** — a solid-lit cube + orbiting satellite inside a simple world
   (green ground, wireframe grid, sky-blue horizon).
@@ -15,14 +16,22 @@ on-screen switch:
   tilted 3D orbital system. An **element-name label**, a
   **scene-title banner**, and an **orbital-info overlay** (live electron
   configuration) — anime.js text scramble, HTML overlay — react to the controls.
+- **Molecule** — an **H₂ molecule**: two hydrogen nuclei whose covalent bond is
+  drawn as a **shared electron pair** in the internuclear overlap (no stick). A
+  **Form-bond button** runs an anime.js animation drawing the atoms together, and
+  an animated **properties panel** (`#molecule-info`) lists the molecule's
+  properties, populated data-driven from an open-ended molecule model. All
+  molecule controls are anime.js driven.
 
 ## Controls
 
-- **Switch scene** (top-left) — toggle Cube POC ↔ atomos.
+- **Switch scene** (top-left) — cycle Cube POC → atomos → Molecule.
 - **Element Z** (atomos) — choose the atom (Z = 1..36: H … Kr); nucleus and
   sub-shell electron rings update live.
 - **2D checkbox** (atomos) — flatten the atom into a 2D Bohr diagram (concentric
   circles facing the camera); uncheck to restore the tilted 3D orbital view.
+- **Form bond** (Molecule) — run the anime.js bond-formation animation that draws
+  the two hydrogen atoms together into the H₂ covalent bond.
 - **Arrow keys / mouse drag** — rotate the cube (Cube POC).
 - **Shear input + Apply** — shear the main cube by the entered value
   (`x' = x + k·y`); repeated clicks compound.
