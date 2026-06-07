@@ -184,10 +184,14 @@ degreeOf st aid = degreeIn st.bonds aid
 -- Lone (non-bonding) electron count for atom `aid`: its element valence minus its
 -- bond degree, clamped at 0. Unknown ids (no such atom) yield 0. Together with the
 -- bonding electrons (2 per incident bond) this conserves Chem.valence per atom.
+-- An atom shows ALL its electrons (Z for a neutral atom): the ones used in bonds
+-- live in the bonds (degree of them), the rest are its lone electrons. So a free
+-- Carbon shows 6, a free Oxygen 8 — not just the valence/bonding count. Bond
+-- FORMATION is still capped by `valence` in recomputeBonds; this is display only.
 loneCountOf :: BuilderState -> Int -> Int
 loneCountOf st aid =
   case atomById st aid of
-    Just a -> max 0 (valence a.z - degreeOf st aid)
+    Just a -> max 0 (a.z - degreeOf st aid)
     Nothing -> 0
 
 -- Shared (bonding) electron positions: 2 electrons per resolvable bond, placed
@@ -257,7 +261,7 @@ electronCloud = nucleonRadius
 -- (which spans ~nucleusRadius), so the nucleus reads clearly and the electrons
 -- visibly ring it instead of sitting inside it.
 loneOrbitRadius :: Number
-loneOrbitRadius = nucleusRadius * 2.4
+loneOrbitRadius = nucleusRadius * 1.4
 
 -- ───── Molecules (connected components) + formulae ───────────────────
 

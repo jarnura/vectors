@@ -321,6 +321,11 @@ main = do
       -- left/right thirds and to relocate a substantial block of pixels when the
       -- bond animation draws the two atoms together.
       molNucleusMesh <- GL.createSolidMesh renderer moleculeNucleusSphere
+      -- Small proton/neutron spheres for the Builder nucleus, so a multi-nucleon
+      -- nucleus reads as a SMALL tight cluster (not a big loose cloud) with the
+      -- electrons clearly orbiting outside it.
+      builderProtonMesh <- GL.createSolidMesh renderer builderProtonSphere
+      builderNeutronMesh <- GL.createSolidMesh renderer builderNeutronSphere
       let
         cubeEntities :: Array Entity
         cubeEntities =
@@ -419,12 +424,16 @@ main = do
             ( \a ->
                 map
                   ( \n ->
-                      { mesh: Solid (if n.kind == Proton then protonMesh else neutronMesh)
+                      { mesh: Solid (if n.kind == Proton then builderProtonMesh else builderNeutronMesh)
+                      -- The nucleon OFFSET is compressed (builderNucleusCompress) so
+                      -- the nucleus stays a small tight clump around the scaled atom
+                      -- centre, while the atom centres + electron orbits keep the full
+                      -- builderScale spacing.
                       , modelMatrix: \_ ->
                           builderPlace
-                            { x: a.pos.x + n.pos.x
-                            , y: a.pos.y + n.pos.y
-                            , z: a.pos.z + n.pos.z
+                            { x: a.pos.x + n.pos.x * builderNucleusCompress
+                            , y: a.pos.y + n.pos.y * builderNucleusCompress
+                            , z: a.pos.z + n.pos.z * builderNucleusCompress
                             }
                       }
                   )
@@ -544,6 +553,21 @@ protonSphere = (Meshes.sphere 14 14 Atom.nucleonRadius) { color = { r: 0.90, g: 
 
 neutronSphere :: Meshes.SolidSpec
 neutronSphere = (Meshes.sphere 14 14 Atom.nucleonRadius) { color = { r: 0.62, g: 0.64, b: 0.67, a: 1.0 } }
+
+-- Builder nucleus: small proton/neutron spheres + a compressed cluster, so a
+-- multi-nucleon nucleus reads as a SMALL tight clump with electrons orbiting
+-- clearly outside it (rather than a big loose cloud of full-size nucleons).
+builderNucleonRadius :: Number
+builderNucleonRadius = Atom.nucleonRadius * 0.72
+
+builderNucleusCompress :: Number
+builderNucleusCompress = 0.4
+
+builderProtonSphere :: Meshes.SolidSpec
+builderProtonSphere = (Meshes.sphere 12 12 builderNucleonRadius) { color = { r: 0.90, g: 0.25, b: 0.22, a: 1.0 } }
+
+builderNeutronSphere :: Meshes.SolidSpec
+builderNeutronSphere = (Meshes.sphere 12 12 builderNucleonRadius) { color = { r: 0.62, g: 0.64, b: 0.67, a: 1.0 } }
 
 -- A discrete electron sphere in the given (sub-shell) colour, instanced at every
 -- electron position on that sub-shell's ring.

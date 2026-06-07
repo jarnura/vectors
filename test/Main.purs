@@ -965,7 +965,7 @@ main = do
 
     -- Σ over atoms of Chem.valence z — the total electron budget the bonding +
     -- lone clouds must conserve. Computed from the state, never hardcoded.
-    valenceSum st = sum (map (\a -> valence a.z) st.atoms)
+    electronSum st = sum (map (\a -> a.z) st.atoms)
     -- Mean of an array of V3 (origin for empty).
     meanV ps =
       let
@@ -986,16 +986,16 @@ main = do
   check "degreeOf: H₂O O ⇒ degree 2" $ B.degreeOf oWith2H h2oOId == 2
 
   -- loneCountOf: max 0 (valence z − degreeOf) for that id (0 if id unknown).
-  check "loneCountOf: bonded H ⇒ 0 (valence 1 − degree 1)" $
+  check "loneCountOf: bonded H ⇒ 0 (electrons 1 − degree 1)" $
     B.loneCountOf twoH twoH_id0 == 0 && B.loneCountOf twoH twoH_id1 == 0
-  check "loneCountOf: lone H ⇒ 1 (valence 1 − degree 0)" $
+  check "loneCountOf: lone H ⇒ 1 (electrons 1 − degree 0)" $
     B.loneCountOf loneH loneHId == 1
-  check "loneCountOf: lone Carbon ⇒ 4 (valence 4 − degree 0)" $
-    B.loneCountOf loneC loneCId == 4
-  check "loneCountOf: lone Oxygen ⇒ 2 (valence 2 − degree 0)" $
-    B.loneCountOf loneO loneOId == 2
-  check "loneCountOf: H₂O O ⇒ 0 (valence 2 − degree 2)" $
-    B.loneCountOf oWith2H h2oOId == 0
+  check "loneCountOf: lone Carbon ⇒ 6 (electrons 6 − degree 0)" $
+    B.loneCountOf loneC loneCId == 6
+  check "loneCountOf: lone Oxygen ⇒ 8 (electrons 8 − degree 0)" $
+    B.loneCountOf loneO loneOId == 8
+  check "loneCountOf: H₂O O ⇒ 6 (electrons 8 − degree 2)" $
+    B.loneCountOf oWith2H h2oOId == 6
   check "loneCountOf: H₂O bonded H ⇒ 0 each" $
     B.loneCountOf oWith2H h2oH1Id == 0 && B.loneCountOf oWith2H h2oH2Id == 0
   check "loneCountOf: unknown id ⇒ 0" $ B.loneCountOf twoH (-999) == 0
@@ -1016,8 +1016,8 @@ main = do
 
   -- loneElectronPositions: loneCountOf electrons per atom; frame-animated and
   -- deterministic for a fixed frame.
-  check "loneElectronPositions: lone Carbon ⇒ 4" $
-    length (B.loneElectronPositions loneC 0.0) == 4
+  check "loneElectronPositions: lone Carbon ⇒ 6" $
+    length (B.loneElectronPositions loneC 0.0) == 6
   check "loneElectronPositions: lone H ⇒ 1" $
     length (B.loneElectronPositions loneH 0.0) == 1
   check "loneElectronPositions: two bonded H ⇒ 0 (both lone counts 0)" $
@@ -1026,23 +1026,23 @@ main = do
     B.loneElectronPositions loneC 12.0 == B.loneElectronPositions loneC 12.0
 
   -- ELECTRON CONSERVATION: bonding + lone electrons == Σ valence, for empty (0),
-  -- two-H/H₂ (2), lone Carbon (4), and H₂O O+2H (4 = 2 bonds × 2 shared + 0 lone).
-  check "conservation: empty ⇒ bond+lone == Σvalence (0)" $
+  -- two-H/H₂ (2), lone Carbon (6), and H₂O O+2H (10 = 4 shared + 6 O lone).
+  check "conservation: empty ⇒ bond+lone == Σz (0)" $
     length (B.bondElectronPositions B.emptyBuilder 0.0)
       + length (B.loneElectronPositions B.emptyBuilder 0.0)
-      == valenceSum B.emptyBuilder
-  check "conservation: two-H/H₂ ⇒ bond+lone == Σvalence (2)" $
+      == electronSum B.emptyBuilder
+  check "conservation: two-H/H₂ ⇒ bond+lone == Σz (2)" $
     length (B.bondElectronPositions twoH 0.0)
       + length (B.loneElectronPositions twoH 0.0)
-      == valenceSum twoH
-  check "conservation: lone Carbon ⇒ bond+lone == Σvalence (4)" $
+      == electronSum twoH
+  check "conservation: lone Carbon ⇒ bond+lone == Σz (6)" $
     length (B.bondElectronPositions loneC 0.0)
       + length (B.loneElectronPositions loneC 0.0)
-      == valenceSum loneC
-  check "conservation: H₂O O+2H ⇒ bond+lone == Σvalence (4)" $
+      == electronSum loneC
+  check "conservation: H₂O O+2H ⇒ bond+lone == Σz (10)" $
     length (B.bondElectronPositions oWith2H 0.0)
       + length (B.loneElectronPositions oWith2H 0.0)
-      == valenceSum oWith2H
+      == electronSum oWith2H
 
   -- pick / unproject round-trip. Build a simple, pure perspective×camera
   -- projection here from Math.Matrix (matching Main.perspectiveProjection's
