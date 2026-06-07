@@ -25,6 +25,7 @@ import Math.Matrix as M
 import Atom (Nucleon(..))
 import Atom as Atom
 import Meshes as Meshes
+import Molecule as Molecule
 import Palette (subshellColor)
 import Scene (Scene(..), nextScene, sceneTitle, spaceColor)
 import Starfield (starPositions)
@@ -157,6 +158,7 @@ applyElement (Just z) s = s { element = z }
 clearColorFor :: Scene -> GL.Color
 clearColorFor CubePoc = skyColor
 clearColorFor Atomos = spaceColor
+clearColorFor Molecule = spaceColor
 
 -- Animate the HTML overlay label only when the scene or element changes (not
 -- every frame). The label shows the element name and is visible only in atomos.
@@ -285,6 +287,11 @@ main = do
       electronMeshes <- traverse
         (\ss -> GL.createSolidMesh renderer (electronSphere (subshellColor ss.n ss.l)))
         (Atom.fillSubshells Atom.maxElectron)
+      -- Molecule scene: one dedicated bright electron mesh for the shared
+      -- bonding pair (created ONCE, reused per shared electron position). A
+      -- touch larger than atomos electrons so the central pair reads clearly
+      -- between the two flanking nuclei.
+      molElectronMesh <- GL.createSolidMesh renderer moleculeElectronSphere
       let
         cubeEntities :: Array Entity
         cubeEntities =
@@ -339,10 +346,37 @@ main = do
                 )
             )
 
+        -- Molecule scene: H₂ nuclei reuse the shared protonSphere mesh, one
+        -- Solid proton per nucleon of the H₂ molecule (entry 0). Static. The
+        -- whole molecule is scaled up about the origin so the two nuclei spread
+        -- well apart on-screen (left/right thirds), framing the shared pair.
+        moleculeNucleusEntities :: State -> Array Entity
+        moleculeNucleusEntities _ =
+          map
+            ( \n ->
+                { mesh: Solid protonMesh
+                , modelMatrix: \_ -> moleculePlace n.pos
+                }
+            )
+            (Molecule.moleculeNucleons (Molecule.moleculeOf 0))
+
+        -- The shared (bonding) electron pair sitting between the two nuclei;
+        -- positions breathe with the frame. Reuses the single molElectronMesh.
+        moleculeElectronEntities :: State -> Array Entity
+        moleculeElectronEntities s =
+          map
+            ( \p ->
+                { mesh: Solid molElectronMesh
+                , modelMatrix: \_ -> moleculePlace p
+                }
+            )
+            (Molecule.sharedElectronPositions (Molecule.moleculeOf 0) s.frame)
+
         entitiesFor :: State -> Array Entity
         entitiesFor s = case s.scene of
           CubePoc -> cubeEntities
           Atomos -> starEntities <> ringEntities s <> nucleusEntities s <> electronEntities s
+          Molecule -> starEntities <> moleculeNucleusEntities s <> moleculeElectronEntities s
       updateViewport renderer canvas
       w0 <- getCanvasWidth canvas
       h0 <- getCanvasHeight canvas
@@ -383,3 +417,28 @@ neutronSphere = (Meshes.sphere 14 14 Atom.nucleonRadius) { color = { r: 0.62, g:
 -- electron position on that sub-shell's ring.
 electronSphere :: GL.Color -> Meshes.SolidSpec
 electronSphere color = (Meshes.sphere 12 12 Atom.electronRadius) { color = color }
+
+-- Neutral bright colour for the molecule's shared bonding electrons.
+moleculeElectronColor :: GL.Color
+moleculeElectronColor = { r: 0.85, g: 0.92, b: 1.0, a: 1.0 }
+
+-- The shared bonding-pair electron sphere: bright and a bit larger than the
+-- atomos electrons so the central pair reads clearly between the two nuclei.
+moleculeElectronSphere :: Meshes.SolidSpec
+moleculeElectronSphere =
+  (Meshes.sphere 14 14 (Atom.nucleonRadius * 1.1)) { color = moleculeElectronColor }
+
+-- The molecule is scaled up about the origin so its two nuclei spread well
+-- apart on-screen (the bond runs across the view), keeping the shared pair
+-- clearly framed between them.
+moleculeScale :: Number
+moleculeScale = 4.5
+
+-- Place a molecule particle: scale its position about the origin, then
+-- translate. (Particle meshes keep their own radius; only positions scale.)
+moleculePlace :: Atom.V3 -> Matrix Number
+moleculePlace p =
+  M.translate
+    (p.x * moleculeScale)
+    (p.y * moleculeScale)
+    (p.z * moleculeScale)

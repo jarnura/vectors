@@ -15,18 +15,21 @@ import Graphics.GL (Color)
 data Scene
   = CubePoc
   | Atomos
+  | Molecule
 
 derive instance eqScene :: Eq Scene
 
--- Toggle to the other scene.
+-- Cycle to the next scene: CubePoc → Atomos → Molecule → CubePoc.
 nextScene :: Scene -> Scene
 nextScene CubePoc = Atomos
-nextScene Atomos = CubePoc
+nextScene Atomos = Molecule
+nextScene Molecule = CubePoc
 
 -- Human-readable scene name, used by the overlay title banner.
 sceneTitle :: Scene -> String
 sceneTitle CubePoc = "Cube POC"
 sceneTitle Atomos = "atomos"
+sceneTitle Molecule = "molecule"
 
 -- Near-black "deep space" backdrop for the atomos scene.
 spaceColor :: Color

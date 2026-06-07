@@ -287,9 +287,11 @@ main = do
   -- ───── Scene switch + starfield (atomos M2) ─────────────────────────
   log "scene + starfield properties:"
 
-  -- The on-screen switch toggles between the two scenes.
-  check "nextScene toggles CubePoc <-> Atomos" $
-    nextScene CubePoc == Atomos && nextScene Atomos == CubePoc
+  -- The on-screen switch cycles CubePoc → Atomos → Molecule → CubePoc.
+  check "nextScene cycles CubePoc -> Atomos -> Molecule -> CubePoc" $
+    nextScene CubePoc == Atomos
+      && nextScene Atomos == Molecule
+      && nextScene Molecule == CubePoc
 
   -- The starfield is a non-empty, deterministic set of points.
   check "starfield has stars" $ length starPositions > 0
@@ -692,6 +694,23 @@ main = do
   check "sceneTitle Atomos = atomos" $ sceneTitle Atomos == "atomos"
 
   log "all scene title properties hold."
+
+  -- ───── Molecule scene wiring (molecule-platform M2) ─────────────────
+  -- The molecule scene joins the on-screen switch as a third scene, so the
+  -- toggle now cycles CubePoc → Atomos → Molecule → CubePoc. RED until
+  -- Scene.purs adds the `Molecule` constructor + nextScene/sceneTitle cases.
+  log "molecule scene wiring properties:"
+
+  -- The switch is now a 3-cycle through every scene.
+  check "nextScene CubePoc = Atomos" $ nextScene CubePoc == Atomos
+  check "nextScene Atomos = Molecule" $ nextScene Atomos == Molecule
+  check "nextScene Molecule = CubePoc" $ nextScene Molecule == CubePoc
+
+  -- The molecule scene has a non-empty banner title (the implementer matches
+  -- this exact string in Scene.sceneTitle).
+  check "sceneTitle Molecule = molecule" $ sceneTitle Molecule == "molecule"
+
+  log "all molecule scene wiring properties hold."
 
   -- ───── Molecule model (H₂ slice) ────────────────────────────────────
   log "molecule model properties:"

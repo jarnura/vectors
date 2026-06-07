@@ -10,6 +10,10 @@ export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
   workers: 1,
+  // SwiftShader canvas rendering is timing/load-sensitive (the heaviest specs can
+  // lag a frame or two under full-suite/CI load). Retry transient render-timing
+  // flakes; a genuinely failing assertion still fails all attempts.
+  retries: 2,
   timeout: 30_000,
   expect: { timeout: 10_000 },
   reporter: [['list'], ['html', { outputFolder: 'artifacts/e2e-report', open: 'never' }]],

@@ -87,8 +87,15 @@ test('atomos: scene switch flips backdrop sky-blue → near-black', async ({ pag
   const spaceAfter = await readPixel(page, 0.5, 0.04);
   expect(spaceAfter[0] + spaceAfter[1] + spaceAfter[2]).toBeLessThan(120); // dark
 
-  // Switching back returns to the cube POC sky.
-  await page.click('#scene-toggle');
+  // The switch is now a 3-cycle (CubePoc → Atomos → Molecule → CubePoc), so
+  // cycling fully around returns to the cube POC sky. Molecule shares the dark
+  // deep-space backdrop with atomos, so one more click keeps it dark.
+  await page.click('#scene-toggle'); // → molecule (still dark space backdrop)
+  await page.waitForTimeout(300);
+  const moleculeBackdrop = await readPixel(page, 0.5, 0.04);
+  expect(moleculeBackdrop[0] + moleculeBackdrop[1] + moleculeBackdrop[2]).toBeLessThan(120);
+
+  await page.click('#scene-toggle'); // → back to cube POC sky
   await page.waitForTimeout(300);
   const skyAgain = await readPixel(page, 0.5, 0.04);
   expect(skyAgain[2]).toBeGreaterThan(120);
@@ -311,6 +318,9 @@ test('overlay: scene title updates on scene switch', async ({ page }) => {
   await page.click('#scene-toggle'); // → atomos
   await expect(title).toHaveText('atomos', { timeout: 4000 });
 
+  await page.click('#scene-toggle'); // → molecule (third scene)
+  await expect(title).toHaveText('molecule', { timeout: 4000 });
+
   await page.click('#scene-toggle'); // → back to cube POC
   await expect(title).toHaveText('Cube POC', { timeout: 4000 });
 });
@@ -362,7 +372,18 @@ test('atomos: 2D toggle flattens the atom (rings become concentric)', async ({ p
       Math.abs(p[0] - b[i][0]) + Math.abs(p[1] - b[i][1]) + Math.abs(p[2] - b[i][2]) > 30
     ).length;
 
+  // Poll until the atom region has actually painted (render-ready), rather than
+  // trusting a fixed timeout — robust to slow cold-start frames under full-suite
+  // load (the Krypton render after a scene+element change can lag a frame or two).
+  const waitForLit = async (min = 3, tries = 25) => {
+    for (let i = 0; i < tries; i++) {
+      if (signature(await region()).lit > min) return;
+      await page.waitForTimeout(120);
+    }
+  };
+
   // --- 3D baseline (two frames) ---------------------------------------------
+  await waitForLit();
   // The flatten signature is the REGION PIXEL-DELTA: replacing the inclined 3D
   // rings with flat concentric circles relocates a large block of lit ring
   // pixels. We anchor it against animation noise — the delta between two
@@ -382,6 +403,7 @@ test('atomos: 2D toggle flattens the atom (rings become concentric)', async ({ p
   await expect(page.locator('#view-2d')).toBeVisible();
   await page.check('#view-2d');
   await page.waitForTimeout(600); // let the flattened transform render
+  await waitForLit();
 
   const twoDpx = await region();
   const twoD = signature(twoDpx);
@@ -396,6 +418,7 @@ test('atomos: 2D toggle flattens the atom (rings become concentric)', async ({ p
   // --- flip back to 3D -------------------------------------------------------
   await page.uncheck('#view-2d');
   await page.waitForTimeout(600);
+  await waitForLit();
 
   const restoredPx = await region();
   const restored = signature(restoredPx);
@@ -409,6 +432,72 @@ test('atomos: 2D toggle flattens the atom (rings become concentric)', async ({ p
   // atom flat.
   const restoreDelta = regionDelta(threeBpx, restoredPx);
   expect(restoreDelta).toBeLessThan(flattenDelta);
+});
+
+// molecule-platform M2: a third scene `Molecule` renders the H₂ molecule — two
+// hydrogen nuclei separated along x with a shared electron pair in the bond
+// between them. Reached by clicking #scene-toggle TWICE from the initial Cube
+// POC (CubePoc → Atomos → Molecule). RED until M2 wires the Molecule scene into
+// Main/Scene/index.html.
+//
+// Signature: H₂ is two nuclei flanking a central shared-electron cloud, so a
+// horizontal strip through the vertical centre is lit in THREE separated places
+// — left nucleus, shared electrons in the middle, right nucleus. We split the
+// central strip into left/middle/right thirds and assert all three thirds carry
+// lit pixels. This distinguishes the molecule from a single centred atom (where
+// only the middle third would be densely lit, the outer thirds dark backdrop) —
+// the two flanking nuclei are the load-bearing difference.
+test('molecule: H₂ shows two nuclei flanking a shared electron pair', async ({ page }) => {
+  await expect(page.locator('#scene-toggle')).toBeVisible();
+
+  // The molecule scene reuses the atomos starfield, so a bare "is this third
+  // lit?" check is hollow — the 140 background stars light every third whether
+  // or not the nuclei render. Instead we isolate the nuclei by DELTA against the
+  // single-atom atomos scene, which shares the identical static starfield: the
+  // stars cancel, leaving only the structural difference. A single centred atom
+  // concentrates its dense lit mass in the MIDDLE third (outer thirds = stars
+  // only); H₂ moves two dense nucleus clusters out into the LEFT and RIGHT
+  // thirds. So the molecule's outer thirds must gain lit mass over atomos's.
+  const COLS = 60, ROWS = 15;
+  const isLit = (p) => p[0] + p[1] + p[2] > 60;
+  const thirds = (strip) => {
+    const t = Math.floor(COLS / 3);
+    let left = 0, middle = 0, right = 0;
+    for (let r = 0; r < ROWS; r++) {
+      for (let i = 0; i < COLS; i++) {
+        if (!isLit(strip[r * COLS + i])) continue;
+        if (i < t) left++; else if (i < 2 * t) middle++; else right++;
+      }
+    }
+    return { left, middle, right };
+  };
+  const strip = () => readRegion(page, 0.10, 0.36, 0.90, 0.64, COLS, ROWS);
+
+  // --- atomos baseline: a single Hydrogen atom (sparsest, centred) -----------
+  await page.click('#scene-toggle'); // → atomos
+  await page.fill('#element-value', '1'); // Hydrogen: 1 centred proton
+  await page.waitForTimeout(500);
+  const atom = thirds(await strip());
+
+  // --- molecule: H₂ ----------------------------------------------------------
+  await page.click('#scene-toggle'); // → molecule
+  await page.waitForTimeout(700); // let the H₂ scene render + animate
+  const mol = thirds(await strip());
+
+  // H₂ lights all three thirds: left nucleus, shared electrons, right nucleus.
+  expect(mol.left).toBeGreaterThan(0);
+  expect(mol.middle).toBeGreaterThan(0);
+  expect(mol.right).toBeGreaterThan(0);
+
+  // The decisive, star-robust signal: the two flanking nuclei add lit mass to
+  // BOTH outer thirds that the single centred atom does not. The single-atom
+  // baseline confirms this narrow centre-band's outer thirds are essentially
+  // dark (the starfield does NOT fill them), so a broken/centred/absent nucleus
+  // render would leave the outer thirds at the baseline and fail here. The
+  // identical starfield cancels in the comparison.
+  expect(mol.left).toBeGreaterThan(atom.left);
+  expect(mol.right).toBeGreaterThan(atom.right);
+  expect(mol.left + mol.right).toBeGreaterThan(atom.left + atom.right + 1);
 });
 
 // M4: sky backdrop (top is sky-blue, not white) + ground/sky differ.
