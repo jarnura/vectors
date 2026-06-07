@@ -17,6 +17,10 @@ module Builder
   , breakThreshold
   , recomputeBonds
   , bondMidpoints
+  , degreeOf
+  , loneCountOf
+  , bondElectronPositions
+  , loneElectronPositions
   , molecules
   , formulaOf
   , projectToScreen
@@ -25,12 +29,13 @@ module Builder
 
 import Prelude
 
-import Atom (V3, elementOf)
+import Atom (V3, elementOf, nucleonRadius)
 import Chem (valence)
-import Data.Array (any, filter, foldl, index, length, mapWithIndex, nub, range, snoc, sortBy, sortWith, (!!))
+import Data.Array (any, concatMap, filter, foldl, index, length, mapWithIndex, nub, range, snoc, sortBy, sortWith, (!!))
 import Data.Foldable (elem)
+import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
-import Data.Number (sqrt)
+import Data.Number (cos, pi, sin, sqrt)
 import Math.Matrix (Matrix, multiply, fromColumn, toVector)
 
 -- A placed atom: a stable id, its atomic number, and its world position.
@@ -168,6 +173,84 @@ bondMidpoints st = foldl collect [] st.bonds
           , z: (a.pos.z + b.pos.z) / 2.0
           }
       _, _ -> acc
+
+-- ───── Lone / bonding electrons (electron conservation) ──────────────
+
+-- Number of bonds incident to atom `aid` in the world's bond set. A public view
+-- of the internal degree count, exposed for the renderer's electron clouds.
+degreeOf :: BuilderState -> Int -> Int
+degreeOf st aid = degreeIn st.bonds aid
+
+-- Lone (non-bonding) electron count for atom `aid`: its element valence minus its
+-- bond degree, clamped at 0. Unknown ids (no such atom) yield 0. Together with the
+-- bonding electrons (2 per incident bond) this conserves Chem.valence per atom.
+loneCountOf :: BuilderState -> Int -> Int
+loneCountOf st aid =
+  case atomById st aid of
+    Just a -> max 0 (valence a.z - degreeOf st aid)
+    Nothing -> 0
+
+-- Shared (bonding) electron positions: 2 electrons per resolvable bond, placed
+-- mirrored about the bond midpoint along/around the inter-atom axis with a small,
+-- bounded frame-driven offset. The pair is symmetric, so their MEAN stays exactly
+-- at the bond midpoint; the offset breathes with the frame (frame 0 ≠ frame 60).
+-- Length = 2 × (# resolvable bonds). Pure, total, deterministic. Model-space.
+bondElectronPositions :: BuilderState -> Number -> Array V3
+bondElectronPositions st frame = concatMap bondPair st.bonds
+  where
+  bondPair bd =
+    case atomById st bd.a, atomById st bd.b of
+      Just a, Just b ->
+        let
+          mid =
+            { x: (a.pos.x + b.pos.x) / 2.0
+            , y: (a.pos.y + b.pos.y) / 2.0
+            , z: (a.pos.z + b.pos.z) / 2.0
+            }
+          -- Half the separation, used to bound the offset within the bond.
+          span = distance a.pos b.pos / 2.0
+          speed = 0.03
+          phase = frame * speed
+          -- A single offset vector; the two electrons sit at mid ± offset so their
+          -- mean is exactly the midpoint regardless of frame.
+          dx = 0.25 * span * cos phase
+          dy = electronCloud * sin phase
+          dz = electronCloud * cos phase
+        in
+          [ { x: mid.x + dx, y: mid.y + dy, z: mid.z + dz }
+          , { x: mid.x - dx, y: mid.y - dy, z: mid.z - dz }
+          ]
+      _, _ -> []
+
+-- Lone electron positions: `loneCountOf` electrons per atom, arranged on a small
+-- deterministic ring (radius ~nucleonRadius) around the atom centre, evenly spaced
+-- and gently rotated by the frame. Length = Σ loneCountOf over atoms. Deterministic
+-- for a fixed frame. Pure, total. Model-space.
+loneElectronPositions :: BuilderState -> Number -> Array V3
+loneElectronPositions st frame = concatMap atomLones st.atoms
+  where
+  atomLones a =
+    let
+      n = loneCountOf st a.id
+      speed = 0.05
+      phase = frame * speed
+    in
+      if n <= 0 then []
+      else map
+        ( \k ->
+            let
+              theta = 2.0 * pi * toNumber k / toNumber (max 1 n) + phase
+            in
+              { x: a.pos.x + electronCloud * cos theta
+              , y: a.pos.y + electronCloud * sin theta
+              , z: a.pos.z
+              }
+        )
+        (range 0 (n - 1))
+
+-- Small transverse radius of the electron clouds around their centres.
+electronCloud :: Number
+electronCloud = nucleonRadius
 
 -- ───── Molecules (connected components) + formulae ───────────────────
 

@@ -938,6 +938,112 @@ main = do
   check "molecules: a lone atom ⇒ its own singleton component" $
     length (B.molecules lone) == 1 && map length (B.molecules lone) == [ 1 ]
 
+  -- ───── Builder lone/bonding electrons (electron conservation) ────────
+  -- RED until Builder.purs adds the pure helpers degreeOf/loneCountOf and the
+  -- frame-animated bondElectronPositions/loneElectronPositions. The key
+  -- invariant under test is ELECTRON CONSERVATION: per atom, the bonding
+  -- electrons (2 per incident bond, shared) plus its lone electrons always sum
+  -- to Chem.valence z. So across the whole world:
+  --   length bondElectronPositions + length loneElectronPositions
+  --     == Σ over atoms of valence z.
+  let
+    -- Lone fixtures (single, unbonded atoms).
+    loneH = B.addAtom 1 p0 B.emptyBuilder
+    loneC = B.addAtom 6 p0 B.emptyBuilder
+    loneO = B.addAtom 8 p0 B.emptyBuilder
+    -- Atom ids for the lone / bonded fixtures.
+    loneHId = fromMaybe (-1) (map _.id (index loneH.atoms 0))
+    loneCId = fromMaybe (-1) (map _.id (index loneC.atoms 0))
+    loneOId = fromMaybe (-1) (map _.id (index loneO.atoms 0))
+    -- The two bonded H from the twoH fixture (within bondThreshold ⇒ 1 bond).
+    twoH_id0 = fromMaybe (-1) (map _.id (index twoH.atoms 0))
+    twoH_id1 = fromMaybe (-1) (map _.id (index twoH.atoms 1))
+    -- O + 2H all within range (H₂O): O has degree 2, each H degree 1.
+    h2oOId = fromMaybe (-1) (map _.id (index oWith2H.atoms 0))
+    h2oH1Id = fromMaybe (-1) (map _.id (index oWith2H.atoms 1))
+    h2oH2Id = fromMaybe (-1) (map _.id (index oWith2H.atoms 2))
+
+    -- Σ over atoms of Chem.valence z — the total electron budget the bonding +
+    -- lone clouds must conserve. Computed from the state, never hardcoded.
+    valenceSum st = sum (map (\a -> valence a.z) st.atoms)
+    -- Mean of an array of V3 (origin for empty).
+    meanV ps =
+      let
+        n = max 1 (length ps)
+        sx = sum (map _.x ps)
+        sy = sum (map _.y ps)
+        sz = sum (map _.z ps)
+      in
+        { x: sx / toNumber n, y: sy / toNumber n, z: sz / toNumber n }
+    -- The single bond's midpoint in the twoH world, computed from the two atom
+    -- centres (for symmetric H at ±x within bondThreshold this is ≈ origin).
+    twoHMid = fromMaybe { x: 0.0, y: 0.0, z: 0.0 } (index (B.bondMidpoints twoH) 0)
+
+  -- degreeOf: incident bond count for an atom id.
+  check "degreeOf: two bonded H ⇒ each H degree 1" $
+    B.degreeOf twoH twoH_id0 == 1 && B.degreeOf twoH twoH_id1 == 1
+  check "degreeOf: a lone H ⇒ degree 0" $ B.degreeOf loneH loneHId == 0
+  check "degreeOf: H₂O O ⇒ degree 2" $ B.degreeOf oWith2H h2oOId == 2
+
+  -- loneCountOf: max 0 (valence z − degreeOf) for that id (0 if id unknown).
+  check "loneCountOf: bonded H ⇒ 0 (valence 1 − degree 1)" $
+    B.loneCountOf twoH twoH_id0 == 0 && B.loneCountOf twoH twoH_id1 == 0
+  check "loneCountOf: lone H ⇒ 1 (valence 1 − degree 0)" $
+    B.loneCountOf loneH loneHId == 1
+  check "loneCountOf: lone Carbon ⇒ 4 (valence 4 − degree 0)" $
+    B.loneCountOf loneC loneCId == 4
+  check "loneCountOf: lone Oxygen ⇒ 2 (valence 2 − degree 0)" $
+    B.loneCountOf loneO loneOId == 2
+  check "loneCountOf: H₂O O ⇒ 0 (valence 2 − degree 2)" $
+    B.loneCountOf oWith2H h2oOId == 0
+  check "loneCountOf: H₂O bonded H ⇒ 0 each" $
+    B.loneCountOf oWith2H h2oH1Id == 0 && B.loneCountOf oWith2H h2oH2Id == 0
+  check "loneCountOf: unknown id ⇒ 0" $ B.loneCountOf twoH (-999) == 0
+
+  -- bondElectronPositions: 2 shared electrons per bond, mean ≈ bond midpoint,
+  -- frame-animated; empty world ⇒ no shared electrons.
+  check "bondElectronPositions: twoH (1 bond) ⇒ 2 electrons" $
+    length (B.bondElectronPositions twoH 0.0) == 2
+  check "bondElectronPositions: mean ≈ bond midpoint (twoH)" $
+    let
+      m = meanV (B.bondElectronPositions twoH 0.0)
+    in
+      approxEq m.x twoHMid.x && approxEq m.y twoHMid.y && approxEq m.z twoHMid.z
+  check "bondElectronPositions: frame-animated (0 ≠ 60)" $
+    B.bondElectronPositions twoH 0.0 /= B.bondElectronPositions twoH 60.0
+  check "bondElectronPositions: empty world ⇒ 0" $
+    length (B.bondElectronPositions B.emptyBuilder 0.0) == 0
+
+  -- loneElectronPositions: loneCountOf electrons per atom; frame-animated and
+  -- deterministic for a fixed frame.
+  check "loneElectronPositions: lone Carbon ⇒ 4" $
+    length (B.loneElectronPositions loneC 0.0) == 4
+  check "loneElectronPositions: lone H ⇒ 1" $
+    length (B.loneElectronPositions loneH 0.0) == 1
+  check "loneElectronPositions: two bonded H ⇒ 0 (both lone counts 0)" $
+    length (B.loneElectronPositions twoH 0.0) == 0
+  check "loneElectronPositions: deterministic for a fixed frame" $
+    B.loneElectronPositions loneC 12.0 == B.loneElectronPositions loneC 12.0
+
+  -- ELECTRON CONSERVATION: bonding + lone electrons == Σ valence, for empty (0),
+  -- two-H/H₂ (2), lone Carbon (4), and H₂O O+2H (4 = 2 bonds × 2 shared + 0 lone).
+  check "conservation: empty ⇒ bond+lone == Σvalence (0)" $
+    length (B.bondElectronPositions B.emptyBuilder 0.0)
+      + length (B.loneElectronPositions B.emptyBuilder 0.0)
+      == valenceSum B.emptyBuilder
+  check "conservation: two-H/H₂ ⇒ bond+lone == Σvalence (2)" $
+    length (B.bondElectronPositions twoH 0.0)
+      + length (B.loneElectronPositions twoH 0.0)
+      == valenceSum twoH
+  check "conservation: lone Carbon ⇒ bond+lone == Σvalence (4)" $
+    length (B.bondElectronPositions loneC 0.0)
+      + length (B.loneElectronPositions loneC 0.0)
+      == valenceSum loneC
+  check "conservation: H₂O O+2H ⇒ bond+lone == Σvalence (4)" $
+    length (B.bondElectronPositions oWith2H 0.0)
+      + length (B.loneElectronPositions oWith2H 0.0)
+      == valenceSum oWith2H
+
   -- pick / unproject round-trip. Build a simple, pure perspective×camera
   -- projection here from Math.Matrix (matching Main.perspectiveProjection's
   -- shape: a perspective matrix composed with a -cameraDistance translation),
