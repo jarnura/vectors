@@ -14,8 +14,12 @@ on-screen switch:
   spheres) orbit on those rings (animated by frame). Rings + electrons are
   **colour-coded by shell** — each principal shell n a distinct colour, with
   sub-shells the same hue but **lighter** outward (see `Palette`). An
-  **orbital-info overlay** shows the live electron configuration. (Idealized
-  Madelung; Cr/Cu anomalies not modeled.)
+  **orbital-info overlay** shows the live electron configuration. A **2D
+  toggle** (`#view-2d` checkbox) flattens the atom into a Bohr diagram —
+  orbital rings become concentric circles in the XY plane facing the camera,
+  electrons ride those flat circles, and the nucleus flattens to the plane;
+  unchecking restores the tilted 3D orbital system (sub-shell colours kept in
+  both views). (Idealized Madelung; Cr/Cu anomalies not modeled.)
 
 Each fundamental particle is a sphere. Perspective projection + canvas-resize
 throughout.
@@ -46,17 +50,18 @@ Module map (under `src/`):
 | `Graphics.GL` | `GL.purs` + `GL.js` | WebGL2 FFI: renderer, meshes, colors, clear color, draw calls |
 | `Math.Matrix` | `Math/Matrix.purs` | Matrix linear algebra (multiply, projection, `translate`, `scale`, `shear`, etc.) |
 | `Vector` | `Vector.purs` | Rotation matrices (`rotateX/Y/Z`) and vector ops |
-| `Meshes` | `Meshes.purs` | Geometry specs: cubes, world (`groundPlane`, `gridFloor`), `sphere` (particles/stars), and `orbitRing` (thin per-sub-shell orbital ring line) |
+| `Meshes` | `Meshes.purs` | Geometry specs: cubes, world (`groundPlane`, `gridFloor`), `sphere` (particles/stars), `orbitRing` (thin per-sub-shell orbital ring line), and `orbitRingFlat` (flat XY-plane ring for the 2D Bohr view) |
 | `World` | `World.purs` | Static world-backdrop constants/transforms (`groundTransform`, `gridTransform`, `skyColor`) |
 | `Scene` | `Scene.purs` | `Scene = CubePoc \| Atomos`, `nextScene`, atomos `spaceColor` |
-| `Atom` | `Atom.purs` | Element table (Z=1..36, H…Kr) + Madelung sub-shell filling (`fillSubshells`/`subshellCap`/`configString`, per-shell totals via `electronShells`) + nucleon cluster + `electronPositions` (discrete electrons on per-sub-shell orbital rings, `subshellRadius`/`subshellInclination`) |
+| `Atom` | `Atom.purs` | Element table (Z=1..36, H…Kr) + Madelung sub-shell filling (`fillSubshells`/`subshellCap`/`configString`, per-shell totals via `electronShells`) + nucleon cluster + `electronPositions` (discrete electrons on per-sub-shell orbital rings, `subshellRadius`/`subshellInclination`; `electronPositionsBySubshell2D` gives flat XY-plane positions for the 2D Bohr view) |
 | `Palette` | `Palette.purs` | Shell/sub-shell colours: `shellColor n` (distinct per shell) + `subshellColor n l` (shell hue, lighter by ℓ). Pure |
 | `Starfield` | `Starfield.purs` | Deterministic Fibonacci-sphere star positions for the atomos backdrop |
 | `Text` | `Text.purs` + `Text.js` | anime.js **HTML overlay-text** FFI (`scrambleInto`/`setVisible`) — DOM only, never WebGL. Drives the atomos element label, scene-title banner, and orbital-info (electron-configuration) overlay |
-| `FRP.Loop` | `FRP/Loop.purs` + `FRP/Loop.js` | rAF loop + input plumbing (keyboard, mouse, shear button, scene toggle, element selector → `Input`) |
+| `FRP.Loop` | `FRP/Loop.purs` + `FRP/Loop.js` | rAF loop + input plumbing (keyboard, mouse, shear button, scene toggle, element selector, `#view-2d` checkbox via `installView2DToggle` → `Input`) |
 
 State is a plain record (`transform`, `speed`, `mouseLast`, `frame`, `scene`,
-`element`) advanced each frame; updates return new records rather than mutating.
+`element`, `view2D`) advanced each frame (the `Input` channel gained `toggle2D`,
+applied via `Main.applyToggle2D`); updates return new records rather than mutating.
 The world meshes, nucleus, and starfield use scene-/element-derived transforms;
 electrons advance with `frame`.
 

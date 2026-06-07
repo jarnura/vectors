@@ -10,7 +10,9 @@ on-screen switch:
   by element (Z = 1..36, H…Kr). Electrons fill **sub-shells** in Madelung/Aufbau
   order; each sub-shell draws a **thin orbital ring line**, and **discrete
   electrons** (bright spheres) orbit on those rings — **colour-coded by shell**
-  (each shell a distinct colour, sub-shells lighter). An **element-name label**, a
+  (each shell a distinct colour, sub-shells lighter). A **2D toggle** flattens
+  the atom into a Bohr diagram (concentric circles facing the camera) versus the
+  tilted 3D orbital system. An **element-name label**, a
   **scene-title banner**, and an **orbital-info overlay** (live electron
   configuration) — anime.js text scramble, HTML overlay — react to the controls.
 
@@ -19,6 +21,8 @@ on-screen switch:
 - **Switch scene** (top-left) — toggle Cube POC ↔ atomos.
 - **Element Z** (atomos) — choose the atom (Z = 1..36: H … Kr); nucleus and
   sub-shell electron rings update live.
+- **2D checkbox** (atomos) — flatten the atom into a 2D Bohr diagram (concentric
+  circles facing the camera); uncheck to restore the tilted 3D orbital view.
 - **Arrow keys / mouse drag** — rotate the cube (Cube POC).
 - **Shear input + Apply** — shear the main cube by the entered value
   (`x' = x + k·y`); repeated clicks compound.
