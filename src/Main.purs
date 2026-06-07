@@ -2,7 +2,7 @@ module Main where
 
 import Prelude
 
-import Data.Array (concat, length, take, zipWith)
+import Data.Array (concat, concatMap, length, take, zipWith)
 import Data.Foldable (for_, minimumBy)
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -401,50 +401,63 @@ main = do
             )
             (Molecule.sharedElectronPositions (Molecule.moleculeOf 0) s.frame)
 
-        -- Builder scene: one shared nucleus sphere per placed atom and one
-        -- shared bonding-electron sphere per auto-computed bond, instanced over
-        -- the live builder model (s.builder, refreshed from the shared API Ref
-        -- each frame). Meshes are created ONCE at init (molNucleusMesh /
-        -- molElectronMesh, reused from the molecule scene); only model matrices
-        -- vary, so there is no per-frame mesh allocation. Positions are scaled
-        -- about the origin (builderScale) so atoms placed in the ±60..±180 range
-        -- read clearly on-screen.
+        -- Builder scene: the REAL per-element nucleus for each placed atom,
+        -- instanced over the live builder model (s.builder, refreshed from the
+        -- shared API Ref each frame). For every placed atom we expand its element
+        -- into its nucleon cluster (Atom.nucleons ∘ Atom.elementOf), drawing one
+        -- Solid protonMesh / neutronMesh per nucleon — exactly as the atomos
+        -- nucleusEntities / Molecule moleculeNucleusEntities do — each nucleon
+        -- offset by the atom centre then placed with builderPlace. So Carbon
+        -- (6 p + 6 n) renders a denser/larger nucleus than Hydrogen (1 p). Meshes
+        -- are created ONCE at init (protonMesh / neutronMesh, reused from atomos);
+        -- only model matrices vary, so there is no per-frame mesh allocation.
+        -- Positions are scaled about the origin (builderScale) so atoms placed in
+        -- the ±60..±180 range read clearly on-screen.
         builderAtomEntities :: State -> Array Entity
         builderAtomEntities s =
-          map
+          concatMap
             ( \a ->
-                { mesh: Solid molNucleusMesh
-                , modelMatrix: \_ -> builderPlace a.pos
-                }
+                map
+                  ( \n ->
+                      { mesh: Solid (if n.kind == Proton then protonMesh else neutronMesh)
+                      , modelMatrix: \_ ->
+                          builderPlace
+                            { x: a.pos.x + n.pos.x
+                            , y: a.pos.y + n.pos.y
+                            , z: a.pos.z + n.pos.z
+                            }
+                      }
+                  )
+                  (Atom.nucleons (Atom.elementOf a.z))
             )
             s.builder.atoms
 
-        -- One bright electron sphere per placed atom, sitting just above its
-        -- nucleus. This guarantees each atom contributes a SECOND distinct colour
-        -- (red nucleus + bright electron) so the rendered atom always reads as
-        -- multi-coloured lit structure, independent of bonding.
-        builderElectronEntities :: State -> Array Entity
-        builderElectronEntities s =
+        -- Lone (non-bonding) electrons: one bright sphere per lone electron, on a
+        -- small ring around each atom's centre (Builder.loneElectronPositions). A
+        -- fully-bonded atom has lone count 0, so NOTHING floats above it — only the
+        -- shared bond pair remains. Reuses the single molElectronMesh.
+        builderLoneElectronEntities :: State -> Array Entity
+        builderLoneElectronEntities s =
           map
-            ( \a ->
+            ( \p ->
                 { mesh: Solid molElectronMesh
-                , modelMatrix: \_ ->
-                    builderPlace { x: a.pos.x, y: a.pos.y + Atom.nucleonRadius * 1.4, z: a.pos.z }
+                , modelMatrix: \_ -> builderPlace p
                 }
             )
-            s.builder.atoms
+            (Builder.loneElectronPositions s.builder s.frame)
 
-        -- One shared electron drawn at the midpoint of each bond's two atom
-        -- centres (a simple shared-pair depiction between arbitrary endpoints).
-        builderBondEntities :: State -> Array Entity
-        builderBondEntities s =
+        -- Shared (bonding) electrons: the pair sitting BETWEEN each bond's two
+        -- nuclei (Builder.bondElectronPositions), breathing with the frame. Reuses
+        -- the single molElectronMesh.
+        builderBondElectronEntities :: State -> Array Entity
+        builderBondElectronEntities s =
           map
-            ( \mid ->
+            ( \p ->
                 { mesh: Solid molElectronMesh
-                , modelMatrix: \_ -> builderPlace mid
+                , modelMatrix: \_ -> builderPlace p
                 }
             )
-            (Builder.bondMidpoints s.builder)
+            (Builder.bondElectronPositions s.builder s.frame)
 
         entitiesFor :: State -> Array Entity
         entitiesFor s = case s.scene of
@@ -454,8 +467,8 @@ main = do
           Builder ->
             starEntities
               <> builderAtomEntities s
-              <> builderElectronEntities s
-              <> builderBondEntities s
+              <> builderLoneElectronEntities s
+              <> builderBondElectronEntities s
       updateViewport renderer canvas
       w0 <- getCanvasWidth canvas
       h0 <- getCanvasHeight canvas

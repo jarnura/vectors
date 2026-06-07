@@ -977,6 +977,171 @@ test('cube POC: mouse still rotates the cube (drag scene-gated)', async ({ page 
   expect(changed).toBeGreaterThan(2);
 });
 
+// builder-electron-fix M2 (TEST A): the Builder scene must render the REAL
+// per-element nucleus (Atom.nucleons), so a heavier element shows a DENSER /
+// larger lit nucleus than Hydrogen. RED until M2 makes builderAtomEntities draw
+// the real nucleon cluster instead of a single fixed sphere per atom.
+//
+// Signature: an atom placed at the world origin projects to the canvas centre
+// (perspectiveProjection composes the camera translate; world x=0,y=0 → ndc
+// 0,0 → fx≈0.5, fy≈0.5). We sample a TIGHT centre region (the nucleus only —
+// electrons/lone clouds sweep further out) and count LIT pixels (sum RGB > 90).
+// Hydrogen is ONE nucleon; Carbon is 12 nucleons (6 p + 6 n) packed into a ball,
+// Oxygen 16 — so the lit nucleus mass at the same centre region grows with Z.
+// The MUST-PASS (RED) assertion is cCount > hCount by a clear margin. Today every
+// builder atom renders as a single fixed sphere regardless of Z, so hCount ≈
+// cCount and the margin assertion FAILS (RED).
+test('builder: heavier element shows a denser nucleus than hydrogen (elements distinct)', async ({ page }) => {
+  await gotoBuilder(page);
+
+  // TIGHT centre region = the nucleus only (≈±0.06 fx/fy around canvas centre).
+  const NUC = () => readRegion(page, 0.44, 0.44, 0.56, 0.56, 20, 20);
+  const litCount = (px) => px.filter((p) => p[0] + p[1] + p[2] > 90).length;
+
+  // Poll until the nucleus region has actually painted (render-ready), robust to
+  // slow cold-start frames under full-suite/CI SwiftShader load.
+  const sampleNucleus = async (min = 0) => {
+    let last = 0;
+    for (let i = 0; i < 25; i++) {
+      last = litCount(await NUC());
+      if (last > min) return last;
+      await page.waitForTimeout(120);
+    }
+    return last;
+  };
+
+  // --- Hydrogen: ONE nucleon at the origin ----------------------------------
+  await page.evaluate(() => {
+    const b = window.__builder;
+    b.clear();
+    b.addAtom(1, 0, 0, 0); // single H at the origin → projects to canvas centre
+  });
+  await page.waitForTimeout(300);
+  const hCount = await sampleNucleus(0);
+
+  // --- Carbon: 12 nucleons (6 protons + 6 neutrons) at the SAME spot --------
+  await page.evaluate(() => {
+    const b = window.__builder;
+    b.clear();
+    b.addAtom(6, 0, 0, 0); // Carbon at the origin
+  });
+  await page.waitForTimeout(300);
+  const cCount = await sampleNucleus(0);
+
+  // --- Oxygen: 16 nucleons (8 p + 8 n) — a second data point ----------------
+  await page.evaluate(() => {
+    const b = window.__builder;
+    b.clear();
+    b.addAtom(8, 0, 0, 0); // Oxygen at the origin
+  });
+  await page.waitForTimeout(300);
+  const oCount = await sampleNucleus(0);
+
+  // Hydrogen's lone nucleus is clearly lit (sanity: the atom rendered at all).
+  expect(hCount).toBeGreaterThan(0);
+
+  // MUST-PASS (RED today): Carbon's many-nucleon nucleus lights up a clearly
+  // denser/larger centre region than Hydrogen's single nucleon. Conservative
+  // margin: more than half-again Hydrogen AND a hard minimum extra count, so it
+  // can't pass on noise. Today every atom is one fixed sphere ⇒ cCount ≈ hCount
+  // ⇒ this FAILS (the RED assertion for bug 1).
+  expect(cCount).toBeGreaterThan(hCount * 1.5);
+  expect(cCount).toBeGreaterThan(hCount + 8);
+
+  // Oxygen (still heavier than H) corroborates: its nucleus is also denser than
+  // Hydrogen's. (Not asserted strictly vs Carbon — packing geometry can make the
+  // tight centre region saturate; the Z-vs-H contrast is the load-bearing one.)
+  expect(oCount).toBeGreaterThan(hCount + 8);
+});
+
+// builder-electron-fix M2 (TEST B): bonded H atoms must show their electron(s)
+// IN the bond (the shared pair, BETWEEN the nuclei) and NOT floating above each
+// atom. Today builderElectronEntities floats one bright electron directly above
+// EVERY atom regardless of bonding, so the spots above each nucleus are lit. After
+// M2, a fully-bonded H (valence 1, no lone electrons) carries NO floating electron
+// — only the shared bond electron(s) in the midband remain.
+//
+// Geometry (1280×720 viewport, builderScale 2.2, perspectiveProjection composing
+// the camera translate at z=-1000, fov π/3):
+//   • world (0,0,0)           → canvas centre (fx≈0.50, fy≈0.50)
+//   • addAtom x = ∓60 (near)  → world x = ∓132 → fx≈0.436 (left) / 0.564 (right)
+//   • the bond midpoint (x=0) → fx≈0.50 (the MIDBAND, where the shared pair sits)
+//   • the OLD floating electron sits y = nucleonRadius*1.4 above its nucleus
+//     → ≈42px up on screen → fy≈0.44 directly above each nucleus.
+// Total separation 120 < bondThreshold (180) ⇒ the two H auto-bond (getBonds==1).
+//
+// Signature: count LIT pixels (sum RGB > 90) in five small regions on the centre
+// line — LEFT nucleus, MIDBAND (between nuclei), RIGHT nucleus, ABOVE-LEFT and
+// ABOVE-RIGHT (directly above each nucleus, where the old per-atom electron
+// floated). The RED assertion is that the ABOVE-nucleus regions are NOT carrying a
+// bright floating-electron blob: aboveLeft/aboveRight must be clearly DARKER than
+// the midband (the shared pair). Today the floating electron lights those above
+// spots, so they're bright ⇒ FAILS (RED). After M2 they go dark and it passes.
+test('builder: bonded H electrons sit in the bond, not floating above each atom', async ({ page }) => {
+  await gotoBuilder(page);
+
+  // Two H within bond range → they auto-bond into H₂. near=60 ⇒ 120 apart < 180.
+  const bonds = await page.evaluate(() => {
+    const b = window.__builder;
+    b.clear();
+    b.addAtom(1, -60, 0, 0); // left H  → fx≈0.436
+    b.addAtom(1, 60, 0, 0);  // right H → fx≈0.564
+    return b.getBonds().length;
+  });
+  expect(bonds).toBe(1); // sanity: the two H are bonded (shared pair in the bond)
+
+  await page.waitForTimeout(400);
+
+  const litCount = (px) => px.filter((p) => p[0] + p[1] + p[2] > 90).length;
+
+  // Five small sample regions along / just above the horizontal centre line.
+  // fy≈0.50 = nucleus row; fy≈0.40–0.46 = directly above each nucleus.
+  const leftNuc = () => readRegion(page, 0.40, 0.46, 0.48, 0.56, 14, 14);
+  // The shared bond pair breathes vertically (electronCloud ≈ ±48px ≈ ±0.067 fy)
+  // about the centre line, so sample a band tall enough to always contain it
+  // (fy 0.42–0.58) — the pair never fully vacates this region at any frame.
+  const midband = () => readRegion(page, 0.46, 0.42, 0.54, 0.58, 14, 18);
+  const rightNuc = () => readRegion(page, 0.52, 0.46, 0.60, 0.56, 14, 14);
+  const aboveLeft = () => readRegion(page, 0.40, 0.38, 0.48, 0.46, 14, 14);
+  const aboveRight = () => readRegion(page, 0.52, 0.38, 0.60, 0.46, 14, 14);
+
+  // Poll the midband until it has painted (render-ready), robust to cold-start.
+  const waitForMid = async (min = 0, tries = 25) => {
+    let last = 0;
+    for (let i = 0; i < tries; i++) {
+      last = litCount(await midband());
+      if (last > min) return last;
+      await page.waitForTimeout(120);
+    }
+    return last;
+  };
+
+  const mid = await waitForMid(0);
+  const al = litCount(await aboveLeft());
+  const ar = litCount(await aboveRight());
+  const ln = litCount(await leftNuc());
+  const rn = litCount(await rightNuc());
+
+  // The shared bonding pair lights the MIDBAND between the two nuclei: there IS
+  // meaningful lit electron structure in the bond. (Stable before AND after M2 —
+  // the shared bond electron lives in the midband in both renders.)
+  expect(mid).toBeGreaterThan(0);
+
+  // Both nuclei are lit (sanity that the atoms rendered where expected).
+  expect(ln).toBeGreaterThan(0);
+  expect(rn).toBeGreaterThan(0);
+
+  // MUST-PASS (RED today): the per-atom floating electron is GONE for bonded
+  // atoms — the regions directly ABOVE each nucleus carry clearly fewer lit pixels
+  // than the midband (the shared pair). Today a bright electron floats above EVERY
+  // atom, lighting aboveLeft/aboveRight, so this FAILS (the RED assertion for bug
+  // 2). After M2 (bonded H ⇒ no lone electron ⇒ nothing above) they go dark and
+  // the bond's shared pair dominates the midband. Conservative: each above-region
+  // must be under half the midband's lit count.
+  expect(al).toBeLessThan(mid * 0.5);
+  expect(ar).toBeLessThan(mid * 0.5);
+});
+
 // molecule-builder M4 (TEST A): the control bar (#controls) restyle must NOT
 // break or remove any control. This is a regression guard for the M4 glassy
 // restyle + anime.js animations: every control the prior milestones rely on
