@@ -44,6 +44,8 @@ four scenes, toggled by an on-screen switch:
   the sandbox, or Clear all atoms.
 - **Drag atoms** (Builder) — drag atoms in 3D with the mouse; atoms that come
   close auto-bond (valence-aware, with break hysteresis) into molecules.
+- **Mouse wheel** (all scenes) — zoom the camera: scroll out to pull back (e.g. to
+  see many molecules at once), scroll in for detail.
 - **Arrow keys / mouse drag** — rotate the cube (Cube POC).
 - **Shear input + Apply** — shear the main cube by the entered value
   (`x' = x + k·y`); repeated clicks compound.
