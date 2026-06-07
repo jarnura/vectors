@@ -5,6 +5,7 @@ module FRP.Loop
   , installAddButton
   , installClearButton
   , installCanvasPointer
+  , installWheelListener
   ) where
 
 import Prelude
@@ -22,6 +23,7 @@ type Input =
   , toggle2D :: Boolean
   , element :: Maybe Int
   , bondProgress :: Maybe Number
+  , zoomDelta :: Maybe Number
   }
 
 emptyInput :: Input
@@ -33,6 +35,7 @@ emptyInput =
   , toggle2D: false
   , element: Nothing
   , bondProgress: Nothing
+  , zoomDelta: Nothing
   }
 
 foreign import installKeyUpListener
@@ -79,6 +82,12 @@ foreign import installCanvasPointer
   -> Effect Unit
   -> Effect Unit
 
+-- Wires a 'wheel' listener on the canvas (#canvas), passive:false so it can
+-- preventDefault (the PAGE never scrolls), and invokes the callback with the
+-- raw wheel deltaY. Canvas-scoped DOM input plumbing — never touches WebGL.
+foreign import installWheelListener
+  :: (Number -> Effect Unit) -> Effect Unit
+
 foreign import requestAnimationFrame
   :: Effect Unit -> Effect Unit
 
@@ -104,6 +113,10 @@ runLoop spec = do
     (Ref.modify_ (_ { toggle2D = true }) inputRef)
   installElementInput \z ->
     Ref.modify_ (_ { element = Just z }) inputRef
+  -- Mouse wheel over the canvas: push the raw deltaY as a zoom step. The FFI
+  -- preventDefault's the wheel so the page never scrolls.
+  installWheelListener \d ->
+    Ref.modify_ (_ { zoomDelta = Just d }) inputRef
   -- Bond control: clicking #bond-btn runs an anime.js value animation whose
   -- onUpdate pushes the current bond progress into the input ref (DOM-driven).
   installBondButton

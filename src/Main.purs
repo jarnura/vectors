@@ -46,6 +46,7 @@ type State =
   , element :: Int
   , view2D :: Boolean
   , bondProgress :: Number
+  , zoom :: Number
   , builder :: Builder.BuilderState
   }
 
@@ -92,14 +93,11 @@ initialState =
   -- 1.0 = bonded resting state (nuclei at full separation, in the outer thirds).
   -- The bond animation sweeps this 1→0→1, drawing the atoms together and back.
   , bondProgress: 1.0
+  -- 1.0 = the unchanged default camera distance (no zoom). Mouse-wheel events
+  -- multiply this in/out, clamped to Camera.min/maxZoom.
+  , zoom: 1.0
   , builder: Builder.emptyBuilder
   }
-
--- Perspective projection composed with a camera-distance translation.
--- Thin wrapper over the pure, zoom-aware `Camera.projection` at the default
--- zoom of 1.0 (byte-identical to the historic matrix).
-perspectiveProjection :: Number -> Number -> Matrix Number
-perspectiveProjection w h = Camera.projection 1.0 w h
 
 step :: Input -> State -> State
 step input =
@@ -110,9 +108,15 @@ step input =
     >>> applyShear input.shear
     >>> applyKey input.lastKey
     >>> applyMouse input.mouse
+    >>> applyZoom input.zoomDelta
     >>> tickFrame
   where
   tickFrame s = s { frame = s.frame + 1.0 }
+
+-- Apply one mouse-wheel step to the camera zoom (clamped inside applyZoomStep).
+applyZoom :: Maybe Number -> State -> State
+applyZoom Nothing s = s
+applyZoom (Just d) s = s { zoom = Camera.applyZoomStep s.zoom d }
 
 -- Flip between the cube POC and atomos when the scene switch is clicked.
 applyToggle :: Boolean -> State -> State
@@ -229,12 +233,12 @@ satelliteTransform s =
 ringSegments :: Int
 ringSegments = 96
 
-updateViewport :: Renderer -> CanvasElement -> Effect Unit
-updateViewport renderer canvas = do
+updateViewport :: Renderer -> CanvasElement -> Number -> Effect Unit
+updateViewport renderer canvas zoom = do
   w <- getCanvasWidth canvas
   h <- getCanvasHeight canvas
   GL.resizeRenderer renderer { width: w, height: h }
-  GL.setProjection renderer (M.toVector (perspectiveProjection w h))
+  GL.setProjection renderer (M.toVector (Camera.projection zoom w h))
 
 main :: Effect Unit
 main = do
@@ -444,10 +448,10 @@ main = do
               <> builderAtomEntities s
               <> builderLoneElectronEntities s
               <> builderBondElectronEntities s
-      updateViewport renderer canvas
+      updateViewport renderer canvas initialState.zoom
       w0 <- getCanvasWidth canvas
       h0 <- getCanvasHeight canvas
-      sizeRef <- Ref.new { w: w0, h: h0 }
+      sizeRef <- Ref.new { w: w0, h: h0, zoom: initialState.zoom }
       overlayRef <- Ref.new { scene: initialState.scene, element: initialState.element }
       -- Holds the most recent rendered State, so a builder mutation arriving
       -- off-loop (via window.__builder / the Add/Clear buttons) can re-render the
@@ -502,9 +506,9 @@ main = do
             w <- getCanvasWidth canvas
             h <- getCanvasHeight canvas
             prev <- Ref.read sizeRef
-            when (prev.w /= w || prev.h /= h) do
-              Ref.write { w, h } sizeRef
-              updateViewport renderer canvas
+            when (prev.w /= w || prev.h /= h || prev.zoom /= s.zoom) do
+              Ref.write { w, h, zoom: s.zoom } sizeRef
+              updateViewport renderer canvas s.zoom
             renderFrame s
         }
 
@@ -619,16 +623,17 @@ installBuilderPick
 installBuilderPick canvas builderRef eagerRender readState = do
   pickRef <- Ref.new (Nothing :: Maybe { id :: Int, depth :: Number })
   let
-    -- Current full projection + canvas dims (live size).
-    projAndCanvas = do
+    -- Current full projection + canvas dims (live size) at the live camera zoom,
+    -- so pick/unproject use the SAME matrix the renderer drew with.
+    projAndCanvas zoom = do
       w <- getCanvasWidth canvas
       h <- getCanvasHeight canvas
-      pure { proj: perspectiveProjection w h, canvas: { w, h } }
+      pure { proj: Camera.projection zoom w h, canvas: { w, h } }
 
     onDown px py = do
       s <- readState
       when (s.scene == Builder) do
-        pc <- projAndCanvas
+        pc <- projAndCanvas s.zoom
         bs <- Ref.read builderRef
         let
           cursor = { x: px, y: py }
@@ -657,7 +662,7 @@ installBuilderPick canvas builderRef eagerRender readState = do
         Just pick -> do
           s <- readState
           when (s.scene == Builder) do
-            pc <- projAndCanvas
+            pc <- projAndCanvas s.zoom
             let
               -- Reference world point at the picked atom's depth (z preserved) so
               -- unprojectAtDepth lands the cursor on that camera-facing plane.

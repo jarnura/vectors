@@ -85,6 +85,22 @@ export const installCanvasPointer = (down) => (move) => (up) => () => {
   window.addEventListener("mouseup", () => up());
 };
 
+// Mouse wheel over the canvas: attach a non-passive 'wheel' listener to
+// #canvas, preventDefault so the PAGE never scrolls, then hand the raw deltaY to
+// the callback. Canvas-scoped (not window). DOM-only input plumbing.
+export const installWheelListener = (cb) => () => {
+  const canvas = document.getElementById("canvas");
+  if (!canvas) return;
+  canvas.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      cb(e.deltaY)();
+    },
+    { passive: false },
+  );
+};
+
 export const requestAnimationFrame = (effect) => () => {
   window.requestAnimationFrame(() => effect());
 };
