@@ -27,7 +27,9 @@ four scenes, toggled by an on-screen switch:
   element (Z = 1..36) and **Clear** the world, then **drag atoms in 3D** with the
   mouse. Atoms that come near each other **auto-bond, valence-aware** (H=1, C=4,
   N=3, O=2, … with break hysteresis); connected atoms form a **molecule** with a
-  derived Unicode formula (e.g. `H₂O`).
+  derived Unicode formula (e.g. `H₂O`). Each atom renders its **real per-element
+  nucleus** (Carbon/Oxygen denser/larger than Hydrogen); each bond shows a **shared
+  electron pair**, and atoms carry only their **lone electrons** (valence-conserved).
 
 ## Controls
 
