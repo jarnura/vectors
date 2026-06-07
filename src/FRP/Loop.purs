@@ -6,6 +6,7 @@ module FRP.Loop
 
 import Prelude
 
+import Controls (installBondButton, runBondAnimation)
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Ref as Ref
@@ -17,6 +18,7 @@ type Input =
   , toggleScene :: Boolean
   , toggle2D :: Boolean
   , element :: Maybe Int
+  , bondProgress :: Maybe Number
   }
 
 emptyInput :: Input
@@ -27,6 +29,7 @@ emptyInput =
   , toggleScene: false
   , toggle2D: false
   , element: Nothing
+  , bondProgress: Nothing
   }
 
 foreign import installKeyUpListener
@@ -78,6 +81,12 @@ runLoop spec = do
     (Ref.modify_ (_ { toggle2D = true }) inputRef)
   installElementInput \z ->
     Ref.modify_ (_ { element = Just z }) inputRef
+  -- Bond control: clicking #bond-btn runs an anime.js value animation whose
+  -- onUpdate pushes the current bond progress into the input ref (DOM-driven).
+  installBondButton
+    ( runBondAnimation \p ->
+        Ref.modify_ (_ { bondProgress = Just p }) inputRef
+    )
   let
     tick = do
       i <- Ref.read inputRef

@@ -24,6 +24,7 @@ import Math.Matrix (Matrix)
 import Math.Matrix as M
 import Atom (Nucleon(..))
 import Atom as Atom
+import Controls as Controls
 import Meshes as Meshes
 import Molecule as Molecule
 import Palette (subshellColor)
@@ -41,6 +42,7 @@ type State =
   , scene :: Scene
   , element :: Int
   , view2D :: Boolean
+  , bondProgress :: Number
   }
 
 -- A renderable mesh is either a solid lit mesh or a wireframe mesh; the draw
@@ -97,6 +99,9 @@ initialState =
   , scene: CubePoc
   , element: 6 -- Carbon by default
   , view2D: false
+  -- 1.0 = bonded resting state (nuclei at full separation, in the outer thirds).
+  -- The bond animation sweeps this 1→0→1, drawing the atoms together and back.
+  , bondProgress: 1.0
   }
 
 -- Perspective projection composed with a camera-distance translation.
@@ -131,6 +136,7 @@ step input =
   applyToggle input.toggleScene
     >>> applyToggle2D input.toggle2D
     >>> applyElement input.element
+    >>> applyBondProgress input.bondProgress
     >>> applyShear input.shear
     >>> applyKey input.lastKey
     >>> applyMouse input.mouse
@@ -154,6 +160,12 @@ applyElement :: Maybe Int -> State -> State
 applyElement Nothing s = s
 applyElement (Just z) s = s { element = z }
 
+-- Receive bond progress from the anime.js bond animation (DOM-driven). 1.0 =
+-- atoms at full separation (resting); 0.0 = coalesced toward the bond midpoint.
+applyBondProgress :: Maybe Number -> State -> State
+applyBondProgress Nothing s = s
+applyBondProgress (Just p) s = s { bondProgress = p }
+
 -- The backdrop (clear) color for the current scene.
 clearColorFor :: Scene -> GL.Color
 clearColorFor CubePoc = skyColor
@@ -170,10 +182,17 @@ updateOverlay ref s = do
     sceneChanged = prev.scene /= s.scene
     elementChanged = prev.element /= s.element
     inAtomos = s.scene == Atomos
+    inMolecule = s.scene == Molecule
   when sceneChanged do
     Text.scrambleInto "scene-title" (sceneTitle s.scene)
     Text.setVisible "atom-label" inAtomos
     Text.setVisible "orbital-info" inAtomos
+    -- The data-driven molecule properties panel is molecule-scene only. Render
+    -- its rows from Molecule.properties (one row per property) and show it on
+    -- entering the scene; hide it elsewhere. Built once per scene change.
+    Text.setVisible "molecule-info" inMolecule
+    when inMolecule do
+      Controls.renderInfoPanel "molecule-info" (Molecule.moleculeOf 0).properties
     when inAtomos do
       Text.scrambleInto "atom-label" (Atom.elementName s.element)
       Text.scrambleInto "orbital-info" (Atom.configString s.element)
@@ -292,6 +311,11 @@ main = do
       -- touch larger than atomos electrons so the central pair reads clearly
       -- between the two flanking nuclei.
       molElectronMesh <- GL.createSolidMesh renderer moleculeElectronSphere
+      -- Dedicated, larger nucleus sphere for the H₂ nuclei: bigger than an atomos
+      -- proton so each nucleus carries enough lit mass to read clearly in the
+      -- left/right thirds and to relocate a substantial block of pixels when the
+      -- bond animation draws the two atoms together.
+      molNucleusMesh <- GL.createSolidMesh renderer moleculeNucleusSphere
       let
         cubeEntities :: Array Entity
         cubeEntities =
@@ -354,8 +378,8 @@ main = do
         moleculeNucleusEntities _ =
           map
             ( \n ->
-                { mesh: Solid protonMesh
-                , modelMatrix: \_ -> moleculePlace n.pos
+                { mesh: Solid molNucleusMesh
+                , modelMatrix: \s -> moleculePlace s.bondProgress n.pos
                 }
             )
             (Molecule.moleculeNucleons (Molecule.moleculeOf 0))
@@ -367,7 +391,7 @@ main = do
           map
             ( \p ->
                 { mesh: Solid molElectronMesh
-                , modelMatrix: \_ -> moleculePlace p
+                , modelMatrix: \st -> moleculePlace st.bondProgress p
                 }
             )
             (Molecule.sharedElectronPositions (Molecule.moleculeOf 0) s.frame)
@@ -418,6 +442,13 @@ neutronSphere = (Meshes.sphere 14 14 Atom.nucleonRadius) { color = { r: 0.62, g:
 electronSphere :: GL.Color -> Meshes.SolidSpec
 electronSphere color = (Meshes.sphere 12 12 Atom.electronRadius) { color = color }
 
+-- The H₂ nucleus sphere: the same proton red as atomos but noticeably larger, so
+-- each nucleus reads clearly in its third and relocates a substantial block of
+-- pixels when the bond animation draws the two atoms together.
+moleculeNucleusSphere :: Meshes.SolidSpec
+moleculeNucleusSphere =
+  (Meshes.sphere 16 16 (Atom.nucleonRadius * 1.7)) { color = { r: 0.90, g: 0.25, b: 0.22, a: 1.0 } }
+
 -- Neutral bright colour for the molecule's shared bonding electrons.
 moleculeElectronColor :: GL.Color
 moleculeElectronColor = { r: 0.85, g: 0.92, b: 1.0, a: 1.0 }
@@ -436,9 +467,13 @@ moleculeScale = 4.5
 
 -- Place a molecule particle: scale its position about the origin, then
 -- translate. (Particle meshes keep their own radius; only positions scale.)
-moleculePlace :: Atom.V3 -> Matrix Number
-moleculePlace p =
+-- The internuclear separation (the x axis, along which the two nuclei + shared
+-- pair are laid out) interpolates with `bondProgress`: at 1.0 the atoms sit at
+-- full separation (resting H₂), and as it sweeps toward 0.0 they draw together
+-- toward the bond midpoint (x → 0), coalescing the molecule.
+moleculePlace :: Number -> Atom.V3 -> Matrix Number
+moleculePlace bondProgress p =
   M.translate
-    (p.x * moleculeScale)
+    (p.x * moleculeScale * bondProgress)
     (p.y * moleculeScale)
     (p.z * moleculeScale)
