@@ -1,8 +1,8 @@
 # vectors
 
-A small **PureScript + WebGL2** 3D graphics demo — slice 1 of a vertical-sliced
+A small **PureScript + WebGL2** 3D graphics demo — a vertical-sliced
 **"learn matter"** platform (atoms → chemistry → properties of matter) — with
-three scenes, toggled by an on-screen switch:
+four scenes, toggled by an on-screen switch:
 
 - **Cube POC** — a solid-lit cube + orbiting satellite inside a simple world
   (green ground, wireframe grid, sky-blue horizon).
@@ -21,17 +21,27 @@ three scenes, toggled by an on-screen switch:
   **Form-bond button** runs an anime.js animation drawing the atoms together, and
   an animated **properties panel** (`#molecule-info`) lists the molecule's
   properties, populated data-driven from an open-ended molecule model. All
-  molecule controls are anime.js driven.
+  molecule controls are anime.js driven. (Slice 1 of the chemistry layer.)
+- **Builder** — **slice 2**, an interactive **molecule-builder sandbox**. From a
+  modern **glassy (backdrop-blur) anime.js control bar** you **Add** atoms of any
+  element (Z = 1..36) and **Clear** the world, then **drag atoms in 3D** with the
+  mouse. Atoms that come near each other **auto-bond, valence-aware** (H=1, C=4,
+  N=3, O=2, … with break hysteresis); connected atoms form a **molecule** with a
+  derived Unicode formula (e.g. `H₂O`).
 
 ## Controls
 
-- **Switch scene** (top-left) — cycle Cube POC → atomos → Molecule.
+- **Switch scene** (top-left) — cycle Cube POC → atomos → Molecule → Builder.
 - **Element Z** (atomos) — choose the atom (Z = 1..36: H … Kr); nucleus and
   sub-shell electron rings update live.
 - **2D checkbox** (atomos) — flatten the atom into a 2D Bohr diagram (concentric
   circles facing the camera); uncheck to restore the tilted 3D orbital view.
 - **Form bond** (Molecule) — run the anime.js bond-formation animation that draws
   the two hydrogen atoms together into the H₂ covalent bond.
+- **Add / Clear** (Builder) — Add an atom of the selected element (Z = 1..36) to
+  the sandbox, or Clear all atoms.
+- **Drag atoms** (Builder) — drag atoms in 3D with the mouse; atoms that come
+  close auto-bond (valence-aware, with break hysteresis) into molecules.
 - **Arrow keys / mouse drag** — rotate the cube (Cube POC).
 - **Shear input + Apply** — shear the main cube by the entered value
   (`x' = x + k·y`); repeated clicks compound.
