@@ -87,13 +87,19 @@ test('atomos: scene switch flips backdrop sky-blue → near-black', async ({ pag
   const spaceAfter = await readPixel(page, 0.5, 0.04);
   expect(spaceAfter[0] + spaceAfter[1] + spaceAfter[2]).toBeLessThan(120); // dark
 
-  // The switch is now a 3-cycle (CubePoc → Atomos → Molecule → CubePoc), so
-  // cycling fully around returns to the cube POC sky. Molecule shares the dark
-  // deep-space backdrop with atomos, so one more click keeps it dark.
+  // The switch is now a 4-cycle (CubePoc → Atomos → Molecule → Builder →
+  // CubePoc), so cycling fully around returns to the cube POC sky. Both Molecule
+  // and Builder share the dark deep-space backdrop with atomos, so the next two
+  // clicks keep it dark.
   await page.click('#scene-toggle'); // → molecule (still dark space backdrop)
   await page.waitForTimeout(300);
   const moleculeBackdrop = await readPixel(page, 0.5, 0.04);
   expect(moleculeBackdrop[0] + moleculeBackdrop[1] + moleculeBackdrop[2]).toBeLessThan(120);
+
+  await page.click('#scene-toggle'); // → builder (still dark space backdrop)
+  await page.waitForTimeout(300);
+  const builderBackdrop = await readPixel(page, 0.5, 0.04);
+  expect(builderBackdrop[0] + builderBackdrop[1] + builderBackdrop[2]).toBeLessThan(120);
 
   await page.click('#scene-toggle'); // → back to cube POC sky
   await page.waitForTimeout(300);
@@ -320,6 +326,9 @@ test('overlay: scene title updates on scene switch', async ({ page }) => {
 
   await page.click('#scene-toggle'); // → molecule (third scene)
   await expect(title).toHaveText('molecule', { timeout: 4000 });
+
+  await page.click('#scene-toggle'); // → builder (fourth scene)
+  await expect(title).toHaveText('builder', { timeout: 4000 });
 
   await page.click('#scene-toggle'); // → back to cube POC
   await expect(title).toHaveText('Cube POC', { timeout: 4000 });
@@ -629,6 +638,127 @@ test('molecule: bond control animates the atoms together', async ({ page }) => {
   // actually relocate pixels — and must clearly exceed mere animation jitter.
   expect(bondDelta).toBeGreaterThan(20);
   expect(bondDelta).toBeGreaterThan(animNoise * 2 + 8);
+});
+
+// molecule-builder M2 (TEST A): a fourth `Builder` scene renders placed atoms +
+// auto-computed bonds, driven through a `window.__builder` test API. Reached by
+// clicking #scene-toggle THREE times from the initial Cube POC (CubePoc →
+// Atomos → Molecule → Builder). RED until M2 wires the Builder scene + the
+// window.__builder API into Main/Scene/index.html/Loop.
+//
+// window.__builder shape (assumed; to be implemented in M2):
+//   addAtom(z, x, y, z3)            -- place an atom of atomic number z at (x,y,z3)
+//   moveAtom(id, x, y, z3)          -- move a placed atom by id
+//   getBonds()  -> Array            -- the current auto-computed bonds
+//   getMolecules() -> Array         -- connected components (formulae or id arrays)
+//   clear()                         -- reset to the empty builder world
+//
+// Signature: two H atoms placed WITHIN Builder.bondThreshold (the JS doesn't know
+// the exact number; we use a small separation of 60 total — well under the ~180
+// threshold) auto-bond into a single H₂ molecule. We assert exactly one bond, a
+// single 2-atom molecule, and that the canvas shows lit atom geometry.
+test('builder: two H atoms within range auto-bond (H₂)', async ({ page }) => {
+  // Reach the Builder scene (three clicks) and let it render.
+  await expect(page.locator('#scene-toggle')).toBeVisible();
+  await page.click('#scene-toggle'); // → atomos
+  await page.click('#scene-toggle'); // → molecule
+  await page.click('#scene-toggle'); // → builder
+  await page.waitForTimeout(700); // generous: let the builder scene boot + render
+
+  // The window.__builder test API must be present in the Builder scene.
+  await page.waitForFunction(() => !!window.__builder, null, { timeout: 6000 });
+
+  // Place two H atoms a SMALL distance apart (60 total along x — comfortably
+  // under the ~180 bondThreshold), so they auto-bond into H₂.
+  const result = await page.evaluate(() => {
+    const b = window.__builder;
+    b.clear();
+    b.addAtom(1, -30, 0, 0); // H
+    b.addAtom(1, 30, 0, 0);  // H, 60 apart → within bondThreshold
+    return { bonds: b.getBonds(), molecules: b.getMolecules() };
+  });
+
+  // Exactly one bond between the two hydrogens.
+  expect(result.bonds.length).toBe(1);
+
+  // A single 2-atom molecule. getMolecules() may return components (id arrays)
+  // or formula strings — adapt to whichever shape, asserting one H₂ molecule.
+  expect(result.molecules.length).toBe(1);
+  const mol = result.molecules[0];
+  if (typeof mol === 'string') {
+    // Formula form: "H₂" (or its ASCII fallback "H2").
+    expect(mol === 'H₂' || mol === 'H2').toBe(true);
+  } else if (Array.isArray(mol)) {
+    // Connected-component (id array) form: a single 2-atom component.
+    expect(mol.length).toBe(2);
+  } else if (mol && typeof mol === 'object') {
+    // Object form: a 2-atom molecule, optionally carrying a formula.
+    const count = mol.atoms?.length ?? mol.size ?? mol.count;
+    if (count !== undefined) expect(count).toBe(2);
+    if (mol.formula !== undefined) {
+      expect(mol.formula === 'H₂' || mol.formula === 'H2').toBe(true);
+    }
+  }
+
+  // The canvas shows lit atom geometry around the centre (the two bonded H).
+  const region = await readRegion(page, 0.30, 0.30, 0.70, 0.70, 28, 16);
+  const lit = region.filter((p) => p[0] + p[1] + p[2] > 60).length;
+  expect(distinctColors(region)).toBeGreaterThan(1);
+  expect(lit).toBeGreaterThan(0);
+});
+
+// molecule-builder M2 (TEST B): the auto-bond respects each atom's valence cap,
+// and Clear empties the world. Reached by three #scene-toggle clicks (CubePoc →
+// Atomos → Molecule → Builder). RED until M2 ships window.__builder.
+//
+// Signature: an O (valence 2) with two H within range bonds twice (H₂O, O full).
+// A THIRD H placed near the now-valence-full O does NOT bond — the bond count
+// stays at 2 (valence cap). The 3rd H is positioned only near O (not near the
+// other H atoms) so its only candidate neighbour is the saturated O. Finally,
+// clear() empties bonds and molecules.
+test('builder: valence cap blocks an over-bond; Clear empties', async ({ page }) => {
+  // Reach the Builder scene (three clicks) and let it render.
+  await expect(page.locator('#scene-toggle')).toBeVisible();
+  await page.click('#scene-toggle'); // → atomos
+  await page.click('#scene-toggle'); // → molecule
+  await page.click('#scene-toggle'); // → builder
+  await page.waitForTimeout(700); // generous: let the builder scene boot + render
+
+  await page.waitForFunction(() => !!window.__builder, null, { timeout: 6000 });
+
+  // O at the origin with two H within range (left + right, 60 from O) → H₂O.
+  // O has valence 2, so it bonds to exactly both H ⇒ 2 bonds.
+  const afterWater = await page.evaluate(() => {
+    const b = window.__builder;
+    b.clear();
+    b.addAtom(8, 0, 0, 0);   // O (valence 2) at origin
+    b.addAtom(1, -60, 0, 0); // H within range of O
+    b.addAtom(1, 60, 0, 0);  // H within range of O
+    return b.getBonds().length;
+  });
+  expect(afterWater).toBe(2);
+
+  // A THIRD H placed near the now-valence-full O (below it, 60 away) and FAR from
+  // the other two H (which sit ±60 on x; this one is at y=-60, so ~85 from each —
+  // still under threshold of EACH, but both flanking H are themselves full
+  // valence-1 hydrogens, already bonded to O, so none can accept it either). The
+  // only geometric candidate with the saturated O is blocked by valence, so the
+  // bond count stays at 2.
+  const afterThirdH = await page.evaluate(() => {
+    const b = window.__builder;
+    b.addAtom(1, 0, -60, 0); // 3rd H near the valence-full O
+    return b.getBonds().length;
+  });
+  expect(afterThirdH).toBe(2);
+
+  // clear() resets the world: no bonds, no molecules.
+  const afterClear = await page.evaluate(() => {
+    const b = window.__builder;
+    b.clear();
+    return { bonds: b.getBonds().length, molecules: b.getMolecules().length };
+  });
+  expect(afterClear.bonds).toBe(0);
+  expect(afterClear.molecules).toBe(0);
 });
 
 // M4: sky backdrop (top is sky-blue, not white) + ground/sky differ.

@@ -5,7 +5,7 @@ import Prelude
 import Data.Array (all, any, concat, filter, find, index, length, mapWithIndex, nub, range, zipWith)
 import Data.Foldable (maximum, minimum, sum)
 import Data.Int (toNumber)
-import Data.Maybe (fromMaybe, isJust, isNothing)
+import Data.Maybe (Maybe(..), fromMaybe, isJust, isNothing)
 import FRP.Loop (emptyInput)
 import Data.Number (abs, pi, sqrt, tan)
 import Effect (Effect)
@@ -17,7 +17,6 @@ import Atom (configString, electronPositions, electronPositionsBySubshell, elect
 import Atom as Atom
 import Chem (valence)
 import Builder as B
-import Data.Maybe (Maybe(..))
 import Molecule (bondLength, moleculeOf, molecules, moleculeNucleons, sharedElectronPositions)
 import Palette (shellColor, subshellColor)
 import Meshes (groundPlane, gridFloor, orbitRing, orbitRingFlat, sphere)
@@ -290,11 +289,12 @@ main = do
   -- ───── Scene switch + starfield (atomos M2) ─────────────────────────
   log "scene + starfield properties:"
 
-  -- The on-screen switch cycles CubePoc → Atomos → Molecule → CubePoc.
-  check "nextScene cycles CubePoc -> Atomos -> Molecule -> CubePoc" $
+  -- The on-screen switch cycles CubePoc → Atomos → Molecule → Builder → CubePoc.
+  check "nextScene cycles CubePoc -> Atomos -> Molecule -> Builder -> CubePoc" $
     nextScene CubePoc == Atomos
       && nextScene Atomos == Molecule
-      && nextScene Molecule == CubePoc
+      && nextScene Molecule == Builder
+      && nextScene Builder == CubePoc
 
   -- The starfield is a non-empty, deterministic set of points.
   check "starfield has stars" $ length starPositions > 0
@@ -699,21 +699,38 @@ main = do
   log "all scene title properties hold."
 
   -- ───── Molecule scene wiring (molecule-platform M2) ─────────────────
-  -- The molecule scene joins the on-screen switch as a third scene, so the
-  -- toggle now cycles CubePoc → Atomos → Molecule → CubePoc. RED until
-  -- Scene.purs adds the `Molecule` constructor + nextScene/sceneTitle cases.
+  -- The molecule scene joins the on-screen switch, so the toggle cycles
+  -- CubePoc → Atomos → Molecule → Builder → CubePoc.
   log "molecule scene wiring properties:"
 
-  -- The switch is now a 3-cycle through every scene.
+  -- The switch passes through every scene.
   check "nextScene CubePoc = Atomos" $ nextScene CubePoc == Atomos
   check "nextScene Atomos = Molecule" $ nextScene Atomos == Molecule
-  check "nextScene Molecule = CubePoc" $ nextScene Molecule == CubePoc
 
   -- The molecule scene has a non-empty banner title (the implementer matches
   -- this exact string in Scene.sceneTitle).
   check "sceneTitle Molecule = molecule" $ sceneTitle Molecule == "molecule"
 
   log "all molecule scene wiring properties hold."
+
+  -- ───── Builder scene wiring (molecule-builder M2) ───────────────────
+  -- The builder scene joins the on-screen switch as a fourth scene, so the
+  -- toggle now cycles CubePoc → Atomos → Molecule → Builder → CubePoc. RED
+  -- until Scene.purs adds the `Builder` constructor + nextScene/sceneTitle
+  -- cases.
+  log "builder scene wiring properties:"
+
+  -- The switch is now a 4-cycle through every scene; Molecule → Builder (not
+  -- straight back to CubePoc), and Builder closes the loop to CubePoc.
+  check "nextScene Molecule = Builder" $ nextScene Molecule == Builder
+  check "nextScene Builder = CubePoc" $ nextScene Builder == CubePoc
+
+  -- The builder scene has a non-empty banner title (the implementer matches
+  -- this exact string in Scene.sceneTitle); lowercase like 'atomos'/'molecule'.
+  check "sceneTitle Builder is non-empty" $ sceneTitle Builder /= ""
+  check "sceneTitle Builder = builder" $ sceneTitle Builder == "builder"
+
+  log "all builder scene wiring properties hold."
 
   -- ───── Molecule model (H₂ slice) ────────────────────────────────────
   log "molecule model properties:"

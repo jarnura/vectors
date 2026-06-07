@@ -2,6 +2,8 @@ module FRP.Loop
   ( Input
   , emptyInput
   , runLoop
+  , installAddButton
+  , installClearButton
   ) where
 
 import Prelude
@@ -55,6 +57,15 @@ foreign import installView2DToggle
 -- atomic number.
 foreign import installElementInput
   :: (Int -> Effect Unit) -> Effect Unit
+
+-- Wires the builder Add button (#add-btn): on click, reads the element selector
+-- (#element-value) and invokes the callback with the chosen atomic number.
+foreign import installAddButton
+  :: (Int -> Effect Unit) -> Effect Unit
+
+-- Wires the builder Clear button (#clear-btn): runs the given effect on click.
+foreign import installClearButton
+  :: Effect Unit -> Effect Unit
 
 foreign import requestAnimationFrame
   :: Effect Unit -> Effect Unit

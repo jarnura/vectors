@@ -16,20 +16,23 @@ data Scene
   = CubePoc
   | Atomos
   | Molecule
+  | Builder
 
 derive instance eqScene :: Eq Scene
 
--- Cycle to the next scene: CubePoc → Atomos → Molecule → CubePoc.
+-- Cycle to the next scene: CubePoc → Atomos → Molecule → Builder → CubePoc.
 nextScene :: Scene -> Scene
 nextScene CubePoc = Atomos
 nextScene Atomos = Molecule
-nextScene Molecule = CubePoc
+nextScene Molecule = Builder
+nextScene Builder = CubePoc
 
 -- Human-readable scene name, used by the overlay title banner.
 sceneTitle :: Scene -> String
 sceneTitle CubePoc = "Cube POC"
 sceneTitle Atomos = "atomos"
 sceneTitle Molecule = "molecule"
+sceneTitle Builder = "builder"
 
 -- Near-black "deep space" backdrop for the atomos scene.
 spaceColor :: Color

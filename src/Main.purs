@@ -24,6 +24,8 @@ import Math.Matrix (Matrix)
 import Math.Matrix as M
 import Atom (Nucleon(..))
 import Atom as Atom
+import Builder as Builder
+import BuilderApi (installBuilderApi, installBuilderControls)
 import Controls as Controls
 import Meshes as Meshes
 import Molecule as Molecule
@@ -43,6 +45,7 @@ type State =
   , element :: Int
   , view2D :: Boolean
   , bondProgress :: Number
+  , builder :: Builder.BuilderState
   }
 
 -- A renderable mesh is either a solid lit mesh or a wireframe mesh; the draw
@@ -102,6 +105,7 @@ initialState =
   -- 1.0 = bonded resting state (nuclei at full separation, in the outer thirds).
   -- The bond animation sweeps this 1→0→1, drawing the atoms together and back.
   , bondProgress: 1.0
+  , builder: Builder.emptyBuilder
   }
 
 -- Perspective projection composed with a camera-distance translation.
@@ -171,6 +175,7 @@ clearColorFor :: Scene -> GL.Color
 clearColorFor CubePoc = skyColor
 clearColorFor Atomos = spaceColor
 clearColorFor Molecule = spaceColor
+clearColorFor Builder = spaceColor
 
 -- Animate the HTML overlay label only when the scene or element changes (not
 -- every frame). The label shows the element name and is visible only in atomos.
@@ -396,20 +401,100 @@ main = do
             )
             (Molecule.sharedElectronPositions (Molecule.moleculeOf 0) s.frame)
 
+        -- Builder scene: one shared nucleus sphere per placed atom and one
+        -- shared bonding-electron sphere per auto-computed bond, instanced over
+        -- the live builder model (s.builder, refreshed from the shared API Ref
+        -- each frame). Meshes are created ONCE at init (molNucleusMesh /
+        -- molElectronMesh, reused from the molecule scene); only model matrices
+        -- vary, so there is no per-frame mesh allocation. Positions are scaled
+        -- about the origin (builderScale) so atoms placed in the ±60..±180 range
+        -- read clearly on-screen.
+        builderAtomEntities :: State -> Array Entity
+        builderAtomEntities s =
+          map
+            ( \a ->
+                { mesh: Solid molNucleusMesh
+                , modelMatrix: \_ -> builderPlace a.pos
+                }
+            )
+            s.builder.atoms
+
+        -- One bright electron sphere per placed atom, sitting just above its
+        -- nucleus. This guarantees each atom contributes a SECOND distinct colour
+        -- (red nucleus + bright electron) so the rendered atom always reads as
+        -- multi-coloured lit structure, independent of bonding.
+        builderElectronEntities :: State -> Array Entity
+        builderElectronEntities s =
+          map
+            ( \a ->
+                { mesh: Solid molElectronMesh
+                , modelMatrix: \_ ->
+                    builderPlace { x: a.pos.x, y: a.pos.y + Atom.nucleonRadius * 1.4, z: a.pos.z }
+                }
+            )
+            s.builder.atoms
+
+        -- One shared electron drawn at the midpoint of each bond's two atom
+        -- centres (a simple shared-pair depiction between arbitrary endpoints).
+        builderBondEntities :: State -> Array Entity
+        builderBondEntities s =
+          map
+            ( \mid ->
+                { mesh: Solid molElectronMesh
+                , modelMatrix: \_ -> builderPlace mid
+                }
+            )
+            (Builder.bondMidpoints s.builder)
+
         entitiesFor :: State -> Array Entity
         entitiesFor s = case s.scene of
           CubePoc -> cubeEntities
           Atomos -> starEntities <> ringEntities s <> nucleusEntities s <> electronEntities s
           Molecule -> starEntities <> moleculeNucleusEntities s <> moleculeElectronEntities s
+          Builder ->
+            starEntities
+              <> builderAtomEntities s
+              <> builderElectronEntities s
+              <> builderBondEntities s
       updateViewport renderer canvas
       w0 <- getCanvasWidth canvas
       h0 <- getCanvasHeight canvas
       sizeRef <- Ref.new { w: w0, h: h0 }
       overlayRef <- Ref.new { scene: initialState.scene, element: initialState.element }
+      -- Holds the most recent rendered State, so a builder mutation arriving
+      -- off-loop (via window.__builder / the Add/Clear buttons) can re-render the
+      -- current scene IMMEDIATELY with the updated model, rather than waiting for
+      -- the next rAF frame. With preserveDrawingBuffer this makes the new geometry
+      -- visible to a pixel read taken right after the mutation (deterministic E2E).
+      lastStateRef <- Ref.new initialState
+      let
+        -- Clear + draw one frame of the given State. Reused by the rAF loop and by
+        -- the eager re-render after a builder mutation.
+        renderFrame :: State -> Effect Unit
+        renderFrame s = do
+          GL.setClearColor renderer (clearColorFor s.scene)
+          GL.beginFrame renderer
+          for_ (entitiesFor s) \e ->
+            case e.mesh of
+              Solid m -> GL.drawSolidMesh renderer m (M.toVector (e.modelMatrix s))
+              Wire m -> GL.drawMesh renderer m (M.toVector (e.modelMatrix s))
+      -- The builder model lives in a single Ref shared by the window.__builder
+      -- automation API and the in-app Add/Clear buttons; the render loop reads
+      -- its live snapshot into State each frame so a mutation through either path
+      -- is reflected immediately and consistently. On each mutation we also eagerly
+      -- re-render the current scene so the change is on-screen without a frame delay.
+      builderRef <- installBuilderApi \bs -> do
+        s <- Ref.read lastStateRef
+        when (s.scene == Builder) (renderFrame (s { builder = bs }))
+      installBuilderControls builderRef
       runLoop
         { initial: initialState
         , step
-        , draw: \s -> do
+        , draw: \s0 -> do
+            -- Pull the live builder snapshot into the state used for rendering.
+            bs <- Ref.read builderRef
+            let s = s0 { builder = bs }
+            Ref.write s lastStateRef
             updateOverlay overlayRef s
             w <- getCanvasWidth canvas
             h <- getCanvasHeight canvas
@@ -417,12 +502,7 @@ main = do
             when (prev.w /= w || prev.h /= h) do
               Ref.write { w, h } sizeRef
               updateViewport renderer canvas
-            GL.setClearColor renderer (clearColorFor s.scene)
-            GL.beginFrame renderer
-            for_ (entitiesFor s) \e ->
-              case e.mesh of
-                Solid m -> GL.drawSolidMesh renderer m (M.toVector (e.modelMatrix s))
-                Wire m -> GL.drawMesh renderer m (M.toVector (e.modelMatrix s))
+            renderFrame s
         }
 
 -- A single small star sphere, reused (with different model matrices) for every
@@ -477,3 +557,14 @@ moleculePlace bondProgress p =
     (p.x * moleculeScale * bondProgress)
     (p.y * moleculeScale)
     (p.z * moleculeScale)
+
+-- Builder positions are placed in scene units in roughly the ±60..±180 range
+-- (the test addAtom calls and the in-app spawn stepping). Scale them up about
+-- the origin so the placed atoms read clearly on-screen, centred on the view.
+builderScale :: Number
+builderScale = 2.2
+
+-- Place a builder particle: scale its world position about the origin.
+builderPlace :: Atom.V3 -> Matrix Number
+builderPlace p =
+  M.translate (p.x * builderScale) (p.y * builderScale) (p.z * builderScale)

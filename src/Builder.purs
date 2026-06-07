@@ -16,6 +16,7 @@ module Builder
   , bondThreshold
   , breakThreshold
   , recomputeBonds
+  , bondMidpoints
   , molecules
   , formulaOf
   , projectToScreen
@@ -151,6 +152,22 @@ recomputeBonds st =
         && freeValence st bonds p.a > 0
         && freeValence st bonds p.b > 0 then snoc bonds p
     else bonds
+
+-- Midpoint (in world units) of each bond's two endpoint atoms. Used by the
+-- renderer to place a shared bonding electron between the bonded nuclei. Bonds
+-- whose endpoints can't be resolved are skipped.
+bondMidpoints :: BuilderState -> Array V3
+bondMidpoints st = foldl collect [] st.bonds
+  where
+  collect acc bd =
+    case atomById st bd.a, atomById st bd.b of
+      Just a, Just b ->
+        snoc acc
+          { x: (a.pos.x + b.pos.x) / 2.0
+          , y: (a.pos.y + b.pos.y) / 2.0
+          , z: (a.pos.z + b.pos.z) / 2.0
+          }
+      _, _ -> acc
 
 -- ───── Molecules (connected components) + formulae ───────────────────
 

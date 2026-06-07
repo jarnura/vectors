@@ -42,6 +42,22 @@ export const installElementInput = (cb) => () => {
   input.addEventListener("change", fire);
 };
 
+export const installAddButton = (cb) => () => {
+  const button = document.getElementById("add-btn");
+  const input = document.getElementById("element-value");
+  if (!button) return;
+  button.addEventListener("click", () => {
+    const z = input ? parseInt(input.value, 10) : NaN;
+    cb(Number.isNaN(z) ? 6 : z)();
+  });
+};
+
+export const installClearButton = (effect) => () => {
+  const button = document.getElementById("clear-btn");
+  if (!button) return;
+  button.addEventListener("click", () => effect());
+};
+
 export const requestAnimationFrame = (effect) => () => {
   window.requestAnimationFrame(() => effect());
 };
