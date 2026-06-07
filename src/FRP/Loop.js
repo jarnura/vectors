@@ -25,6 +25,12 @@ export const installSceneToggle = (effect) => () => {
   button.addEventListener("click", () => effect());
 };
 
+export const installView2DToggle = (effect) => () => {
+  const el = document.getElementById("view-2d");
+  if (!el) return;
+  el.addEventListener("change", () => effect());
+};
+
 export const installElementInput = (cb) => () => {
   const input = document.getElementById("element-value");
   if (!input) return;

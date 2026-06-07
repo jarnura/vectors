@@ -39,6 +39,7 @@ type State =
   , frame :: Number
   , scene :: Scene
   , element :: Int
+  , view2D :: Boolean
   }
 
 -- A renderable mesh is either a solid lit mesh or a wireframe mesh; the draw
@@ -94,6 +95,7 @@ initialState =
   , frame: 0.0
   , scene: CubePoc
   , element: 6 -- Carbon by default
+  , view2D: false
   }
 
 -- Perspective projection composed with a camera-distance translation.
@@ -126,6 +128,7 @@ perspectiveProjection w h =
 step :: Input -> State -> State
 step input =
   applyToggle input.toggleScene
+    >>> applyToggle2D input.toggle2D
     >>> applyElement input.element
     >>> applyShear input.shear
     >>> applyKey input.lastKey
@@ -138,6 +141,11 @@ step input =
 applyToggle :: Boolean -> State -> State
 applyToggle false s = s
 applyToggle true s = s { scene = nextScene s.scene }
+
+-- Flip the 2D/3D view of the atom when the "2D" checkbox changes.
+applyToggle2D :: Boolean -> State -> State
+applyToggle2D false s = s
+applyToggle2D true s = s { view2D = not s.view2D }
 
 -- Select the rendered element (atomic number) from the selector. Out-of-range
 -- values are clamped downstream by Atom.elementOf.
@@ -264,6 +272,16 @@ main = do
             )
         )
         (Atom.fillSubshells Atom.maxElectron)
+      -- Flattened (2D) counterpart of ringMeshes: concentric, un-inclined rings.
+      -- Built in the same Madelung order so the prefix `take` + the electron-mesh
+      -- zip stay aligned with the 3D rings.
+      ringMeshes2D <- traverse
+        ( \ss -> GL.createWireframeMesh renderer
+            ( (Meshes.orbitRingFlat ringSegments (Atom.subshellRadius ss.n ss.l))
+                { color = subshellColor ss.n ss.l }
+            )
+        )
+        (Atom.fillSubshells Atom.maxElectron)
       electronMeshes <- traverse
         (\ss -> GL.createSolidMesh renderer (electronSphere (subshellColor ss.n ss.l)))
         (Atom.fillSubshells Atom.maxElectron)
@@ -289,7 +307,9 @@ main = do
           map
             ( \n ->
                 { mesh: Solid (if n.kind == Proton then protonMesh else neutronMesh)
-                , modelMatrix: \_ -> M.translate n.pos.x n.pos.y n.pos.z
+                , modelMatrix: \_ ->
+                    if s.view2D then M.translate n.pos.x n.pos.y 0.0
+                    else M.translate n.pos.x n.pos.y n.pos.z
                 }
             )
             (Atom.nucleons (Atom.elementOf s.element))
@@ -299,7 +319,9 @@ main = do
         ringEntities :: State -> Array Entity
         ringEntities s =
           map (\m -> { mesh: Wire m, modelMatrix: \_ -> M.identity })
-            (take (length (Atom.fillSubshells (Atom.elementOf s.element).electrons)) ringMeshes)
+            ( take (length (Atom.fillSubshells (Atom.elementOf s.element).electrons))
+                (if s.view2D then ringMeshes2D else ringMeshes)
+            )
 
         -- Discrete electrons orbiting on the rings; positions advance with frame.
         -- Each sub-shell's electrons use that sub-shell's colour mesh (matching
@@ -312,7 +334,9 @@ main = do
                     map (\p -> { mesh: Solid mesh, modelMatrix: \_ -> M.translate p.x p.y p.z }) group
                 )
                 electronMeshes
-                (Atom.electronPositionsBySubshell (Atom.elementOf s.element) s.frame)
+                ( if s.view2D then Atom.electronPositionsBySubshell2D (Atom.elementOf s.element) s.frame
+                  else Atom.electronPositionsBySubshell (Atom.elementOf s.element) s.frame
+                )
             )
 
         entitiesFor :: State -> Array Entity

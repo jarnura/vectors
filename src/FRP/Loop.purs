@@ -15,6 +15,7 @@ type Input =
   , mouse :: Maybe { x :: Int, y :: Int }
   , shear :: Maybe Number
   , toggleScene :: Boolean
+  , toggle2D :: Boolean
   , element :: Maybe Int
   }
 
@@ -24,6 +25,7 @@ emptyInput =
   , mouse: Nothing
   , shear: Nothing
   , toggleScene: false
+  , toggle2D: false
   , element: Nothing
   }
 
@@ -40,6 +42,10 @@ foreign import installShearButton
 
 -- Wires the scene-switch button: runs the given effect on each click.
 foreign import installSceneToggle
+  :: Effect Unit -> Effect Unit
+
+-- Wires the 2D-view checkbox: runs the given effect on each change.
+foreign import installView2DToggle
   :: Effect Unit -> Effect Unit
 
 -- Wires the element selector: on change, invokes the callback with the chosen
@@ -68,6 +74,8 @@ runLoop spec = do
     Ref.modify_ (_ { shear = Just k }) inputRef
   installSceneToggle
     (Ref.modify_ (_ { toggleScene = true }) inputRef)
+  installView2DToggle
+    (Ref.modify_ (_ { toggle2D = true }) inputRef)
   installElementInput \z ->
     Ref.modify_ (_ { element = Just z }) inputRef
   let
