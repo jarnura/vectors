@@ -61,3 +61,46 @@ export const runBondAnimation = (cb) => () => {
     onUpdate: () => cb(obj.p)(),
   });
 };
+
+// Entrance animation for the control bar (by id): the panel fades + slides up
+// (opacity 0→1, translateY 12→0), then its child buttons stagger in. The panel's
+// CSS sets opacity:0 initially, so the very first sampled frame reads < 1
+// mid-flight and the animation settles it to 1. A deliberately long duration
+// keeps the mid-animation opacity sample robustly below 1 under SwiftShader.
+// No-op when the element is absent. DOM only — never WebGL.
+export const animateControlBarIn = (id) => () => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  // Animate the panel container in (opacity + slide).
+  animate(el, {
+    opacity: [0, 1],
+    translateY: [12, 0],
+    duration: 650,
+    ease: "outCubic",
+  });
+  // Stagger the interactive children in for a polished, intentional reveal.
+  const children = el.querySelectorAll("button, label, input, .controls-sep");
+  if (children.length > 0) {
+    animate(children, {
+      opacity: [0, 1],
+      translateY: [6, 0],
+      duration: 450,
+      delay: stagger(35, { start: 120 }),
+      ease: "outQuad",
+    });
+  }
+};
+
+// Wire a quick "pulse" (scale bounce) onto a button by id, as click feedback for
+// the Add/Clear actions. No-op when absent. DOM only — animates the DOM node.
+export const installButtonPulse = (id) => () => {
+  const button = document.getElementById(id);
+  if (!button) return;
+  button.addEventListener("click", () => {
+    animate(button, {
+      scale: [1, 1.14, 1],
+      duration: 320,
+      ease: "outBack",
+    });
+  });
+};

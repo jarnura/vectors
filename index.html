@@ -15,13 +15,68 @@
       }
       #controls {
         position: absolute;
-        top: 12px;
-        left: 12px;
+        top: 16px;
+        left: 16px;
         z-index: 1;
-        font-family: sans-serif;
-        background: rgba(255, 255, 255, 0.85);
-        padding: 8px 10px;
-        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-size: 13px;
+        color: #e6edff;
+        background: rgba(15, 20, 35, 0.55);
+        -webkit-backdrop-filter: blur(10px) saturate(140%);
+        backdrop-filter: blur(10px) saturate(140%);
+        padding: 10px 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(140, 170, 235, 0.28);
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45),
+          inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        /* Initial state the anime.js entrance resolves FROM (opacity 0 → 1). */
+        opacity: 0;
+      }
+      #controls label {
+        color: #9fb6e6;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+        user-select: none;
+      }
+      #controls button {
+        font: inherit;
+        color: #eaf2ff;
+        background: rgba(90, 120, 200, 0.28);
+        border: 1px solid rgba(150, 180, 240, 0.35);
+        border-radius: 999px;
+        padding: 6px 14px;
+        cursor: pointer;
+        transition: background 0.18s ease, border-color 0.18s ease,
+          transform 0.12s ease, box-shadow 0.18s ease;
+      }
+      #controls button:hover {
+        background: rgba(120, 155, 245, 0.45);
+        border-color: rgba(180, 205, 255, 0.6);
+        box-shadow: 0 2px 12px rgba(90, 130, 240, 0.35);
+      }
+      #controls button:active {
+        transform: translateY(1px) scale(0.97);
+      }
+      #controls input[type="number"] {
+        font: inherit;
+        color: #eaf2ff;
+        background: rgba(8, 14, 28, 0.55);
+        border: 1px solid rgba(150, 180, 240, 0.3);
+        border-radius: 8px;
+        padding: 5px 8px;
+        width: 64px;
+      }
+      #controls input[type="checkbox"] {
+        accent-color: #7f9bf5;
+      }
+      #controls .controls-sep {
+        color: rgba(150, 180, 240, 0.35);
+        padding: 0 2px;
+        user-select: none;
       }
       #shear-value {
         width: 64px;
@@ -95,13 +150,6 @@
       }
       .mol-value {
         color: #eaf2ff;
-      }
-      #bond-btn {
-        margin-left: 6px;
-      }
-      #add-btn,
-      #clear-btn {
-        margin-left: 4px;
       }
     </style>
   </head>

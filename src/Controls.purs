@@ -6,6 +6,8 @@ module Controls
   ( renderInfoPanel
   , installBondButton
   , runBondAnimation
+  , animateControlBarIn
+  , installButtonPulse
   ) where
 
 import Prelude (Unit)
@@ -25,3 +27,13 @@ foreign import installBondButton :: Effect Unit -> Effect Unit
 -- can consume it (the callback pushes progress into the FRP input ref). DOM only:
 -- this animates a JS value, not WebGL.
 foreign import runBondAnimation :: (Number -> Effect Unit) -> Effect Unit
+
+-- Animate the control bar (by element id) IN on load: the panel fades + slides
+-- up (opacity 0→1, translateY) and its child buttons stagger in. The panel's
+-- initial CSS state is opacity 0, so an early sampled frame reads < 1 mid-flight
+-- and settles to ~1. No-op if the element is absent. DOM only — never WebGL.
+foreign import animateControlBarIn :: String -> Effect Unit
+
+-- Wire a tasteful click "pulse" (a quick scale bounce) onto a button by id, as
+-- add/clear feedback. No-op if absent. DOM only.
+foreign import installButtonPulse :: String -> Effect Unit

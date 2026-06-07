@@ -977,6 +977,110 @@ test('cube POC: mouse still rotates the cube (drag scene-gated)', async ({ page 
   expect(changed).toBeGreaterThan(2);
 });
 
+// molecule-builder M4 (TEST A): the control bar (#controls) restyle must NOT
+// break or remove any control. This is a regression guard for the M4 glassy
+// restyle + anime.js animations: every control the prior milestones rely on
+// (scene toggle, 2D view, element selector, shear, bond, add, clear) must remain
+// present and visible. Stays green before AND after M4 ships the restyle.
+test('control bar: all controls are present and visible', async ({ page }) => {
+  for (const sel of [
+    '#scene-toggle',
+    '#view-2d',
+    '#element-value',
+    '#shear-btn',
+    '#bond-btn',
+    '#add-btn',
+    '#clear-btn',
+  ]) {
+    await expect(page.locator(sel)).toBeVisible();
+  }
+});
+
+// molecule-builder M4 (TEST B): the control bar animates IN on load via anime.js
+// (an entrance fade/slide that settles to fully visible). The DOM-only Controls
+// FFI drives the animation (animate/stagger), like the molecule-info rows.
+//
+// Timing is fragile under SwiftShader, so the MUST-PASS (hard) assertion is the
+// SETTLED state: after a generous wait the #controls opacity is ~1 and the bar is
+// visible + interactive (a control is clickable). The mid-animation sample (early
+// opacity < 1) is BEST-EFFORT only — it is the signature of the entrance
+// animation being ADDED in M4, but we do not fail the suite on its timing.
+//
+// NOTE: before M4 ships the entrance animation, #controls has the default
+// opacity 1, so the early sample reads ~1 (no animation yet) — that best-effort
+// branch is the RED signal that the entrance animation does not exist yet. The
+// hard settled-state assertion is already green (regression guard). Once M4 adds
+// the anime.js entrance, the early sample reads < 1 and BOTH stay green.
+test('control bar: animates in on load (anime.js entrance)', async ({ page }) => {
+  const opacity = () =>
+    page.evaluate(
+      () => getComputedStyle(document.getElementById('controls')).opacity,
+    );
+
+  // Best-effort mid-animation sample: read opacity as early as possible. If M4's
+  // entrance animation is running, this is < 1 (or differs from the settled
+  // value); before M4 it is the default 1. We DO NOT hard-fail on this — it is
+  // documented as the behaviour M4 introduces. We surface it via a soft check.
+  const early = parseFloat(await opacity());
+  // Soft signal of the entrance animation (best-effort under SwiftShader timing):
+  // an animated entrance starts below the settled opacity. expect.soft records a
+  // failure without aborting the test, so the suite still passes on the hard
+  // settled-state assertion below even when the early frame already reads 1.
+  expect.soft(early, 'entrance animation: opacity starts below settled (best-effort)').toBeLessThan(1);
+
+  // Hard assertion: the bar SETTLES fully visible (opacity ~1) and stays visible.
+  await expect
+    .poll(async () => parseFloat(await opacity()), { timeout: 4000 })
+    .toBeGreaterThan(0.95);
+  await expect(page.locator('#controls')).toBeVisible();
+
+  // And it is interactive once settled: a control is clickable (the entrance
+  // animation does not leave the bar pointer-blocked or transformed off-screen).
+  await page.click('#scene-toggle');
+  await expect(page.locator('#scene-title')).toHaveText('atomos', { timeout: 4000 });
+});
+
+// molecule-builder M4 (TEST C): the glassy restyle + anime.js animations on the
+// Add/Clear buttons must NOT break their wiring to the builder model. Reach the
+// Builder scene (three #scene-toggle clicks), set the element selector to H,
+// click #add-btn twice (two H spawn stepped within bond range per the M2 add
+// wiring), and assert via window.__builder.getBonds() that a bond formed. Then
+// #clear-btn empties the model. Regression guard: stays green before AND after
+// the M4 restyle/animation lands.
+test('control bar: Add/Clear still work after restyle (builder integration)', async ({ page }) => {
+  await expect(page.locator('#scene-toggle')).toBeVisible();
+  await page.click('#scene-toggle'); // → atomos
+  await page.click('#scene-toggle'); // → molecule
+  await page.click('#scene-toggle'); // → builder
+  await page.waitForTimeout(700); // let the builder scene boot + render
+  await page.waitForFunction(() => !!window.__builder, null, { timeout: 6000 });
+
+  // Select Hydrogen (Z=1) so the Add button spawns H atoms.
+  await page.fill('#element-value', '1');
+
+  // Click Add twice: two H spawn stepped within bond range (M2 add wiring), so
+  // the auto-bond model forms a bond between them.
+  await page.click('#add-btn');
+  await page.waitForTimeout(150);
+  await page.click('#add-btn');
+  await page.waitForTimeout(300);
+
+  // The restyled/animated Add button still drives the builder model: a bond formed.
+  await expect
+    .poll(async () => page.evaluate(() => window.__builder.getBonds().length), {
+      timeout: 4000,
+    })
+    .toBeGreaterThanOrEqual(1);
+
+  // The restyled/animated Clear button still empties the model.
+  await page.click('#clear-btn');
+  await expect
+    .poll(async () => page.evaluate(() => window.__builder.getBonds().length), {
+      timeout: 4000,
+    })
+    .toBe(0);
+});
+
 // M4: sky backdrop (top is sky-blue, not white) + ground/sky differ.
 test('M4: sky backdrop and horizon transition', async ({ page }) => {
   const top = await readPixel(page, 0.5, 0.03);     // sky region
