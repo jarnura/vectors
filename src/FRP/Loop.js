@@ -58,6 +58,33 @@ export const installClearButton = (effect) => () => {
   button.addEventListener("click", () => effect());
 };
 
+// Pointer (mouse) down/move/up over the canvas, reported in canvas-LOCAL
+// backing-store pixels: subtract the canvas bounding rect (CSS px) and scale by
+// the backing width/height vs the CSS size, so the coordinates match the canvas
+// the renderer draws into regardless of DPR / CSS scaling. DOM-only: reads
+// geometry, never touches WebGL.
+export const installCanvasPointer = (down) => (move) => (up) => () => {
+  const canvas = document.getElementById("canvas");
+  if (!canvas) return;
+  const toLocal = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const sx = rect.width > 0 ? canvas.width / rect.width : 1;
+    const sy = rect.height > 0 ? canvas.height / rect.height : 1;
+    return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy };
+  };
+  canvas.addEventListener("mousedown", (e) => {
+    const p = toLocal(e);
+    down(p.x)(p.y)();
+  });
+  // Listen on window for move/up so a drag that strays off the canvas still
+  // tracks (standard drag behaviour).
+  window.addEventListener("mousemove", (e) => {
+    const p = toLocal(e);
+    move(p.x)(p.y)();
+  });
+  window.addEventListener("mouseup", () => up());
+};
+
 export const requestAnimationFrame = (effect) => () => {
   window.requestAnimationFrame(() => effect());
 };

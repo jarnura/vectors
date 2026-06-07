@@ -3,15 +3,15 @@ module Main where
 import Prelude
 
 import Data.Array (concat, length, take, zipWith)
-import Data.Foldable (for_)
+import Data.Foldable (for_, minimumBy)
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
-import Data.Number (cos, pi, sin, tan)
+import Data.Number (cos, pi, sin, sqrt, tan)
 import Data.Traversable (traverse)
 import Effect (Effect)
 import Effect.Console (log)
 import Effect.Ref as Ref
-import FRP.Loop (Input, runLoop)
+import FRP.Loop (Input, installCanvasPointer, runLoop)
 import Graphics.Canvas
   ( CanvasElement
   , getCanvasElementById
@@ -479,14 +479,23 @@ main = do
               Solid m -> GL.drawSolidMesh renderer m (M.toVector (e.modelMatrix s))
               Wire m -> GL.drawMesh renderer m (M.toVector (e.modelMatrix s))
       -- The builder model lives in a single Ref shared by the window.__builder
-      -- automation API and the in-app Add/Clear buttons; the render loop reads
-      -- its live snapshot into State each frame so a mutation through either path
-      -- is reflected immediately and consistently. On each mutation we also eagerly
-      -- re-render the current scene so the change is on-screen without a frame delay.
-      builderRef <- installBuilderApi \bs -> do
-        s <- Ref.read lastStateRef
-        when (s.scene == Builder) (renderFrame (s { builder = bs }))
-      installBuilderControls builderRef
+      -- automation API, the in-app Add/Clear buttons, and the pointer pick+drag;
+      -- the render loop reads its live snapshot into State each frame so a mutation
+      -- through any path is reflected immediately and consistently. On each
+      -- mutation we eagerly re-render the current scene so the change is on-screen
+      -- without a frame delay (deterministic for pixel-read E2E).
+      let
+        eagerRender :: Builder.BuilderState -> Effect Unit
+        eagerRender bs = do
+          s <- Ref.read lastStateRef
+          when (s.scene == Builder) (renderFrame (s { builder = bs }))
+      builderRef <- installBuilderApi eagerRender
+      installBuilderControls eagerRender builderRef
+      -- Production pointer pick+drag: scene-gated to Builder, routed through the
+      -- SAME shared Ref + eagerRender as the API, so there is one source of truth
+      -- and the drag is on-screen immediately. Reads the live canvas size to build
+      -- the exact projection the renderer uses.
+      installBuilderPick canvas builderRef eagerRender (Ref.read lastStateRef)
       runLoop
         { initial: initialState
         , step
@@ -568,3 +577,91 @@ builderScale = 2.2
 builderPlace :: Atom.V3 -> Matrix Number
 builderPlace p =
   M.translate (p.x * builderScale) (p.y * builderScale) (p.z * builderScale)
+
+-- The world-space point the renderer projects for a builder atom: its model-pos
+-- scaled about the origin by builderScale (matching builderPlace's translation).
+builderWorldPos :: Atom.V3 -> Atom.V3
+builderWorldPos p =
+  { x: p.x * builderScale, y: p.y * builderScale, z: p.z * builderScale }
+
+-- Pixel radius within which a pointer-down counts as picking an atom. Generous
+-- enough to grab the centre atom under a real mouse drag.
+pickRadius :: Number
+pickRadius = 80.0
+
+-- Production pointer pick + drag for the Builder scene. Scene-gated: it only acts
+-- when the current scene is Builder, so cube-POC mouse rotation (applyMouse) is
+-- untouched. The drag is routed through the SAME shared builder Ref + eagerRender
+-- as window.__builder.moveAtom, so the live valence-aware re-bonding runs and the
+-- change is on-screen immediately.
+--
+-- Picking/dragging use the EXACT projection the renderer uses
+-- (perspectiveProjection at the live canvas size, which composes the camera
+-- translate), and project the atom's scaled world position (builderWorldPos).
+-- unprojectAtDepth places the cursor onto the camera-facing plane at the picked
+-- atom's depth; dividing back out builderScale recovers the builder-model pos.
+installBuilderPick
+  :: CanvasElement
+  -> Ref.Ref Builder.BuilderState
+  -> (Builder.BuilderState -> Effect Unit)
+  -> Effect State
+  -> Effect Unit
+installBuilderPick canvas builderRef eagerRender readState = do
+  pickRef <- Ref.new (Nothing :: Maybe { id :: Int, depth :: Number })
+  let
+    -- Current full projection + canvas dims (live size).
+    projAndCanvas = do
+      w <- getCanvasWidth canvas
+      h <- getCanvasHeight canvas
+      pure { proj: perspectiveProjection w h, canvas: { w, h } }
+
+    onDown px py = do
+      s <- readState
+      when (s.scene == Builder) do
+        pc <- projAndCanvas
+        bs <- Ref.read builderRef
+        let
+          cursor = { x: px, y: py }
+          -- Project every atom's scaled world position and measure pixel distance.
+          candidates =
+            map
+              ( \a ->
+                  let
+                    scr = Builder.projectToScreen pc.proj pc.canvas (builderWorldPos a.pos)
+                    dx = scr.x - cursor.x
+                    dy = scr.y - cursor.y
+                  in
+                    { id: a.id, pos: a.pos, dist: sqrt (dx * dx + dy * dy) }
+              )
+              bs.atoms
+          nearest = minimumBy (comparing _.dist) candidates
+        case nearest of
+          Just c | c.dist <= pickRadius ->
+            Ref.write (Just { id: c.id, depth: (builderWorldPos c.pos).z }) pickRef
+          _ -> pure unit
+
+    onMove px py = do
+      mpick <- Ref.read pickRef
+      case mpick of
+        Nothing -> pure unit
+        Just pick -> do
+          s <- readState
+          when (s.scene == Builder) do
+            pc <- projAndCanvas
+            let
+              -- Reference world point at the picked atom's depth (z preserved) so
+              -- unprojectAtDepth lands the cursor on that camera-facing plane.
+              ref = { x: 0.0, y: 0.0, z: pick.depth }
+              world = Builder.unprojectAtDepth pc.proj pc.canvas { x: px, y: py } ref
+              -- Back out builderScale to recover the builder-model position.
+              modelPos =
+                { x: world.x / builderScale
+                , y: world.y / builderScale
+                , z: world.z / builderScale
+                }
+            Ref.modify_ (Builder.moveAtom pick.id modelPos) builderRef
+            bs <- Ref.read builderRef
+            eagerRender bs
+
+    onUp = Ref.write Nothing pickRef
+  installCanvasPointer onDown onMove onUp

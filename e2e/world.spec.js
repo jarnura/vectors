@@ -761,6 +761,222 @@ test('builder: valence cap blocks an over-bond; Clear empties', async ({ page })
   expect(afterClear.molecules).toBe(0);
 });
 
+// molecule-builder M3 helper: reach the Builder scene (CubePoc → Atomos →
+// Molecule → Builder = three #scene-toggle clicks) and wait for window.__builder.
+async function gotoBuilder(page) {
+  await expect(page.locator('#scene-toggle')).toBeVisible();
+  await page.click('#scene-toggle'); // → atomos
+  await page.click('#scene-toggle'); // → molecule
+  await page.click('#scene-toggle'); // → builder
+  await page.waitForTimeout(700); // generous: let the builder scene boot + render
+  await page.waitForFunction(() => !!window.__builder, null, { timeout: 6000 });
+}
+
+// molecule-builder M3 (TEST A): dragging an atom (via window.__builder.moveAtom)
+// LIVE re-bonds — moving an atom into bondThreshold range forms a bond, moving it
+// back beyond breakThreshold breaks it. moveAtom already recomputes bonds in the
+// M2 model, so this deterministic API-level assertion exercises the same live
+// re-bond path M3's pointer drag drives. ids are SEQUENTIAL from 0 in add order
+// (clear() resets nextId to 0), so after clear the two H atoms are ids 0 and 1 —
+// we move id 1.
+//
+// Distances are on the raw world coords passed to addAtom/moveAtom:
+// bondThreshold ≈ 180, breakThreshold ≈ 230. FAR = ±400 (800 apart, well beyond
+// break); NEAR = ±30 (60 apart, well within bond).
+test('builder: dragging an atom into range bonds, out of range breaks (live)', async ({ page }) => {
+  await gotoBuilder(page);
+
+  // Two H atoms FAR apart → no bond at distance.
+  const far = await page.evaluate(() => {
+    const b = window.__builder;
+    b.clear();
+    b.addAtom(1, -400, 0, 0); // H  (id 0)
+    b.addAtom(1, 400, 0, 0);  // H  (id 1) — 800 apart, beyond breakThreshold
+    return { bonds: b.getBonds().length, molecules: b.getMolecules().length };
+  });
+  expect(far.bonds).toBe(0);
+  // Two disconnected singleton atoms → two (singleton) molecules.
+  expect(far.molecules).toBe(2);
+
+  // Drag the 2nd H (id 1) NEAR the 1st (which sits at x=-400) → a bond forms
+  // LIVE. id 1 → x=-340 is 60 from id 0 → within bondThreshold (180).
+  const near = await page.evaluate(() => {
+    const b = window.__builder;
+    b.moveAtom(1, -340, 0, 0); // 60 from id 0 (at -400) → within bondThreshold
+    return { bonds: b.getBonds(), molecules: b.getMolecules() };
+  });
+  expect(near.bonds.length).toBe(1);
+  // The single bond joins atom ids 0 and 1.
+  const bond = near.bonds[0];
+  const ids = [bond.a, bond.b].sort((p, q) => p - q);
+  expect(ids).toEqual([0, 1]);
+  // One molecule now: a single 2-atom H₂ component.
+  expect(near.molecules.length).toBe(1);
+  const mol = near.molecules[0];
+  // window.__builder molecules carry { ids, formula }.
+  expect(mol.ids.length).toBe(2);
+  expect(mol.formula === 'H₂' || mol.formula === 'H2').toBe(true);
+
+  // Drag the 2nd H FAR again (beyond breakThreshold) → the bond BREAKS LIVE.
+  const broke = await page.evaluate(() => {
+    const b = window.__builder;
+    b.moveAtom(1, 400, 0, 0); // back to 800 apart → beyond breakThreshold
+    return { bonds: b.getBonds().length, molecules: b.getMolecules().length };
+  });
+  expect(broke.bonds).toBe(0);
+  expect(broke.molecules).toBe(2);
+});
+
+// molecule-builder M3 (TEST B): the valence cap holds DURING a drag. An O
+// (valence 2) bonded to two H is full; dragging a 3rd H right up against the
+// saturated O (or against a bonded, valence-full H) forms NO new bond — the bond
+// count stays at 2 throughout. ids are sequential from 0: O=0, H=1, H=2, H=3.
+test('builder: valence cap holds during drag', async ({ page }) => {
+  await gotoBuilder(page);
+
+  // O at origin + two H within range → H₂O (O full at 2 bonds).
+  const water = await page.evaluate(() => {
+    const b = window.__builder;
+    b.clear();
+    b.addAtom(8, 0, 0, 0);   // O (id 0, valence 2)
+    b.addAtom(1, -60, 0, 0); // H (id 1) within range of O → 1 bond
+    return b.getBonds().length;
+  });
+  expect(water).toBe(1);
+
+  const water2 = await page.evaluate(() => {
+    const b = window.__builder;
+    b.addAtom(1, 60, 0, 0); // H (id 2) within range of O → 2 bonds, O full
+    return b.getBonds().length;
+  });
+  expect(water2).toBe(2);
+
+  // A 3rd H placed FAR away (no bond yet).
+  const farH = await page.evaluate(() => {
+    const b = window.__builder;
+    b.addAtom(1, 0, 400, 0); // H (id 3), far from everything → still 2 bonds
+    return b.getBonds().length;
+  });
+  expect(farH).toBe(2);
+
+  // DRAG the 3rd H (id 3) right up against the valence-full O → NO new bond.
+  const againstO = await page.evaluate(() => {
+    const b = window.__builder;
+    b.moveAtom(3, 0, -30, 0); // 30 from O (id 0), well within bondThreshold
+    return b.getBonds().length;
+  });
+  expect(againstO).toBe(2); // valence cap holds during the drag
+
+  // DRAG the 3rd H against a bonded (valence-full) H (id 1 at -60,0) → still none.
+  const againstH = await page.evaluate(() => {
+    const b = window.__builder;
+    b.moveAtom(3, -60, -30, 0); // 30 from id 1 (a full valence-1 hydrogen)
+    return b.getBonds().length;
+  });
+  expect(againstH).toBe(2); // still capped — no over-bond
+});
+
+// molecule-builder M3 (TEST C): a REAL Playwright pointer drag over the canvas
+// relocates a placed atom through the PRODUCTION pick+drag path (Main/Loop +
+// pointer FFI). RED until M3 wires pointer pick+drag into the Builder scene.
+//
+// A single atom placed at the world origin projects to the canvas centre. We
+// capture the centre region + a region offset to where the atom will land, then
+// perform a genuine mouse drag (move → down → stepped move → up) starting ON the
+// canvas (not a #controls button). We assert the atom MOVED: the old centre
+// changed AND a region at the new location gained lit pixels (robust: sample both
+// the vacated centre and the destination).
+test('builder: real mouse drag relocates an atom (pointer path)', async ({ page }) => {
+  await gotoBuilder(page);
+
+  // A single atom at the world origin → projects to the canvas centre.
+  await page.evaluate(() => {
+    const b = window.__builder;
+    b.clear();
+    b.addAtom(6, 0, 0, 0); // one Carbon at origin
+  });
+  await page.waitForTimeout(300);
+
+  // Canvas geometry → screen pixels for the centre and the drag destination.
+  const box = await page.locator('#canvas').boundingBox();
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  const dx = 150; // sizable horizontal drag offset
+
+  // Robust delta of a sampled region between two snapshots.
+  const regionDelta = (a, b) =>
+    a.filter((p, i) =>
+      Math.abs(p[0] - b[i][0]) + Math.abs(p[1] - b[i][1]) + Math.abs(p[2] - b[i][2]) > 30
+    ).length;
+  const litCount = (px) => px.filter((p) => p[0] + p[1] + p[2] > 60).length;
+
+  // Old (centre) + new (offset right) sampling windows, in normalized canvas coords.
+  const oldRegion = () => readRegion(page, 0.42, 0.42, 0.58, 0.58, 18, 18);
+  // dx=150 px to the right of centre, in fractions of canvas width.
+  const newFx = 0.5 + dx / box.width;
+  const newRegion = () =>
+    readRegion(page, newFx - 0.08, 0.42, newFx + 0.08, 0.58, 18, 18);
+
+  const oldBefore = await oldRegion();
+  const newBefore = await newRegion();
+
+  // A REAL Playwright pointer drag over the canvas, starting at the centre (on
+  // the atom) and dragging horizontally — stepped so it reads as a genuine drag.
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + dx * 0.33, cy, { steps: 4 });
+  await page.mouse.move(cx + dx * 0.66, cy, { steps: 4 });
+  await page.mouse.move(cx + dx, cy, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForTimeout(400); // settle
+
+  const oldAfter = await oldRegion();
+  const newAfter = await newRegion();
+
+  // The atom moved: the vacated centre changed measurably ...
+  const vacated = regionDelta(oldBefore, oldAfter);
+  // ... and the destination gained lit atom pixels.
+  const arrivedDelta = regionDelta(newBefore, newAfter);
+  const arrivedLit = litCount(oldAfter) <= litCount(oldBefore)
+    ? litCount(newAfter)
+    : litCount(newAfter); // destination is lit after the drag
+
+  // Robust combined assertion (sample both old + new spots): the production
+  // pointer pick+drag path actually relocated the atom.
+  expect(vacated + arrivedDelta).toBeGreaterThan(20);
+  expect(arrivedLit).toBeGreaterThan(0);
+});
+
+// molecule-builder M3 (TEST D, regression): in the DEFAULT Cube POC scene a mouse
+// click-drag over the canvas still ROTATES the cube — proving the new Builder
+// pick+drag is scene-gated and did NOT break cube-POC mouse rotation. This uses a
+// genuine down→move→up drag (distinct from the existing keyboard/shear specs).
+test('cube POC: mouse still rotates the cube (drag scene-gated)', async ({ page }) => {
+  // Default scene is Cube POC — no scene toggle.
+  const box = await page.locator('#canvas').boundingBox();
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+
+  // Capture the cube region (screen centre) before the drag.
+  const before = await readRegion(page, 0.35, 0.3, 0.65, 0.6, 16, 10);
+
+  // A genuine click-drag across the canvas: this is the mouse-rotation path.
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 120, cy + 40, { steps: 6 });
+  await page.mouse.move(cx + 180, cy + 80, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForTimeout(300); // let the rotated transform render
+
+  const after = await readRegion(page, 0.35, 0.3, 0.65, 0.6, 16, 10);
+
+  // The cube region changed: the drag rotated the cube (mouse rotation intact).
+  const changed = before.filter((p, i) =>
+    Math.abs(p[0] - after[i][0]) + Math.abs(p[1] - after[i][1]) + Math.abs(p[2] - after[i][2]) > 24
+  ).length;
+  expect(changed).toBeGreaterThan(2);
+});
+
 // M4: sky backdrop (top is sky-blue, not white) + ground/sky differ.
 test('M4: sky backdrop and horizon transition', async ({ page }) => {
   const top = await readPixel(page, 0.5, 0.03);     // sky region

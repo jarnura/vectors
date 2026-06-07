@@ -82,14 +82,21 @@ installBuilderApi onChange = do
 -- Ref the API and renderer share. Add spawns the selected element Z at a spread
 -- position so consecutive adds land within bondThreshold of one another and
 -- auto-bond (demonstrating the model through the UI, not just the test API).
--- Clear empties the world. Pure DOM wiring (the buttons live in the controls
--- panel) — no WebGL.
-installBuilderControls :: Ref.Ref BuilderState -> Effect Unit
-installBuilderControls ref = do
+-- Clear empties the world. After each mutation the `onChange` callback fires with
+-- the new state, so the in-app buttons eagerly re-render the scene exactly like
+-- the window.__builder API path (one consistent mutate→render seam). Pure DOM
+-- wiring (the buttons live in the controls panel) — no WebGL.
+installBuilderControls :: (BuilderState -> Effect Unit) -> Ref.Ref BuilderState -> Effect Unit
+installBuilderControls onChange ref = do
+  let
+    mutate f = do
+      Ref.modify_ f ref
+      st <- Ref.read ref
+      onChange st
   installAddButton \z ->
-    Ref.modify_ (\st -> addAtom z (spawnPos (length st.atoms)) st) ref
+    mutate (\st -> addAtom z (spawnPos (length st.atoms)) st)
   installClearButton
-    (Ref.modify_ clear ref)
+    (mutate clear)
   where
   -- Lay successive atoms along x near the origin, stepped by ~0.45·bondThreshold
   -- so each new atom sits within bonding range of the previous one (a chain that
