@@ -7,7 +7,7 @@ import Data.Foldable (maximum, minimum, sum)
 import Data.Int (toNumber)
 import Data.Maybe (fromMaybe, isJust, isNothing)
 import FRP.Loop (emptyInput)
-import Data.Number (abs, pi, sqrt)
+import Data.Number (abs, pi, sqrt, tan)
 import Effect (Effect)
 import Effect.Console (log)
 import Effect.Exception (throw)
@@ -15,6 +15,9 @@ import Math.Matrix as M
 
 import Atom (configString, electronPositions, electronPositionsBySubshell, electronPositionsBySubshell2D, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, subshellCap, subshellInclination, subshellRadius)
 import Atom as Atom
+import Chem (valence)
+import Builder as B
+import Data.Maybe (Maybe(..))
 import Molecule (bondLength, moleculeOf, molecules, moleculeNucleons, sharedElectronPositions)
 import Palette (shellColor, subshellColor)
 import Meshes (groundPlane, gridFloor, orbitRing, orbitRingFlat, sphere)
@@ -780,6 +783,199 @@ main = do
     length (moleculeOf 9999).atoms >= 1
 
   log "all molecule model properties hold."
+
+  -- ───── Builder + Chem (molecule builder) ───────────────────────────
+  -- RED: Chem.purs and Builder.purs do not exist yet. The implementer builds
+  -- `Chem.valence :: Int -> Int` (clamp-safe valence table for Z=1..36) and the
+  -- pure `Builder` world model (place/move atoms, recompute bonds with valence +
+  -- hysteresis, connected-component molecules, Unicode formulae, and pure
+  -- pick/unproject helpers for cursor→world placement).
+  log "builder + chem properties:"
+
+  -- Chem.valence: standard main-group valences, transition-metal default,
+  -- and clamp-safety at the edges (no crash, defined Ints).
+  check "valence H(1) = 1" $ valence 1 == 1
+  check "valence C(6) = 4" $ valence 6 == 4
+  check "valence N(7) = 3" $ valence 7 == 3
+  check "valence O(8) = 2" $ valence 8 == 2
+  check "valence He(2) = 0" $ valence 2 == 0
+  check "valence Ne(10) = 0" $ valence 10 == 0
+  check "valence Fe(26) = 2 (transition-metal default)" $ valence 26 == 2
+  -- Clamp-safe: out-of-range Z returns a defined Int (compare to itself ⇒ total).
+  check "valence 0 is defined (clamp-safe)" $ valence 0 == valence 0
+  check "valence 999 is defined (clamp-safe)" $ valence 999 == valence 999
+
+  -- Builder immutability + append: ids are fresh and monotonic, prior atoms
+  -- are untouched, and updates return new records.
+  let
+    posA = { x: 0.0, y: 0.0, z: 0.0 }
+    posB = { x: 1000.0, y: 0.0, z: 0.0 } -- far from posA: no bond
+    posC = { x: 500.0, y: 0.0, z: 0.0 }
+    b0 = B.emptyBuilder
+    b1 = B.addAtom 1 posA b0
+    b2 = B.addAtom 1 posB b1
+    atomAt st i = index st.atoms i
+    idOf st i = map _.id (atomAt st i)
+    posOf st i = map _.pos (atomAt st i)
+
+  check "emptyBuilder has no atoms" $ length b0.atoms == 0
+  check "emptyBuilder has no bonds" $ length b0.bonds == 0
+  check "addAtom: one atom after first add" $ length b1.atoms == 1
+  check "addAtom: nextId advances past first id" $ b1.nextId > b0.nextId
+  check "addAtom: two atoms after second add" $ length b2.atoms == 2
+  check "addAtom: the two atoms have DISTINCT ids" $
+    idOf b2 0 /= idOf b2 1 && isJust (idOf b2 0) && isJust (idOf b2 1)
+  check "addAtom: first atom unchanged by second add" $
+    idOf b2 0 == idOf b1 0 && posOf b2 0 == posOf b1 0
+  check "addAtom: nextId advances again" $ b2.nextId > b1.nextId
+
+  -- moveAtom updates only the targeted atom's pos and returns a new record.
+  let
+    id0 = fromMaybe (-1) (idOf b2 0)
+    b2moved = B.moveAtom id0 posC b2
+  check "moveAtom: updates only the targeted atom's pos" $
+    posOf b2moved 0 == Just posC && posOf b2moved 1 == posOf b2 1
+  check "moveAtom: count unchanged" $ length b2moved.atoms == length b2.atoms
+
+  -- clear resets to the empty builder.
+  check "clear returns emptyBuilder" $ B.clear b2 == B.emptyBuilder
+
+  -- recomputeBonds: valence + bond/break thresholds + hysteresis.
+  let
+    -- Model constants (read, never hardcode the magnitudes).
+    near = B.bondThreshold * 0.5 -- comfortably inside bonding range
+    far = B.breakThreshold * 2.0 -- comfortably beyond breaking range
+    mid = (B.bondThreshold + B.breakThreshold) / 2.0 -- hysteresis band
+
+    -- Two H atoms within bondThreshold ⇒ exactly one bond.
+    p0 = { x: 0.0, y: 0.0, z: 0.0 }
+    p1 = { x: near, y: 0.0, z: 0.0 }
+    twoH = B.addAtom 1 p1 (B.addAtom 1 p0 B.emptyBuilder)
+
+    -- A 3rd H placed very close to a bonded (valence-full) H gains no 2nd bond.
+    p2 = { x: near * 1.01, y: 0.0, z: 0.0 }
+    threeH = B.addAtom 1 p2 twoH
+    degreeOf st aid =
+      length (filter (\bd -> bd.a == aid || bd.b == aid) st.bonds)
+
+    -- One O with two H within bondThreshold ⇒ O has degree 2.
+    oId = fromMaybe (-1) (map _.id (index ((B.addAtom 8 p0 B.emptyBuilder)).atoms 0))
+    oWith2H =
+      B.addAtom 1 { x: 0.0, y: near, z: 0.0 }
+        ( B.addAtom 1 { x: near, y: 0.0, z: 0.0 }
+            (B.addAtom 8 p0 B.emptyBuilder)
+        )
+
+  check "thresholds ordered: bondThreshold < breakThreshold" $
+    B.bondThreshold < B.breakThreshold
+  check "recomputeBonds: two close H ⇒ 1 bond" $ length twoH.bonds == 1
+  check "recomputeBonds: valence-full H gains no 2nd bond (degree stays 1)" $
+    let
+      firstHId = fromMaybe (-1) (map _.id (index twoH.atoms 0))
+    in
+      degreeOf threeH firstHId == 1
+  check "recomputeBonds: O + 2H ⇒ O degree 2" $
+    degreeOf oWith2H oId == 2
+
+  -- Breaking: move a bonded pair past breakThreshold ⇒ bond removed.
+  let
+    movedFarId = fromMaybe (-1) (map _.id (index twoH.atoms 1))
+    broken = B.moveAtom movedFarId { x: far, y: 0.0, z: 0.0 } twoH
+  check "recomputeBonds: pair beyond breakThreshold ⇒ bond removed" $
+    length broken.bonds < length twoH.bonds
+
+  -- Hysteresis: an already-bonded pair sitting at the mid distance STAYS bonded,
+  -- but a FRESH (unbonded) pair at that same mid distance does NOT bond.
+  let
+    midMovedId = fromMaybe (-1) (map _.id (index twoH.atoms 1))
+    midExisting = B.recomputeBonds (B.moveAtom midMovedId { x: mid, y: 0.0, z: 0.0 } twoH)
+    midFresh =
+      B.addAtom 1 { x: mid, y: 0.0, z: 0.0 } (B.addAtom 1 p0 B.emptyBuilder)
+  check "hysteresis: existing bond at mid distance stays bonded" $
+    length midExisting.bonds == 1
+  check "hysteresis: fresh pair at mid distance does NOT bond" $
+    length midFresh.bonds == 0
+
+  -- molecules (connected components) + formulaOf (Unicode subscripts).
+  let
+    twoHComps = B.molecules twoH
+    h2oComps = B.molecules oWith2H
+    -- Two separate H₂ pairs, far apart from each other.
+    pairA = B.addAtom 1 { x: near, y: 0.0, z: 0.0 } (B.addAtom 1 p0 B.emptyBuilder)
+    twoPairs =
+      B.addAtom 1 { x: far + near, y: 0.0, z: 0.0 }
+        (B.addAtom 1 { x: far, y: 0.0, z: 0.0 } pairA)
+    lone = B.addAtom 1 p0 B.emptyBuilder
+    firstComp st = fromMaybe [] (index (B.molecules st) 0)
+
+  check "molecules: two bonded H ⇒ 1 component of size 2" $
+    length twoHComps == 1 && map length twoHComps == [ 2 ]
+  check "formulaOf: bonded H₂ component ⇒ \"H₂\"" $
+    B.formulaOf twoH (firstComp twoH) == "H₂"
+  check "molecules: O + 2H bonded ⇒ 1 component of size 3" $
+    length h2oComps == 1 && map length h2oComps == [ 3 ]
+  check "formulaOf: H₂O component ⇒ \"H₂O\"" $
+    B.formulaOf oWith2H (firstComp oWith2H) == "H₂O"
+  check "molecules: two separate H₂ pairs ⇒ 2 components" $
+    length (B.molecules twoPairs) == 2
+  check "molecules: a lone atom ⇒ its own singleton component" $
+    length (B.molecules lone) == 1 && map length (B.molecules lone) == [ 1 ]
+
+  -- pick / unproject round-trip. Build a simple, pure perspective×camera
+  -- projection here from Math.Matrix (matching Main.perspectiveProjection's
+  -- shape: a perspective matrix composed with a -cameraDistance translation),
+  -- rather than importing the unexported Main.perspectiveProjection — keeps the
+  -- test free of WebGL/Effect deps. projectToScreen maps a world V3 to a pixel;
+  -- unprojectAtDepth inverts it onto the plane at the reference atom's depth.
+  let
+    canvas = { w: 800.0, h: 600.0 }
+    proj = testProjection canvas.w canvas.h
+    refPos = { x: 40.0, y: -25.0, z: 30.0 } -- in front of the camera
+    px = B.projectToScreen proj canvas refPos
+    back = B.unprojectAtDepth proj canvas { x: px.x, y: px.y } refPos
+    closeV a c = approxClose a.x c.x && approxClose a.y c.y && approxClose a.z c.z
+    approxClose a c = abs (a - c) < 1.0e-3
+  check "projectToScreen: pixel lies within the canvas bounds" $
+    px.x >= 0.0 && px.x <= canvas.w && px.y >= 0.0 && px.y <= canvas.h
+  check "pick round-trip: unproject(project(pos)) ≈ pos at same depth" $
+    closeV back refPos
+
+  log "all builder + chem properties hold."
+
+-- A pure perspective×camera projection for the pick/unproject round-trip test.
+-- Mirrors the shape of Main.perspectiveProjection (perspective matrix composed
+-- with a translation by -cameraDistance along -Z), built from Math.Matrix so the
+-- test stays free of WebGL/Effect dependencies. fov = pi/3, near 1, far 2000,
+-- camera 1000 back — the same constants the app uses.
+testProjection :: Number -> Number -> M.Matrix Number
+testProjection w h =
+  let
+    fov = pi / 3.0
+    near = 1.0
+    far = 2000.0
+    cameraDistance = 1000.0
+    aspect = w / h
+    f = 1.0 / tan (fov / 2.0)
+    p = fromMaybe (M.zeros 4 4) $ M.fromArray 4 4
+      [ f / aspect
+      , 0.0
+      , 0.0
+      , 0.0
+      , 0.0
+      , f
+      , 0.0
+      , 0.0
+      , 0.0
+      , 0.0
+      , (far + near) / (near - far)
+      , (2.0 * far * near) / (near - far)
+      , 0.0
+      , 0.0
+      , -1.0
+      , 0.0
+      ]
+  in
+    M.multiply p (M.translate 0.0 0.0 (-cameraDistance))
 
 -- Extract every Nth element starting at `start` (used to pluck x/y/z columns).
 everyNth :: Int -> Int -> Array Number -> Array Number
