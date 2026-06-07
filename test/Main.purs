@@ -3,7 +3,7 @@ module Test.Main where
 import Prelude
 
 import Data.Array (all, any, concat, filter, find, index, length, mapWithIndex, nub, range, zipWith)
-import Data.Foldable (maximum, minimum, sum)
+import Data.Foldable (foldl, maximum, minimum, sum)
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe, isJust, isNothing)
 import FRP.Loop (emptyInput)
@@ -17,6 +17,7 @@ import Atom (configString, electronPositions, electronPositionsBySubshell, elect
 import Atom as Atom
 import Chem (valence)
 import Builder as B
+import Camera as Cam
 import Molecule (bondLength, moleculeOf, molecules, moleculeNucleons, sharedElectronPositions)
 import Palette (shellColor, subshellColor)
 import Meshes (groundPlane, gridFloor, orbitRing, orbitRingFlat, sphere)
@@ -1064,6 +1065,63 @@ main = do
     closeV back refPos
 
   log "all builder + chem properties hold."
+
+  -- ───── Camera (zoom projection) ─────────────────────────────────────
+  -- RED: Camera.purs does not exist yet. The implementer builds the pure,
+  -- zoom-aware projection module (imports Math.Matrix only):
+  --   * projection zoom w h — the SAME perspective matrix as
+  --     Main.perspectiveProjection w h, EXCEPT the camera translation uses an
+  --     effective distance cameraDistance / zoom (zoom 1.0 == today's matrix).
+  --   * clampZoom — clamp to [minZoom=0.2, maxZoom=5.0].
+  --   * applyZoomStep currentZoom wheelDeltaY — multiplicative, clamped: NEGATIVE
+  --     deltaY (wheel up) zooms IN (larger zoom), POSITIVE zooms OUT (smaller).
+  --   * minZoom / maxZoom constants.
+  log "camera zoom projection properties:"
+
+  -- clampZoom: bounds are returned exactly; in-range passes through.
+  check "clampZoom below min ⇒ minZoom" $ Cam.clampZoom (-1.0) == Cam.minZoom
+  check "clampZoom above max ⇒ maxZoom" $ Cam.clampZoom 100.0 == Cam.maxZoom
+  check "clampZoom in-range (1.0) ⇒ 1.0" $ approxEq (Cam.clampZoom 1.0) 1.0
+
+  -- applyZoomStep direction: negative deltaY zooms IN (larger), positive OUT.
+  check "applyZoomStep: wheel up (−Δ) zooms IN (>1.0)" $
+    Cam.applyZoomStep 1.0 (-100.0) > 1.0
+  check "applyZoomStep: wheel down (+Δ) zooms OUT (<1.0)" $
+    Cam.applyZoomStep 1.0 100.0 < 1.0
+
+  -- applyZoomStep clamps at the bounds (already-max zoom-in stays max, etc.).
+  check "applyZoomStep: already-max zoom-in stays maxZoom" $
+    Cam.applyZoomStep Cam.maxZoom (-1000.0) == Cam.maxZoom
+  check "applyZoomStep: already-min zoom-out stays minZoom" $
+    Cam.applyZoomStep Cam.minZoom 1000.0 == Cam.minZoom
+
+  -- Repeated stepping stays within [minZoom, maxZoom] (folded over many steps).
+  let
+    zoomInMany = foldZoom (-200.0) 1.0 (range 1 20)
+    zoomOutMany = foldZoom 200.0 1.0 (range 1 20)
+  check "applyZoomStep: many zoom-in steps stay ≤ maxZoom" $
+    zoomInMany <= Cam.maxZoom
+  check "applyZoomStep: many zoom-out steps stay ≥ minZoom" $
+    zoomOutMany >= Cam.minZoom
+
+  -- determinism: same inputs ⇒ same output.
+  check "applyZoomStep is deterministic" $
+    Cam.applyZoomStep 1.0 50.0 == Cam.applyZoomStep 1.0 50.0
+
+  -- projection baseline: zoom 1.0 equals the existing testProjection ENTRY-BY-ENTRY.
+  check "projection 1.0 == testProjection (entry-by-entry)" $
+    approxEqMatrix (Cam.projection 1.0 800.0 600.0) (testProjection 800.0 600.0)
+
+  -- projection differs at zoom 2.0 (camera distance halved ⇒ translation differs).
+  check "projection 2.0 differs from projection 1.0 (some entry)" $
+    not (approxEqMatrix (Cam.projection 2.0 800.0 600.0) (Cam.projection 1.0 800.0 600.0))
+
+  log "all camera zoom projection properties hold."
+
+-- Fold applyZoomStep repeatedly with a fixed wheel delta, starting from `start`.
+-- Used to assert repeated stepping stays clamped within [minZoom, maxZoom].
+foldZoom :: Number -> Number -> Array Int -> Number
+foldZoom delta start = foldl (\z _ -> Cam.applyZoomStep z delta) start
 
 -- A pure perspective×camera projection for the pick/unproject round-trip test.
 -- Mirrors the shape of Main.perspectiveProjection (perspective matrix composed

@@ -5,8 +5,8 @@ import Prelude
 import Data.Array (concat, concatMap, length, take, zipWith)
 import Data.Foldable (for_, minimumBy)
 import Data.Int (toNumber)
-import Data.Maybe (Maybe(..), fromMaybe)
-import Data.Number (cos, pi, sin, sqrt, tan)
+import Data.Maybe (Maybe(..))
+import Data.Number (cos, pi, sin, sqrt)
 import Data.Traversable (traverse)
 import Effect (Effect)
 import Effect.Console (log)
@@ -26,6 +26,7 @@ import Atom (Nucleon(..))
 import Atom as Atom
 import Builder as Builder
 import BuilderApi (installBuilderApi, installBuilderControls)
+import Camera as Camera
 import Controls as Controls
 import Meshes as Meshes
 import Molecule as Molecule
@@ -71,20 +72,6 @@ speedStep = 0.2
 mouseSensitivity :: Number
 mouseSensitivity = 0.1
 
--- Vertical field of view, in radians.
-fov :: Number
-fov = pi / 3.0
-
--- Distance from the camera to the world origin along -Z.
-cameraDistance :: Number
-cameraDistance = 1000.0
-
-clipNear :: Number
-clipNear = 1.0
-
-clipFar :: Number
-clipFar = 2000.0
-
 -- Satellite orbits the world origin on the XZ plane.
 satelliteOrbitRadius :: Number
 satelliteOrbitRadius = 200.0
@@ -109,31 +96,10 @@ initialState =
   }
 
 -- Perspective projection composed with a camera-distance translation.
+-- Thin wrapper over the pure, zoom-aware `Camera.projection` at the default
+-- zoom of 1.0 (byte-identical to the historic matrix).
 perspectiveProjection :: Number -> Number -> Matrix Number
-perspectiveProjection w h =
-  let
-    aspect = w / h
-    f = 1.0 / tan (fov / 2.0)
-    p = fromMaybe (M.zeros 4 4) $ M.fromArray 4 4
-      [ f / aspect
-      , 0.0
-      , 0.0
-      , 0.0
-      , 0.0
-      , f
-      , 0.0
-      , 0.0
-      , 0.0
-      , 0.0
-      , (clipFar + clipNear) / (clipNear - clipFar)
-      , (2.0 * clipFar * clipNear) / (clipNear - clipFar)
-      , 0.0
-      , 0.0
-      , -1.0
-      , 0.0
-      ]
-  in
-    M.multiply p (M.translate 0.0 0.0 (-cameraDistance))
+perspectiveProjection w h = Camera.projection 1.0 w h
 
 step :: Input -> State -> State
 step input =
