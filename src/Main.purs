@@ -557,15 +557,16 @@ moleculeNucleusSphere :: Meshes.SolidSpec
 moleculeNucleusSphere =
   (Meshes.sphere 16 16 (Atom.nucleonRadius * 1.7)) { color = { r: 0.90, g: 0.25, b: 0.22, a: 1.0 } }
 
--- Neutral bright colour for the molecule's shared bonding electrons.
+-- Electron colour: a clear sky-blue, distinct from the red proton and grey
+-- neutron so electrons never read as nucleons.
 moleculeElectronColor :: GL.Color
-moleculeElectronColor = { r: 0.85, g: 0.92, b: 1.0, a: 1.0 }
+moleculeElectronColor = { r: 0.30, g: 0.68, b: 1.0, a: 1.0 }
 
--- The shared bonding-pair electron sphere: bright and a bit larger than the
--- atomos electrons so the central pair reads clearly between the two nuclei.
+-- The shared bonding-pair / builder electron sphere: a small blue dot — clearly
+-- SMALLER than a nucleon (nucleonRadius) so an electron never looks like a proton.
 moleculeElectronSphere :: Meshes.SolidSpec
 moleculeElectronSphere =
-  (Meshes.sphere 14 14 (Atom.nucleonRadius * 1.1)) { color = moleculeElectronColor }
+  (Meshes.sphere 14 14 (Atom.electronRadius * 1.3)) { color = moleculeElectronColor }
 
 -- The molecule is scaled up about the origin so its two nuclei spread well
 -- apart on-screen (the bond runs across the view), keeping the shared pair
