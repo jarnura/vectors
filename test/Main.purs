@@ -12,9 +12,9 @@ import Effect.Console (log)
 import Effect.Exception (throw)
 import Math.Matrix as M
 
-import Atom (configString, electronPositions, electronPositionsBySubshell, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, subshellCap, subshellInclination, subshellRadius)
+import Atom (configString, electronPositions, electronPositionsBySubshell, electronPositionsBySubshell2D, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, subshellCap, subshellInclination, subshellRadius)
 import Palette (shellColor, subshellColor)
-import Meshes (groundPlane, gridFloor, orbitRing, sphere)
+import Meshes (groundPlane, gridFloor, orbitRing, orbitRingFlat, sphere)
 import Scene (Scene(..), nextScene, sceneTitle)
 import Starfield (starPositions)
 import Vector (rotateX, rotateY, rotateZ)
@@ -527,6 +527,109 @@ main = do
     length (concat (electronPositionsBySubshell (elementOf 36) 0.0)) == 36
 
   log "all grouped electron position properties hold."
+
+  -- ───── atomos 2D flat geometry (flat-2d M1) ─────────────────────────
+  log "atomos 2D flat geometry properties:"
+
+  let
+    cFlat = elementOf 6
+    krFlat = elementOf 36
+    flatDist p = sqrt (p.x * p.x + p.y * p.y)
+    -- group radius == subshellRadius of the i-th filled sub-shell
+    flatGroups el f = electronPositionsBySubshell2D el f
+    flatAll el f = concat (flatGroups el f)
+    subshellsOf el = fillSubshells el.electrons
+
+  -- Group count == number of filled sub-shells (same grouping as 3D variant).
+  check "2D group count == filled sub-shells (Carbon)" $
+    length (flatGroups cFlat 0.0) == length (subshellsOf cFlat)
+  check "2D group count == filled sub-shells (Krypton)" $
+    length (flatGroups krFlat 0.0) == length (subshellsOf krFlat)
+
+  -- Each group holds that sub-shell's electron count.
+  check "2D group lengths == sub-shell counts (Carbon)" $
+    map length (flatGroups cFlat 0.0) == map _.count (subshellsOf cFlat)
+  check "2D group lengths == sub-shell counts (Krypton)" $
+    map length (flatGroups krFlat 0.0) == map _.count (subshellsOf krFlat)
+
+  -- Total electrons == Z.
+  check "2D positions total to Z (Krypton 36)" $
+    length (flatAll krFlat 0.0) == 36
+
+  -- Flat: every position sits in the XY plane (z ≈ 0).
+  check "2D Carbon electrons are flat (z≈0)" $
+    all (\p -> approxEq p.z 0.0) (flatAll cFlat 0.0)
+  check "2D Krypton electrons are flat (z≈0)" $
+    all (\p -> approxEq p.z 0.0) (flatAll krFlat 60.0)
+
+  -- Every electron rides on its sub-shell radius (per group, all at the same r,
+  -- and r equals the corresponding sub-shell radius from fillSubshells).
+  check "2D groups ride their sub-shell radius (Carbon)" $
+    let
+      gs = flatGroups cFlat 0.0
+      sss = subshellsOf cFlat
+    in
+      all identity $ mapWithIndex
+        ( \i grp ->
+            let
+              r = subshellRadius (fromMaybe { n: 0, l: 0, label: "", count: 0 } (index sss i)).n
+                (fromMaybe { n: 0, l: 0, label: "", count: 0 } (index sss i)).l
+            in
+              all (\p -> approxEq (flatDist p) r) grp
+        )
+        gs
+  check "2D groups ride their sub-shell radius (Krypton)" $
+    let
+      gs = flatGroups krFlat 0.0
+      sss = subshellsOf krFlat
+    in
+      all identity $ mapWithIndex
+        ( \i grp ->
+            let
+              r = subshellRadius (fromMaybe { n: 0, l: 0, label: "", count: 0 } (index sss i)).n
+                (fromMaybe { n: 0, l: 0, label: "", count: 0 } (index sss i)).l
+            in
+              all (\p -> approxEq (flatDist p) r) grp
+        )
+        gs
+
+  -- The 2D positions DIFFER from the inclined 3D positions: pick an outer
+  -- sub-shell (nonzero inclination) and assert a y-coordinate differs.
+  check "2D positions differ from 3D (some y differs)" $
+    let
+      d3 = electronPositions krFlat 0.0
+      d2 = flatAll krFlat 0.0
+    in
+      any identity $ zipWith (\a b -> not (approxEq a.y b.y)) d2 d3
+
+  -- The orbit advances with the frame.
+  check "2D orbit advances with frame" $
+    flatAll krFlat 0.0 /= flatAll krFlat 60.0
+
+  log "all atomos 2D flat geometry properties hold."
+
+  -- ───── Flat orbital ring lines (flat-2d M2) ─────────────────────────
+  log "flat orbital ring line properties:"
+
+  let
+    fRingSeg = 64
+    fRingR = subshellRadius 2 1
+    fRing = orbitRingFlat fRingSeg fRingR
+    fvAt j = fromMaybe 0.0 (index fRing.vertices j)
+    fvDist j = sqrt (fvAt (3 * j) * fvAt (3 * j) + fvAt (3 * j + 1) * fvAt (3 * j + 1))
+    fvZ j = fvAt (3 * j + 2)
+
+  check "orbitRingFlat has `segments` vertices" $ length fRing.vertices == fRingSeg * 3
+  check "orbitRingFlat is a closed loop (2·segments indices)" $
+    length fRing.indices == 2 * fRingSeg
+  check "every flat ring vertex is in the XY plane (z≈0)" $
+    all (\j -> approxEq (fvZ j) 0.0) (range 0 (fRingSeg - 1))
+  check "every flat ring vertex lies on radius r" $
+    all (\j -> approxEq (fvDist j) fRingR) (range 0 (fRingSeg - 1))
+  check "flat ring vertex 0 is {r,0,0}" $
+    approxEq (fvAt 0) fRingR && approxEq (fvAt 1) 0.0 && approxEq (fvAt 2) 0.0
+
+  log "all flat orbital ring line properties hold."
 
   -- ───── Element selector input (atomos M5) ───────────────────────────
   log "element input properties:"

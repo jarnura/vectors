@@ -8,6 +8,7 @@ module Meshes
   , groundPlane
   , gridFloor
   , orbitRing
+  , orbitRingFlat
   , sphere
   ) where
 
@@ -406,6 +407,21 @@ orbitRing segments r incl =
       theta = 2.0 * pi * toNumber k / toNumber segments
     in
       [ r * cos theta, -r * sin theta * sin incl, r * sin theta * cos incl ]
+  segment k = [ k, mod (k + 1) segments ]
+
+-- Like `orbitRing`, but FLAT in the XY plane (z = 0), facing the camera.
+orbitRingFlat :: Int -> Number -> MeshSpec
+orbitRingFlat segments r =
+  { vertices: concatMap vertex (0 .. (segments - 1))
+  , indices: concatMap segment (0 .. (segments - 1))
+  , color: orbitBlue
+  }
+  where
+  vertex k =
+    let
+      theta = 2.0 * pi * toNumber k / toNumber segments
+    in
+      [ r * cos theta, r * sin theta, 0.0 ]
   segment k = [ k, mod (k + 1) segments ]
 
 -- ───── UV sphere (atomos: protons/neutrons/electrons/stars) ───────────

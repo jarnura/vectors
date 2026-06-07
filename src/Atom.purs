@@ -23,6 +23,7 @@ module Atom
   , electronRadius
   , electronPositions
   , electronPositionsBySubshell
+  , electronPositionsBySubshell2D
   ) where
 
 import Prelude
@@ -363,6 +364,29 @@ electronPositionsBySubshell el frame =
               { x: r * cos theta
               , y: -r * sin theta * sin incl
               , z: r * sin theta * cos incl
+              }
+        )
+        (range 0 (ss.count - 1))
+
+-- Like `electronPositionsBySubshell`, but FLAT in the XY plane (facing the
+-- camera): z is always 0 and electrons orbit on a circle in screen space.
+electronPositionsBySubshell2D :: Element -> Number -> Array (Array V3)
+electronPositionsBySubshell2D el frame =
+  map subshellElectrons (fillSubshells el.electrons)
+  where
+  subshellElectrons ss =
+    let
+      r = subshellRadius ss.n ss.l
+      speed = 0.02 / (toNumber ss.n + 1.0)
+    in
+      map
+        ( \k ->
+            let
+              theta = 2.0 * pi * toNumber k / toNumber ss.count + frame * speed
+            in
+              { x: r * cos theta
+              , y: r * sin theta
+              , z: 0.0
               }
         )
         (range 0 (ss.count - 1))
