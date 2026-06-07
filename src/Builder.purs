@@ -29,7 +29,7 @@ module Builder
 
 import Prelude
 
-import Atom (V3, elementOf, nucleonRadius)
+import Atom (V3, elementOf, nucleonRadius, nucleusRadius)
 import Chem (valence)
 import Data.Array (any, concatMap, filter, foldl, index, length, mapWithIndex, nub, range, snoc, sortBy, sortWith, (!!))
 import Data.Foldable (elem)
@@ -222,10 +222,11 @@ bondElectronPositions st frame = concatMap bondPair st.bonds
           ]
       _, _ -> []
 
--- Lone electron positions: `loneCountOf` electrons per atom, arranged on a small
--- deterministic ring (radius ~nucleonRadius) around the atom centre, evenly spaced
--- and gently rotated by the frame. Length = Σ loneCountOf over atoms. Deterministic
--- for a fixed frame. Pure, total. Model-space.
+-- Lone electron positions: `loneCountOf` electrons per atom, orbiting on a ring
+-- clearly OUTSIDE the nucleus cluster (radius `loneOrbitRadius`) around the atom
+-- centre, evenly spaced and rotated by the frame so they visibly orbit the
+-- nucleus. Length = Σ loneCountOf over atoms. Deterministic for a fixed frame.
+-- Pure, total. Model-space.
 loneElectronPositions :: BuilderState -> Number -> Array V3
 loneElectronPositions st frame = concatMap atomLones st.atoms
   where
@@ -241,16 +242,22 @@ loneElectronPositions st frame = concatMap atomLones st.atoms
             let
               theta = 2.0 * pi * toNumber k / toNumber (max 1 n) + phase
             in
-              { x: a.pos.x + electronCloud * cos theta
-              , y: a.pos.y + electronCloud * sin theta
+              { x: a.pos.x + loneOrbitRadius * cos theta
+              , y: a.pos.y + loneOrbitRadius * sin theta
               , z: a.pos.z
               }
         )
         (range 0 (n - 1))
 
--- Small transverse radius of the electron clouds around their centres.
+-- Small transverse radius for the shared bonding-pair breathe.
 electronCloud :: Number
 electronCloud = nucleonRadius
+
+-- Orbit radius of an atom's lone electrons: well outside the nucleon cluster
+-- (which spans ~nucleusRadius), so the nucleus reads clearly and the electrons
+-- visibly ring it instead of sitting inside it.
+loneOrbitRadius :: Number
+loneOrbitRadius = nucleusRadius * 2.4
 
 -- ───── Molecules (connected components) + formulae ───────────────────
 
