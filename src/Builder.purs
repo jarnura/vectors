@@ -31,7 +31,7 @@ import Prelude
 
 import Atom (V3, elementOf, nucleonRadius, nucleusRadius)
 import Chem (valence)
-import Data.Array (any, concatMap, filter, foldl, index, length, mapWithIndex, nub, range, snoc, sortBy, sortWith, (!!))
+import Data.Array (any, concat, concatMap, filter, foldl, index, length, mapWithIndex, nub, range, snoc, sortBy, sortWith, uncons, (!!))
 import Data.Foldable (elem)
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -231,37 +231,67 @@ bondElectronPositions st frame = concatMap bondPair st.bonds
 -- centre, evenly spaced and rotated by the frame so they visibly orbit the
 -- nucleus. Length = Σ loneCountOf over atoms. Deterministic for a fixed frame.
 -- Pure, total. Model-space.
+-- Lone electrons arranged in concentric Bohr SHELLS: an atom's lone electrons
+-- fill shells inner-first (capacities 2, 8, 18, 32), each shell a ring at an
+-- increasing radius, evenly spaced and frame-rotated (inner shells faster). So a
+-- free Carbon (6) shows 2 on an inner ring + 4 on an outer ring; a free Oxygen (8)
+-- → 2 + 6; Hydrogen (1) → 1. Length = Σ loneCountOf over atoms. Deterministic for
+-- a fixed frame. Pure, total. Model-space.
 loneElectronPositions :: BuilderState -> Number -> Array V3
-loneElectronPositions st frame = concatMap atomLones st.atoms
+loneElectronPositions st frame = concatMap atomShells st.atoms
   where
-  atomLones a =
+  atomShells a =
+    concat (mapWithIndex (shellRing a) (fillShells (loneCountOf st a.id)))
+  shellRing a i count =
     let
-      n = loneCountOf st a.id
-      speed = 0.05
-      phase = frame * speed
+      r = loneOrbitRadius + toNumber i * shellSpacing
+      -- Inner shells orbit faster, like the atomos rings.
+      phase = frame * (0.05 / (toNumber i + 1.0))
     in
-      if n <= 0 then []
-      else map
+      map
         ( \k ->
             let
-              theta = 2.0 * pi * toNumber k / toNumber (max 1 n) + phase
+              theta = 2.0 * pi * toNumber k / toNumber (max 1 count) + phase
             in
-              { x: a.pos.x + loneOrbitRadius * cos theta
-              , y: a.pos.y + loneOrbitRadius * sin theta
+              { x: a.pos.x + r * cos theta
+              , y: a.pos.y + r * sin theta
               , z: a.pos.z
               }
         )
-        (range 0 (n - 1))
+        (range 0 (count - 1))
+
+-- Distribute `total` electrons into shells (capacities 2, 8, 18, 32), filling the
+-- inner shells first; any overflow lands in a final shell. fillShells 6 = [2,4],
+-- fillShells 8 = [2,6], fillShells 1 = [1], fillShells 0 = [].
+shellCapacities :: Array Int
+shellCapacities = [ 2, 8, 18, 32 ]
+
+fillShells :: Int -> Array Int
+fillShells = go shellCapacities
+  where
+  go caps remaining
+    | remaining <= 0 = []
+    | otherwise = case uncons caps of
+        Nothing -> [ remaining ]
+        Just { head: cap, tail } ->
+          let
+            here = min remaining cap
+          in
+            [ here ] <> go tail (remaining - here)
 
 -- Small transverse radius for the shared bonding-pair breathe.
 electronCloud :: Number
 electronCloud = nucleonRadius
 
--- Orbit radius of an atom's lone electrons: well outside the nucleon cluster
--- (which spans ~nucleusRadius), so the nucleus reads clearly and the electrons
--- visibly ring it instead of sitting inside it.
+-- Radius of the innermost electron shell: well outside the nucleon cluster (which
+-- spans ~nucleusRadius), so the nucleus reads clearly and the electrons visibly
+-- ring it instead of sitting inside it.
 loneOrbitRadius :: Number
 loneOrbitRadius = nucleusRadius * 1.4
+
+-- Radial gap between successive electron shells.
+shellSpacing :: Number
+shellSpacing = nucleusRadius * 1.0
 
 -- ───── Molecules (connected components) + formulae ───────────────────
 
