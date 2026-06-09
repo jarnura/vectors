@@ -31,6 +31,12 @@ export const installView2DToggle = (effect) => () => {
   el.addEventListener("change", () => effect());
 };
 
+export const installValenceOnlyToggle = (effect) => () => {
+  const el = document.getElementById("valence-only");
+  if (!el) return;
+  el.addEventListener("change", () => effect());
+};
+
 export const installElementInput = (cb) => () => {
   const input = document.getElementById("element-value");
   if (!input) return;

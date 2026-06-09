@@ -1646,3 +1646,152 @@ test('builder: bonding electrons use the valence colour', async ({ page }) => {
   // midband electron's dominant channel flips off blue and this passes.
   expect(bond.channel).not.toBe('B');
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// valence-only-toggle M1: the #valence-only checkbox must HIDE the CORE (blue)
+// lone electrons while KEEPING the VALENCE (amber) ones. In Main, valenceOnly
+// drops builderLoneElectronEntities (the blue coreLoneElectronPositions) but
+// always renders builderValenceElectronEntities (amber valenceLoneElectronPositions)
+// and builderBondElectronEntities (amber bonding pair). So toggling ON should make
+// the INNER (core) band lose its blue electrons while the OUTER (valence) amber
+// band is unchanged; unchecking restores the blue core; and the bonded pair stays
+// amber in BOTH states (bonding electrons are valence, never dropped).
+//
+// Reuses the EXACT inner/outer bands, midband, LIT threshold, nucleus exclusion,
+// and dominant-channel classification proven by the two valence-colour specs above
+// (free Carbon Z=6, shells [2,4]: 2 blue core inner + 4 amber valence outer).
+test('builder: Valence only toggle hides core electrons, keeps valence', async ({ page }) => {
+  await gotoBuilder(page);
+
+  // A free Carbon at the origin → 2 core (inner blue ring) + 4 valence (outer amber ring).
+  await page.evaluate(() => {
+    const b = window.__builder;
+    b.clear();
+    b.addAtom(6, 0, 0, 0);
+  });
+  await page.waitForTimeout(400);
+
+  // ── classification (identical to the valence-colour specs) ──────────────────
+  const LIT = 90;
+  const isNucleusColour = (p) => {
+    const [r, g, b] = p;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    const grey = mx - mn < 28;
+    const protonRed = r > 150 && g < 110 && b < 110 && r - Math.max(g, b) > 60;
+    return grey || protonRed;
+  };
+  const electronPixels = (px) =>
+    px.filter((p) => p[0] + p[1] + p[2] > LIT && !isNucleusColour(p));
+  // Count electron pixels whose dominant channel is BLUE (core) vs RED (amber valence).
+  const channelCounts = (px) => {
+    const t = { R: 0, G: 0, B: 0 };
+    for (const p of electronPixels(px)) {
+      const [r, g, b] = p;
+      if (b >= r && b >= g) t.B++;
+      else if (r >= g && r >= b) t.R++;
+      else t.G++;
+    }
+    return t;
+  };
+
+  // SAME bands as TEST A: inner (core) and outer (valence) straddle boxes.
+  const innerRight = () => readRegion(page, 0.555, 0.42, 0.645, 0.58, 16, 16);
+  const innerBottom = () => readRegion(page, 0.42, 0.60, 0.58, 0.72, 16, 16);
+  const outerRight = () => readRegion(page, 0.62, 0.40, 0.72, 0.60, 16, 16);
+  const outerBottom = () => readRegion(page, 0.40, 0.70, 0.60, 0.82, 16, 16);
+
+  const poolBand = async (boxes, frames = 8) => {
+    let pool = [];
+    for (let i = 0; i < frames; i++) {
+      for (const box of boxes) pool = pool.concat(await box());
+      await page.waitForTimeout(90);
+    }
+    return pool;
+  };
+  // Pool a band, retrying until it paints electron pixels (cold-start / sparse-ring
+  // safe: the 4 valence electrons sweep a large outer ring, so a single pass can
+  // miss the sample boxes — retry until lit pixels appear).
+  const poolUntilLit = async (boxes, framesPer = 4, tries = 8) => {
+    let pool = [];
+    for (let i = 0; i < tries; i++) {
+      pool = await poolBand(boxes, framesPer);
+      if (electronPixels(pool).length > 0) break;
+      await page.waitForTimeout(120);
+    }
+    return pool;
+  };
+  const poolInner = () => poolUntilLit([innerRight, innerBottom], 4, 6);
+  const poolOuter = () => poolUntilLit([outerRight, outerBottom], 4, 8);
+
+  // ── (2) BEFORE toggling: core blue present on inner, amber present on outer ──
+  const innerBefore = channelCounts(await poolInner());
+  const outerBefore = channelCounts(await poolOuter());
+  // Inner band carries BLUE-dominant core electrons.
+  expect(innerBefore.B).toBeGreaterThan(0);
+  // Inner blue clearly dominates inner red (core ring is blue, not amber).
+  expect(innerBefore.B).toBeGreaterThan(innerBefore.R);
+  // Outer band carries amber (RED-dominant) valence electrons.
+  expect(outerBefore.R).toBeGreaterThan(0);
+
+  // ── (3) Toggle ON: change event fires installValenceOnlyToggle ──────────────
+  await page.check('#valence-only');
+  await page.waitForTimeout(400); // let the toggle re-render + a few frames
+
+  // ── (4) AFTER ON: inner blue core GONE, outer amber valence still present ───
+  // Sample the inner band thoroughly (8 frames) — with the toggle ON it should
+  // paint NO blue core electrons at all.
+  const innerAfter = channelCounts(await poolBand([innerRight, innerBottom], 8));
+  // The OUTER (valence) amber band is still rendered — retry until it lights
+  // (the sparse 4-electron ring needs a few passes to be caught on the boxes).
+  const outerAfter = channelCounts(await poolOuter());
+  // The load-bearing signal: the INNER (core) band no longer has blue core electrons.
+  expect(innerAfter.B).toBe(0);
+  // The OUTER (valence) amber band is still lit (RED-dominant, comparable to before).
+  expect(outerAfter.R).toBeGreaterThan(0);
+
+  // ── (5) Toggle OFF: blue core electrons RETURN on the inner band ────────────
+  await page.uncheck('#valence-only');
+  await page.waitForTimeout(400);
+  const innerRestored = channelCounts(await poolInner());
+  expect(innerRestored.B).toBeGreaterThan(0);
+
+  // ── (6) Bonded-pair invariance: the bond electron is amber in BOTH states ───
+  const bondsFormed = await page.evaluate(() => {
+    const b = window.__builder;
+    b.clear();
+    b.addAtom(1, -60, 0, 0); // left H  → fx≈0.436
+    b.addAtom(1, 60, 0, 0);  // right H → fx≈0.564 (120 apart < bondThreshold)
+    return b.getBonds().length;
+  });
+  expect(bondsFormed).toBe(1);
+  await page.waitForTimeout(400);
+
+  // Same midband + retry budget as the "bonding electrons use the valence colour"
+  // spec (the pair breathes; under SwiftShader full-suite load it needs several
+  // passes to be caught). Pool until lit.
+  const midband = () => readRegion(page, 0.46, 0.42, 0.54, 0.58, 16, 18);
+  const poolMid = async () => {
+    for (let i = 0; i < 15; i++) {
+      let p = [];
+      for (let j = 0; j < 8; j++) {
+        p = p.concat(await midband());
+        await page.waitForTimeout(90);
+      }
+      if (electronPixels(p).length > 0) return p;
+    }
+    return [];
+  };
+
+  // Bond electron is amber (RED-dominant), valence-only UNCHECKED.
+  const bondOff = channelCounts(await poolMid());
+  expect(bondOff.R + bondOff.G + bondOff.B).toBeGreaterThan(0);
+  expect(bondOff.R).toBeGreaterThan(bondOff.B); // amber, not core-blue
+
+  // Bond electron stays amber with valence-only CHECKED (bonding electrons are
+  // valence → never dropped by the toggle).
+  await page.check('#valence-only');
+  await page.waitForTimeout(400);
+  const bondOn = channelCounts(await poolMid());
+  expect(bondOn.R + bondOn.G + bondOn.B).toBeGreaterThan(0);
+  expect(bondOn.R).toBeGreaterThan(bondOn.B); // still amber after toggle
+});

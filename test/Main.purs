@@ -13,6 +13,7 @@ import Effect.Console (log)
 import Effect.Exception (throw)
 import Math.Matrix as M
 
+import Main (applyValenceOnly, initialState)
 import Atom (configString, electronPositions, electronPositionsBySubshell, electronPositionsBySubshell2D, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, subshellCap, subshellInclination, subshellRadius)
 import Atom as Atom
 import Chem (valence)
@@ -1204,6 +1205,28 @@ main = do
     not (approxEqMatrix (Cam.projection 2.0 800.0 600.0) (Cam.projection 1.0 800.0 600.0))
 
   log "all camera zoom projection properties hold."
+
+  -- ───── Builder valence-only toggle (valence-only M2) ────────────────
+  -- RED until Main gains a `valenceOnly :: Boolean` field (init false) and the
+  -- pure `applyValenceOnly :: Boolean -> State -> State` toggle, mirroring
+  -- applyToggle2D: `applyValenceOnly true s = s { valenceOnly = not s.valenceOnly }`,
+  -- `applyValenceOnly false s = s` (identity).
+  log "builder valence-only toggle properties:"
+
+  -- true flips the field from its false init.
+  check "applyValenceOnly true flips false→true" $
+    (applyValenceOnly true initialState).valenceOnly == true
+  -- A double-toggle returns to the original value.
+  check "applyValenceOnly true twice returns to false" $
+    (applyValenceOnly true (applyValenceOnly true initialState)).valenceOnly == false
+  -- false is identity on the field.
+  check "applyValenceOnly false leaves valenceOnly = false" $
+    (applyValenceOnly false initialState).valenceOnly == false
+  -- false is a no-op: other fields (e.g. view2D) are untouched.
+  check "applyValenceOnly false leaves view2D unchanged" $
+    (applyValenceOnly false initialState).view2D == initialState.view2D
+
+  log "all builder valence-only toggle properties hold."
 
 -- Fold applyZoomStep repeatedly with a fixed wheel delta, starting from `start`.
 -- Used to assert repeated stepping stays clamped within [minZoom, maxZoom].

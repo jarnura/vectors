@@ -1,4 +1,8 @@
-module Main where
+module Main
+  ( main
+  , initialState
+  , applyValenceOnly
+  ) where
 
 import Prelude
 
@@ -45,6 +49,7 @@ type State =
   , scene :: Scene
   , element :: Int
   , view2D :: Boolean
+  , valenceOnly :: Boolean
   , bondProgress :: Number
   , zoom :: Number
   , builder :: Builder.BuilderState
@@ -90,6 +95,7 @@ initialState =
   , scene: CubePoc
   , element: 6 -- Carbon by default
   , view2D: false
+  , valenceOnly: false
   -- 1.0 = bonded resting state (nuclei at full separation, in the outer thirds).
   -- The bond animation sweeps this 1→0→1, drawing the atoms together and back.
   , bondProgress: 1.0
@@ -103,6 +109,7 @@ step :: Input -> State -> State
 step input =
   applyToggle input.toggleScene
     >>> applyToggle2D input.toggle2D
+    >>> applyValenceOnly input.toggleValenceOnly
     >>> applyElement input.element
     >>> applyBondProgress input.bondProgress
     >>> applyShear input.shear
@@ -127,6 +134,12 @@ applyToggle true s = s { scene = nextScene s.scene }
 applyToggle2D :: Boolean -> State -> State
 applyToggle2D false s = s
 applyToggle2D true s = s { view2D = not s.view2D }
+
+-- Flip "valence only" (hide core electrons in the Builder) when the checkbox
+-- changes. Mirrors applyToggle2D.
+applyValenceOnly :: Boolean -> State -> State
+applyValenceOnly false s = s
+applyValenceOnly true s = s { valenceOnly = not s.valenceOnly }
 
 -- Select the rendered element (atomic number) from the selector. Out-of-range
 -- values are clamped downstream by Atom.elementOf.
@@ -464,7 +477,7 @@ main = do
           Builder ->
             starEntities
               <> builderAtomEntities s
-              <> builderLoneElectronEntities s
+              <> (if s.valenceOnly then [] else builderLoneElectronEntities s)
               <> builderValenceElectronEntities s
               <> builderBondElectronEntities s
       updateViewport renderer canvas initialState.zoom

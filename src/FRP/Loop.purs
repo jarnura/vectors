@@ -6,6 +6,7 @@ module FRP.Loop
   , installClearButton
   , installCanvasPointer
   , installWheelListener
+  , installValenceOnlyToggle
   ) where
 
 import Prelude
@@ -21,6 +22,7 @@ type Input =
   , shear :: Maybe Number
   , toggleScene :: Boolean
   , toggle2D :: Boolean
+  , toggleValenceOnly :: Boolean
   , element :: Maybe Int
   , bondProgress :: Maybe Number
   , zoomDelta :: Maybe Number
@@ -33,6 +35,7 @@ emptyInput =
   , shear: Nothing
   , toggleScene: false
   , toggle2D: false
+  , toggleValenceOnly: false
   , element: Nothing
   , bondProgress: Nothing
   , zoomDelta: Nothing
@@ -55,6 +58,10 @@ foreign import installSceneToggle
 
 -- Wires the 2D-view checkbox: runs the given effect on each change.
 foreign import installView2DToggle
+  :: Effect Unit -> Effect Unit
+
+-- Wires the "valence only" checkbox: runs the given effect on each change.
+foreign import installValenceOnlyToggle
   :: Effect Unit -> Effect Unit
 
 -- Wires the element selector: on change, invokes the callback with the chosen
@@ -111,6 +118,8 @@ runLoop spec = do
     (Ref.modify_ (_ { toggleScene = true }) inputRef)
   installView2DToggle
     (Ref.modify_ (_ { toggle2D = true }) inputRef)
+  installValenceOnlyToggle
+    (Ref.modify_ (_ { toggleValenceOnly = true }) inputRef)
   installElementInput \z ->
     Ref.modify_ (_ { element = Just z }) inputRef
   -- Mouse wheel over the canvas: push the raw deltaY as a zoom step. The FFI
