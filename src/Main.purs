@@ -286,6 +286,11 @@ main = do
       -- touch larger than atomos electrons so the central pair reads clearly
       -- between the two flanking nuclei.
       molElectronMesh <- GL.createSolidMesh renderer moleculeElectronSphere
+      -- Distinct VALENCE-electron mesh for the Builder: outermost-shell lone
+      -- electrons + bonding/shared electrons use an amber/gold colour, clearly
+      -- separated from the core blue, proton red, and neutron grey. Created ONCE
+      -- and reused for both valence-lone and bond electrons.
+      builderValenceElectronMesh <- GL.createSolidMesh renderer builderValenceElectronSphere
       -- Dedicated, larger nucleus sphere for the H₂ nuclei: bigger than an atomos
       -- proton so each nucleus carries enough lit mass to read clearly in the
       -- left/right thirds and to relocate a substantial block of pixels when the
@@ -411,10 +416,10 @@ main = do
             )
             s.builder.atoms
 
-        -- Lone (non-bonding) electrons: one bright sphere per lone electron, on a
-        -- small ring around each atom's centre (Builder.loneElectronPositions). A
-        -- fully-bonded atom has lone count 0, so NOTHING floats above it — only the
-        -- shared bond pair remains. Reuses the single molElectronMesh.
+        -- CORE (inner-shell) lone electrons: one blue sphere per core lone
+        -- electron, on the inner ring around each atom's centre
+        -- (Builder.coreLoneElectronPositions). Reuses the single blue
+        -- molElectronMesh — core electrons keep the existing colour.
         builderLoneElectronEntities :: State -> Array Entity
         builderLoneElectronEntities s =
           map
@@ -423,16 +428,29 @@ main = do
                 , modelMatrix: \_ -> builderPlace p
                 }
             )
-            (Builder.loneElectronPositions s.builder s.frame)
+            (Builder.coreLoneElectronPositions s.builder s.frame)
+
+        -- VALENCE (outermost-shell) lone electrons: one amber sphere per valence
+        -- lone electron, on the outer ring (Builder.valenceLoneElectronPositions).
+        -- Uses the distinct builderValenceElectronMesh (amber/gold).
+        builderValenceElectronEntities :: State -> Array Entity
+        builderValenceElectronEntities s =
+          map
+            ( \p ->
+                { mesh: Solid builderValenceElectronMesh
+                , modelMatrix: \_ -> builderPlace p
+                }
+            )
+            (Builder.valenceLoneElectronPositions s.builder s.frame)
 
         -- Shared (bonding) electrons: the pair sitting BETWEEN each bond's two
-        -- nuclei (Builder.bondElectronPositions), breathing with the frame. Reuses
-        -- the single molElectronMesh.
+        -- nuclei (Builder.bondElectronPositions), breathing with the frame.
+        -- Bonding electrons ARE valence electrons → reuses the amber valence mesh.
         builderBondElectronEntities :: State -> Array Entity
         builderBondElectronEntities s =
           map
             ( \p ->
-                { mesh: Solid molElectronMesh
+                { mesh: Solid builderValenceElectronMesh
                 , modelMatrix: \_ -> builderPlace p
                 }
             )
@@ -447,6 +465,7 @@ main = do
             starEntities
               <> builderAtomEntities s
               <> builderLoneElectronEntities s
+              <> builderValenceElectronEntities s
               <> builderBondElectronEntities s
       updateViewport renderer canvas initialState.zoom
       w0 <- getCanvasWidth canvas
@@ -561,6 +580,19 @@ moleculeElectronColor = { r: 0.30, g: 0.68, b: 1.0, a: 1.0 }
 moleculeElectronSphere :: Meshes.SolidSpec
 moleculeElectronSphere =
   (Meshes.sphere 14 14 (Atom.electronRadius * 1.3)) { color = moleculeElectronColor }
+
+-- VALENCE-electron colour for the Builder: a high-saturation amber/gold. R and G
+-- are high with B low → dominant channel R, clearly NOT blue (core electrons),
+-- NOT proton red {0.90,0.25,0.22} (its G is high here), and NOT neutron grey
+-- (its channel spread is wide). Used for outermost-shell lone + bonding electrons.
+builderValenceElectronColor :: GL.Color
+builderValenceElectronColor = { r: 1.0, g: 0.78, b: 0.18, a: 1.0 }
+
+-- The valence-electron sphere: same size as the core electron dot, but amber so
+-- valence (outer-shell + bonding) electrons read distinct from the blue core ones.
+builderValenceElectronSphere :: Meshes.SolidSpec
+builderValenceElectronSphere =
+  (Meshes.sphere 14 14 (Atom.electronRadius * 1.3)) { color = builderValenceElectronColor }
 
 -- The molecule is scaled up about the origin so its two nuclei spread well
 -- apart on-screen (the bond runs across the view), keeping the shared pair
