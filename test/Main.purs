@@ -1045,6 +1045,93 @@ main = do
       + length (B.loneElectronPositions oWith2H 0.0)
       == electronSum oWith2H
 
+  -- ───── Builder core/valence lone-electron split (shells) ────────────
+  -- RED until Builder.purs adds the pure helpers valenceShellOf,
+  -- coreLoneElectronPositions, valenceLoneElectronPositions. They split an
+  -- atom's lone electrons into CORE (inner, always-lone shells) and VALENCE
+  -- (outermost shell). Model:
+  --   valenceShellOf z = last (Atom.electronShells z)
+  --   coreCount(atom)  = z − valenceShellOf z      (inner shells, always lone)
+  --   valenceLone(atom)= max 0 (valenceShellOf z − degree)
+  -- so coreCount + valenceLone == loneCountOf (= z − degree), and
+  --   loneElectronPositions == coreLoneElectronPositions <> valenceLoneElectronPositions.
+  let
+    -- Centre of the lone fixtures (single atom placed at the origin p0).
+    atomCentre = p0
+    radialR cx cy p = sqrt ((p.x - cx) * (p.x - cx) + (p.y - cy) * (p.y - cy))
+
+    -- Bonded Carbon: a Carbon with 4 H all within bondThreshold ⇒ degree 4.
+    -- Place the 4 H around the central C, each comfortably inside bonding range
+    -- (and spread on different axes so they don't over-bond to each other).
+    cCentre = { x: 0.0, y: 0.0, z: 0.0 }
+    boundC =
+      B.addAtom 1 { x: 0.0, y: 0.0, z: -near }
+        ( B.addAtom 1 { x: 0.0, y: 0.0, z: near }
+            ( B.addAtom 1 { x: 0.0, y: near, z: 0.0 }
+                ( B.addAtom 1 { x: near, y: 0.0, z: 0.0 }
+                    (B.addAtom 6 cCentre B.emptyBuilder)
+                )
+            )
+        )
+    boundCId = fromMaybe (-1) (map _.id (index boundC.atoms 0))
+
+  -- valenceShellOf == last (electronShells z): C→4, O→6, H→1, Ne→8.
+  check "valenceShellOf C(6) = 4" $ B.valenceShellOf 6 == 4
+  check "valenceShellOf O(8) = 6" $ B.valenceShellOf 8 == 6
+  check "valenceShellOf H(1) = 1" $ B.valenceShellOf 1 == 1
+  check "valenceShellOf Ne(10) = 8" $ B.valenceShellOf 10 == 8
+
+  -- Free-atom split: a free atom has degree 0, so valenceLone == valenceShellOf z
+  -- and coreLone == z − valenceShellOf z.
+  check "free Carbon split ⇒ 2 core electrons" $
+    length (B.coreLoneElectronPositions loneC 0.0) == 2
+  check "free Carbon split ⇒ 4 valence electrons" $
+    length (B.valenceLoneElectronPositions loneC 0.0) == 4
+  check "free Oxygen split ⇒ 2 core electrons" $
+    length (B.coreLoneElectronPositions loneO 0.0) == 2
+  check "free Oxygen split ⇒ 6 valence electrons" $
+    length (B.valenceLoneElectronPositions loneO 0.0) == 6
+  check "free Hydrogen split ⇒ 0 core electrons" $
+    length (B.coreLoneElectronPositions loneH 0.0) == 0
+  check "free Hydrogen split ⇒ 1 valence electron" $
+    length (B.valenceLoneElectronPositions loneH 0.0) == 1
+
+  -- Bonded Carbon (degree 4): its 4 valence electrons went into bonds, so the
+  -- remaining 2 lone are CORE (the 1s pair) — 0 valence lone.
+  check "bonded Carbon has degree 4 (4 H within range)" $
+    B.degreeOf boundC boundCId == 4
+  check "bonded Carbon split ⇒ 2 core electrons" $
+    length (B.coreLoneElectronPositions boundC 0.0) == 2
+  check "bonded Carbon split ⇒ 0 valence electrons" $
+    length (B.valenceLoneElectronPositions boundC 0.0) == 0
+
+  -- Radius ordering: every valence electron is FARTHER from the atom centre than
+  -- every core electron (valence ring radius strictly larger than any core ring).
+  check "free Carbon: min valence radius > max core radius" $
+    let
+      coreRs = map (radialR atomCentre.x atomCentre.y) (B.coreLoneElectronPositions loneC 0.0)
+      valRs = map (radialR atomCentre.x atomCentre.y) (B.valenceLoneElectronPositions loneC 0.0)
+    in
+      fromMaybe 0.0 (minimum valRs) > fromMaybe 0.0 (maximum coreRs)
+
+  -- Conservation across the split: core + valence + bonding == Σ z over atoms.
+  check "split conservation: free Carbon ⇒ core+val+bond == Σz (6 = 2+4+0)" $
+    length (B.coreLoneElectronPositions loneC 0.0)
+      + length (B.valenceLoneElectronPositions loneC 0.0)
+      + length (B.bondElectronPositions loneC 0.0)
+      == electronSum loneC
+  check "split conservation: two-H/H₂ ⇒ core+val+bond == Σz (2 = 0+0+2)" $
+    length (B.coreLoneElectronPositions twoH 0.0)
+      + length (B.valenceLoneElectronPositions twoH 0.0)
+      + length (B.bondElectronPositions twoH 0.0)
+      == electronSum twoH
+
+  -- Split equals whole: core <> valence == loneElectronPositions (same array,
+  -- since the implementer defines lone = core <> valence).
+  check "split equals whole: core <> valence == loneElectronPositions (free Carbon)" $
+    B.coreLoneElectronPositions loneC 0.0 <> B.valenceLoneElectronPositions loneC 0.0
+      == B.loneElectronPositions loneC 0.0
+
   -- pick / unproject round-trip. Build a simple, pure perspective×camera
   -- projection here from Math.Matrix (matching Main.perspectiveProjection's
   -- shape: a perspective matrix composed with a -cameraDistance translation),

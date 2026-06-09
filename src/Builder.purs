@@ -19,8 +19,11 @@ module Builder
   , bondMidpoints
   , degreeOf
   , loneCountOf
+  , valenceShellOf
   , bondElectronPositions
   , loneElectronPositions
+  , coreLoneElectronPositions
+  , valenceLoneElectronPositions
   , molecules
   , formulaOf
   , projectToScreen
@@ -29,9 +32,9 @@ module Builder
 
 import Prelude
 
-import Atom (V3, elementOf, nucleonRadius, nucleusRadius)
+import Atom (V3, electronShells, elementOf, nucleonRadius, nucleusRadius)
 import Chem (valence)
-import Data.Array (any, concat, concatMap, filter, foldl, index, length, mapWithIndex, nub, range, snoc, sortBy, sortWith, uncons, (!!))
+import Data.Array (any, concat, concatMap, filter, foldl, index, last, length, mapWithIndex, nub, range, snoc, sortBy, sortWith, uncons, (!!))
 import Data.Foldable (elem)
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -238,27 +241,71 @@ bondElectronPositions st frame = concatMap bondPair st.bonds
 -- → 2 + 6; Hydrogen (1) → 1. Length = Σ loneCountOf over atoms. Deterministic for
 -- a fixed frame. Pure, total. Model-space.
 loneElectronPositions :: BuilderState -> Number -> Array V3
-loneElectronPositions st frame = concatMap atomShells st.atoms
+loneElectronPositions st frame =
+  coreLoneElectronPositions st frame <> valenceLoneElectronPositions st frame
+
+-- Outermost-shell electron count of element `z`: the last entry of
+-- Atom.electronShells (per-principal-shell totals). Carbon→4, Oxygen→6,
+-- Hydrogen→1, Neon→8. Clamp-safe (0 for an empty/unknown shell list).
+valenceShellOf :: Int -> Int
+valenceShellOf z = fromMaybe 0 (last (electronShells z))
+
+-- CORE lone electrons: the inner (always-lone) shells. Per atom, coreCount =
+-- z − valenceShellOf z electrons are distributed across the inner shell rings
+-- (indices 0..numInner-1) using the SAME ring layout as the old single-pass
+-- fillShells placement. Length = Σ (z − valenceShellOf z) over atoms.
+-- Deterministic for a fixed frame. Pure, total. Model-space.
+coreLoneElectronPositions :: BuilderState -> Number -> Array V3
+coreLoneElectronPositions st frame = concatMap atomCore st.atoms
   where
-  atomShells a =
-    concat (mapWithIndex (shellRing a) (fillShells (loneCountOf st a.id)))
-  shellRing a i count =
+  atomCore a =
     let
-      r = loneOrbitRadius + toNumber i * shellSpacing
-      -- Inner shells orbit faster, like the atomos rings.
-      phase = frame * (0.05 / (toNumber i + 1.0))
+      coreCount = a.z - valenceShellOf a.z
     in
-      map
-        ( \k ->
-            let
-              theta = 2.0 * pi * toNumber k / toNumber (max 1 count) + phase
-            in
-              { x: a.pos.x + r * cos theta
-              , y: a.pos.y + r * sin theta
-              , z: a.pos.z
-              }
-        )
-        (range 0 (count - 1))
+      concat (mapWithIndex (\i count -> shellRing a frame i count) (fillShells coreCount))
+
+-- VALENCE lone electrons: the outermost shell's non-bonding electrons. Per atom,
+-- valenceLone = max 0 (valenceShellOf z − degree) electrons sit on the VALENCE
+-- ring at index numInner (= number of core shells = length (electronShells z) −
+-- 1), so the valence ring is strictly outside every core ring. Length =
+-- Σ max 0 (valenceShellOf z − degree). Deterministic for a fixed frame. Pure,
+-- total. Model-space.
+valenceLoneElectronPositions :: BuilderState -> Number -> Array V3
+valenceLoneElectronPositions st frame = concatMap atomValence st.atoms
+  where
+  atomValence a =
+    let
+      valenceCount = valenceShellOf a.z
+      valenceLone = max 0 (valenceCount - degreeOf st a.id)
+      numInner = max 0 (length (electronShells a.z) - 1)
+    in
+      shellRing a frame numInner valenceLone
+
+-- Shared ring-placement helper: `count` electrons evenly spaced on the ring at
+-- shell index `idx` around atom `a`'s centre, frame-rotated. Radius grows with
+-- idx (loneOrbitRadius + idx*shellSpacing) so outer rings sit strictly outside
+-- inner ones; inner rings orbit faster (phase 0.05/(idx+1)). Used by both the
+-- core and valence placements so their radii and phases stay consistent.
+shellRing :: PlacedAtom -> Number -> Int -> Int -> Array V3
+shellRing a frame idx count
+  | count <= 0 = []
+  | otherwise =
+      let
+        r = loneOrbitRadius + toNumber idx * shellSpacing
+        -- Inner shells orbit faster, like the atomos rings.
+        phase = frame * (0.05 / (toNumber idx + 1.0))
+      in
+        map
+          ( \k ->
+              let
+                theta = 2.0 * pi * toNumber k / toNumber (max 1 count) + phase
+              in
+                { x: a.pos.x + r * cos theta
+                , y: a.pos.y + r * sin theta
+                , z: a.pos.z
+                }
+          )
+          (range 0 (count - 1))
 
 -- Distribute `total` electrons into shells (capacities 2, 8, 18, 32), filling the
 -- inner shells first; any overflow lands in a final shell. fillShells 6 = [2,4],
