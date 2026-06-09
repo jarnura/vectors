@@ -30,6 +30,8 @@ four scenes, toggled by an on-screen switch:
   derived Unicode formula (e.g. `H₂O`). Each atom renders its **real per-element
   nucleus** (Carbon/Oxygen denser/larger than Hydrogen); each bond shows a **shared
   electron pair**, and atoms carry only their **lone electrons** (valence-conserved).
+  An atom's **valence** electrons (outermost shell + the bonding pair) render in
+  **amber**, vs its **core** inner-shell electrons in **blue**.
 
 ## Controls
 
