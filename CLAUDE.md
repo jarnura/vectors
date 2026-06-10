@@ -46,9 +46,15 @@ with four **scenes**, toggled by an on-screen switch (`nextScene` 4-cycles):
   **amber**, vs its **core** (inner-shell) electrons which stay **blue** — the
   valence shell is taken from the element configuration (`Atom.electronShells`, last
   shell), so e.g. Carbon (shells `[2,4]`) shows 2 blue core electrons on the inner
-  ring and 4 amber valence electrons on the outer ring. The
+  ring and 4 amber valence electrons on the outer ring. A **"Valence only"
+  toggle** (`#valence-only` checkbox) hides the core (inner-shell, blue)
+  electrons, leaving only the valence electrons (amber outer-shell lone + the
+  amber shared bonding pair) — Builder-only; other scenes unaffected. The
   dynamic world lives in a pure model (`Builder`) behind a single shared `Ref`
   source of truth (`BuilderApi`), also exposed as a `window.__builder` test API.
+  The controls live in a **left drawer**, opened by a `#panel-toggle` icon
+  (top-left, below the scene title) that slides the glassy panel in from the
+  left via anime.js on click and back out on a second click.
 
 Each fundamental particle is a sphere. Perspective projection + canvas-resize
 throughout. **Mouse-wheel zoom** works across all scenes — scroll out to pull the
@@ -78,7 +84,7 @@ Module map (under `src/`):
 
 | Module | Files | Role |
 |--------|-------|------|
-| `Main` | `Main.purs` | Entry point; wires canvas, renderer, loop, input; builds per-scene `Entity` lists and selects on `State.scene`. `EntityMesh = Solid \| Wire` dispatch. Uses `Camera.projection` for the perspective projection; the draw loop re-projects when **zoom or size** changes (`applyZoom` folds wheel input via `Camera.applyZoomStep`). Molecule scene renders two nuclei + the shared electron pair model-driven; `#bond-btn` runs the anime.js bond animation (drawing atoms together via `State.bondProgress`); `updateOverlay` shows `#molecule-info` only in the molecule scene. Builder scene renders placed atoms + bonds (instanced/reused meshes built once at init, placed each frame from the shared `Ref`); `installBuilderPick` does a 3D pointer pick + drag (scene-gated to Builder so cube rotation is unaffected; builds `Camera.projection State.zoom` so pick/drag matches the zoomed view) → live valence-aware re-bonding |
+| `Main` | `Main.purs` | Entry point; wires canvas, renderer, loop, input; builds per-scene `Entity` lists and selects on `State.scene`. `EntityMesh = Solid \| Wire` dispatch. Uses `Camera.projection` for the perspective projection; the draw loop re-projects when **zoom or size** changes (`applyZoom` folds wheel input via `Camera.applyZoomStep`). Molecule scene renders two nuclei + the shared electron pair model-driven; `#bond-btn` runs the anime.js bond animation (drawing atoms together via `State.bondProgress`); `updateOverlay` shows `#molecule-info` only in the molecule scene. Builder scene renders placed atoms + bonds (instanced/reused meshes built once at init, placed each frame from the shared `Ref`); `installBuilderPick` does a 3D pointer pick + drag (scene-gated to Builder so cube rotation is unaffected; builds `Camera.projection State.zoom` so pick/drag matches the zoomed view) → live valence-aware re-bonding. When `State.valenceOnly`, the Builder render drops the core-electron group (Builder-only). Wires `Controls.installPanelToggle` for the left-drawer controls panel |
 | `Camera` | `Camera.purs` | Pure **camera** module (imports `Math.Matrix` only; no `Effect`/WebGL): single source of truth for the camera constants (`fov`, `cameraDistance`, `clipNear`, `clipFar`) + `minZoom`/`maxZoom` (0.2–5.0). `projection zoom w h` builds a zoom-aware perspective projection (effective camera distance = `cameraDistance/zoom`; byte-identical to the old projection at zoom 1.0); `clampZoom` clamps to range; `applyZoomStep` applies a multiplicative wheel step. Replaces the old `Main.perspectiveProjection` |
 | `Graphics.GL` | `GL.purs` + `GL.js` | WebGL2 FFI: renderer, meshes, colors, clear color, draw calls |
 | `Math.Matrix` | `Math/Matrix.purs` | Matrix linear algebra (multiply, projection, `translate`, `scale`, `shear`, etc.) |
@@ -91,23 +97,27 @@ Module map (under `src/`):
 | `Chem` | `Chem.purs` | Pure, clamp-safe **valence table** `valence :: Int -> Int` for Z = 1..36 (H…Kr). Main-group elements use their common covalent valence; transition metals (Sc…Zn) use a documented flat default of 2. Used to cap bond formation in `Builder` |
 | `Builder` | `Builder.purs` | Pure **dynamic world model** for the builder sandbox: `PlacedAtom {id,z,pos}` / `BBond {a,b}` / `BuilderState {atoms,bonds,nextId,picked}`; `addAtom`/`moveAtom`/`clear`; `recomputeBonds` (proximity + valence-capped via `Chem` + break hysteresis, `bondThreshold`/`breakThreshold`); `molecules` (connected components) + `formulaOf` (Hill-style Unicode formula); `bondMidpoints`; electron helpers `degreeOf`/`loneCountOf` (per-atom bonded degree and lone count = valence − degree) + `bondElectronPositions`/`loneElectronPositions` (shared pair in each bond and the remaining lone electrons on each atom, electron count conserved); valence/core split helpers `valenceShellOf` (outermost shell from `Atom.electronShells`) + `coreLoneElectronPositions`/`valenceLoneElectronPositions` (inner-shell vs outermost-shell lone electrons for the amber/blue colour split, with `loneElectronPositions = core <> valence`); pure `projectToScreen`/`unprojectAtDepth` pick/unproject helpers. No WebGL/`Effect` |
 | `BuilderApi` | `BuilderApi.purs` + `BuilderApi.js` | The **single shared `Ref BuilderState` source of truth** the renderer, the in-app Add/Clear buttons, the mouse drag, and a `window.__builder` test API (`addAtom`/`moveAtom`/`getBonds`/`getMolecules`/`clear`) all read/write. Each mutation fires an `onChange` callback for eager re-render. `installBuilderControls` wires `#add-btn`/`#clear-btn`. DOM-only FFI, never WebGL |
-| `Controls` | `Controls.purs` + `Controls.js` | DOM-only **anime.js** controls FFI (imports only animejs; never WebGL): `renderInfoPanel` (data-driven `#molecule-info` rows + anime.js stagger reveal), `installBondButton`, `runBondAnimation` (tweens a JS value → `State.bondProgress`), `animateControlBarIn` (glassy control-bar entrance animation), `installButtonPulse` (click-pulse bounce on a button by id). Sibling to `Text` |
+| `Controls` | `Controls.purs` + `Controls.js` | DOM-only **anime.js** controls FFI (imports only animejs; never WebGL): `renderInfoPanel` (data-driven `#molecule-info` rows + anime.js stagger reveal), `installBondButton`, `runBondAnimation` (tweens a JS value → `State.bondProgress`), `animateControlBarIn` (glassy control-bar entrance animation), `installPanelToggle` (a `#panel-toggle` icon that slides the `#controls` panel in/out as a left drawer via anime.js; closed drawer is `pointer-events:none` + off-screen so it never blocks the canvas), `installButtonPulse` (click-pulse bounce on a button by id). Sibling to `Text` |
 | `Palette` | `Palette.purs` | Shell/sub-shell colours: `shellColor n` (distinct per shell) + `subshellColor n l` (shell hue, lighter by ℓ). Pure |
 | `Starfield` | `Starfield.purs` | Deterministic Fibonacci-sphere star positions for the atomos backdrop |
 | `Text` | `Text.purs` + `Text.js` | anime.js **HTML overlay-text** FFI (`scrambleInto`/`setVisible`) — DOM only, never WebGL. Drives the atomos element label, scene-title banner, and orbital-info (electron-configuration) overlay. (`Controls` is the sibling control FFI for the molecule scene.) |
-| `FRP.Loop` | `FRP/Loop.purs` + `FRP/Loop.js` | rAF loop + input plumbing (keyboard, mouse, shear button, scene toggle, element selector, `#view-2d` checkbox via `installView2DToggle`, and a `bondProgress` channel via `installBondButton` → `Input`). Also a canvas-scoped **wheel FFI** (`installWheelListener`: `wheel` with `{passive:false}` + `preventDefault`, feeding `Input.zoomDelta`), a canvas **pointer FFI** (`installCanvasPointer`: mousedown/move/up, used by `Main.installBuilderPick` for the Builder 3D drag) and `installAddButton`/`installClearButton` for the Builder `#add-btn`/`#clear-btn` |
+| `FRP.Loop` | `FRP/Loop.purs` + `FRP/Loop.js` | rAF loop + input plumbing (keyboard, mouse, shear button, scene toggle, element selector, `#view-2d` checkbox via `installView2DToggle`, the `#valence-only` checkbox via `installValenceOnlyToggle` → `Input.toggleValenceOnly`, and a `bondProgress` channel via `installBondButton` → `Input`). Also a canvas-scoped **wheel FFI** (`installWheelListener`: `wheel` with `{passive:false}` + `preventDefault`, feeding `Input.zoomDelta`), a canvas **pointer FFI** (`installCanvasPointer`: mousedown/move/up, used by `Main.installBuilderPick` for the Builder 3D drag) and `installAddButton`/`installClearButton` for the Builder `#add-btn`/`#clear-btn` |
 
 State is a plain record (`transform`, `speed`, `mouseLast`, `frame`, `scene`,
-`element`, `view2D`, `bondProgress`, `zoom`, `builder`) advanced each frame (the
-`Input` channel gained `toggle2D`, applied via `Main.applyToggle2D`, a `bondProgress`
+`element`, `view2D`, `valenceOnly`, `bondProgress`, `zoom`, `builder`) advanced each
+frame (the `Input` channel gained `toggle2D`, applied via `Main.applyToggle2D`,
+`toggleValenceOnly`, applied via the pure `Main.applyValenceOnly` (`valenceOnly`
+initialises to `false`), a `bondProgress`
 channel fed by the anime.js bond animation, and a `zoomDelta` channel from the wheel
 FFI applied via `Main.applyZoom` → `Camera.applyZoomStep`); updates return new records
 rather than mutating. `zoom` initialises to `1.0`. The `builder` field mirrors the shared `BuilderApi` `Ref` (the Builder
 world model), refreshed into the rendered state each frame and on eager
 re-render. The world meshes, nucleus, and starfield use scene-/element-derived
 transforms; electrons and the shared molecule pair advance with `frame`. The
-on-screen `#controls` bar is now a **glassy (backdrop-blur)** panel with an
-anime.js entrance animation (`Controls.animateControlBarIn`) and button pulses.
+on-screen `#controls` bar is a **glassy (backdrop-blur)** panel that now lives in
+a **left drawer** toggled by a `#panel-toggle` icon (`Controls.installPanelToggle`,
+anime.js slide-in/out); the old auto-show entrance (`animateControlBarIn`) is no
+longer wired. Buttons keep their click pulses.
 
 ## Conventions
 

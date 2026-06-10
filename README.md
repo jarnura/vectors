@@ -31,7 +31,10 @@ four scenes, toggled by an on-screen switch:
   nucleus** (Carbon/Oxygen denser/larger than Hydrogen); each bond shows a **shared
   electron pair**, and atoms carry only their **lone electrons** (valence-conserved).
   An atom's **valence** electrons (outermost shell + the bonding pair) render in
-  **amber**, vs its **core** inner-shell electrons in **blue**.
+  **amber**, vs its **core** inner-shell electrons in **blue**; a **"Valence only"
+  toggle** hides the blue core electrons, leaving just the amber valence + bonds.
+  The controls live in a **left drawer** opened by a **panel-toggle icon** (below
+  the scene title) that slides the glassy panel in/out via anime.js.
 
 ## Controls
 
@@ -46,6 +49,10 @@ four scenes, toggled by an on-screen switch:
   the sandbox, or Clear all atoms.
 - **Drag atoms** (Builder) — drag atoms in 3D with the mouse; atoms that come
   close auto-bond (valence-aware, with break hysteresis) into molecules.
+- **Valence only checkbox** (Builder) — hide the blue core (inner-shell)
+  electrons, leaving only an atom's amber valence electrons and the bonding pairs.
+- **Panel toggle** (icon below the scene title) — slide the controls drawer in
+  from the left (and back out) via anime.js.
 - **Mouse wheel** (all scenes) — zoom the camera: scroll out to pull back (e.g. to
   see many molecules at once), scroll in for detail.
 - **Arrow keys / mouse drag** — rotate the cube (Cube POC).
