@@ -14,7 +14,7 @@ import Effect.Exception (throw)
 import Math.Matrix as M
 
 import Main (applyValenceOnly, initialState)
-import Atom (configString, electronPositions, electronPositionsBySubshell, electronPositionsBySubshell2D, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, subshellCap, subshellInclination, subshellRadius)
+import Atom (clampElectron, configString, electronPositions, electronPositionsByShell, electronPositionsByShell2D, electronPositionsBySubshell, electronPositionsBySubshell2D, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, shellRings, subshellCap, subshellInclination, subshellRadius)
 import Atom as Atom
 import Chem (valence)
 import Builder as B
@@ -1227,6 +1227,146 @@ main = do
     (applyValenceOnly false initialState).view2D == initialState.view2D
 
   log "all builder valence-only toggle properties hold."
+
+  -- ───── Atom shell-collapsed positions (atomos shell/sub-shell toggle M1) ─
+  -- RED: Atom.purs does not yet export electronPositionsByShell,
+  -- electronPositionsByShell2D, or shellRings. These tests will fail to
+  -- compile until the implementer adds those three exports.
+  log "atom shell-collapsed position properties:"
+
+  let
+    -- Elements under test (all via elementOf so clamping is exercised).
+    cSh = elementOf 6 -- Carbon  Z=6  shells=[2,4]   => 2 groups
+    oSh = elementOf 8 -- Oxygen  Z=8  shells=[2,6]   => 2 groups
+    neSh = elementOf 10 -- Neon    Z=10 shells=[2,8]   => 2 groups
+    krSh = elementOf 36 -- Krypton Z=36 shells=[2,8,18,8] => 4 groups
+
+    -- Flatten a grouped array to a flat count.
+    totalEls gs = sum (map length gs)
+
+    -- Per-element: total in shell-collapsed grouping (3D and 2D).
+    cShTotal3D = totalEls (electronPositionsByShell cSh 0.0)
+    oShTotal3D = totalEls (electronPositionsByShell oSh 0.0)
+    neShTotal3D = totalEls (electronPositionsByShell neSh 0.0)
+    krShTotal3D = totalEls (electronPositionsByShell krSh 0.0)
+
+    cShTotal2D = totalEls (electronPositionsByShell2D cSh 0.0)
+    oShTotal2D = totalEls (electronPositionsByShell2D oSh 0.0)
+    neShTotal2D = totalEls (electronPositionsByShell2D neSh 0.0)
+    krShTotal2D = totalEls (electronPositionsByShell2D krSh 0.0)
+
+    -- Reference totals from the existing sub-shell grouping (already tested green).
+    cSubTotal = totalEls (electronPositionsBySubshell cSh 0.0)
+    oSubTotal = totalEls (electronPositionsBySubshell oSh 0.0)
+    neSubTotal = totalEls (electronPositionsBySubshell neSh 0.0)
+    krSubTotal = totalEls (electronPositionsBySubshell krSh 0.0)
+
+  -- 1. Electron-count conservation (3D): total == clampElectron z for each element.
+  check "shellCollapsed 3D: Carbon total == clampElectron 6" $
+    cShTotal3D == clampElectron 6
+  check "shellCollapsed 3D: Oxygen total == clampElectron 8" $
+    oShTotal3D == clampElectron 8
+  check "shellCollapsed 3D: Neon total == clampElectron 10" $
+    neShTotal3D == clampElectron 10
+  check "shellCollapsed 3D: Krypton total == clampElectron 36" $
+    krShTotal3D == clampElectron 36
+
+  -- 1b. Total matches the sub-shell grouping total (both represent same electrons).
+  check "shellCollapsed 3D: Carbon total == subshell total" $
+    cShTotal3D == cSubTotal
+  check "shellCollapsed 3D: Oxygen total == subshell total" $
+    oShTotal3D == oSubTotal
+  check "shellCollapsed 3D: Neon total == subshell total" $
+    neShTotal3D == neSubTotal
+  check "shellCollapsed 3D: Krypton total == subshell total" $
+    krShTotal3D == krSubTotal
+
+  -- 1c. Electron-count conservation (2D): same totals as 3D and clampElectron.
+  check "shellCollapsed 2D: Carbon total == clampElectron 6" $
+    cShTotal2D == clampElectron 6
+  check "shellCollapsed 2D: Oxygen total == clampElectron 8" $
+    oShTotal2D == clampElectron 8
+  check "shellCollapsed 2D: Neon total == clampElectron 10" $
+    neShTotal2D == clampElectron 10
+  check "shellCollapsed 2D: Krypton total == clampElectron 36" $
+    krShTotal2D == clampElectron 36
+
+  -- 2. Group count == length (electronShells z) for each element (one group per
+  --    occupied principal shell).
+  check "shellCollapsed 3D: group count == length electronShells (Carbon)" $
+    length (electronPositionsByShell cSh 0.0) == length (electronShells 6)
+  check "shellCollapsed 3D: group count == length electronShells (Oxygen)" $
+    length (electronPositionsByShell oSh 0.0) == length (electronShells 8)
+  check "shellCollapsed 3D: group count == length electronShells (Neon)" $
+    length (electronPositionsByShell neSh 0.0) == length (electronShells 10)
+  check "shellCollapsed 3D: group count == length electronShells (Krypton)" $
+    length (electronPositionsByShell krSh 0.0) == length (electronShells 36)
+
+  check "shellCollapsed 2D: group count == length electronShells (Carbon)" $
+    length (electronPositionsByShell2D cSh 0.0) == length (electronShells 6)
+  check "shellCollapsed 2D: group count == length electronShells (Krypton)" $
+    length (electronPositionsByShell2D krSh 0.0) == length (electronShells 36)
+
+  -- 3. Shell-only group count <= sub-shell group count; Carbon strictly fewer.
+  check "shellCollapsed: shell group count <= subshell group count (Carbon)" $
+    length (electronPositionsByShell cSh 0.0) <= length (electronPositionsBySubshell cSh 0.0)
+  check "shellCollapsed: Carbon strictly fewer shell groups than sub-shell groups (2 < 3)" $
+    length (electronPositionsByShell cSh 0.0) == 2
+      && length (electronPositionsBySubshell cSh 0.0) == 3
+  check "shellCollapsed: Krypton shell groups <= subshell groups (4 <= 8)" $
+    length (electronPositionsByShell krSh 0.0) <= length (electronPositionsBySubshell krSh 0.0)
+
+  -- 4. shellRings for Carbon: 2 entries with strictly increasing radii, each
+  --    radius == shellRadius (n - 1) for its n.
+  let
+    cRings = shellRings cSh
+    cRingCount = length cRings
+    cRing0 = fromMaybe { n: 0, radius: 0.0 } (index cRings 0)
+    cRing1 = fromMaybe { n: 0, radius: 0.0 } (index cRings 1)
+
+  check "shellRings: Carbon has 2 entries (K and L shells)" $
+    cRingCount == 2
+  check "shellRings: Carbon entry 0 n == 1 (K shell)" $
+    cRing0.n == 1
+  check "shellRings: Carbon entry 1 n == 2 (L shell)" $
+    cRing1.n == 2
+  check "shellRings: Carbon entry 0 radius == shellRadius 0" $
+    approxEq cRing0.radius (shellRadius 0)
+  check "shellRings: Carbon entry 1 radius == shellRadius 1" $
+    approxEq cRing1.radius (shellRadius 1)
+  check "shellRings: Carbon radii strictly increasing" $
+    cRing0.radius < cRing1.radius
+
+  -- 4b. shellRings for Krypton: 4 entries, all radii == shellRadius (n-1).
+  let
+    krRings = shellRings krSh
+
+  check "shellRings: Krypton has 4 entries" $
+    length krRings == 4
+  check "shellRings: Krypton entry radii match shellRadius (n-1)" $
+    all (\r -> approxEq r.radius (shellRadius (r.n - 1))) krRings
+
+  -- 5. electronPositionsByShell2D Carbon: z ≈ 0 for every electron, and the
+  --    per-group radial distance from origin equals shellRadius (n-1) where n is
+  --    the group's principal shell index (1-based).
+  let
+    cFlat2DSh = electronPositionsByShell2D cSh 0.0
+    allCFlat2DSh = concat cFlat2DSh
+    xyDist p = sqrt (p.x * p.x + p.y * p.y)
+
+    -- The groups correspond to electronShells 6 = [2,4].  Group index 0 → n=1,
+    -- group index 1 → n=2.  Each electron in group i should ride shellRadius (i).
+    cFlat2DShGroup0 = fromMaybe [] (index cFlat2DSh 0)
+    cFlat2DShGroup1 = fromMaybe [] (index cFlat2DSh 1)
+
+  check "shellCollapsed 2D: every Carbon electron has z ≈ 0" $
+    all (\p -> approxEq p.z 0.0) allCFlat2DSh
+  check "shellCollapsed 2D: Carbon group 0 (n=1) rides shellRadius 0" $
+    all (\p -> approxEq (xyDist p) (shellRadius 0)) cFlat2DShGroup0
+  check "shellCollapsed 2D: Carbon group 1 (n=2) rides shellRadius 1" $
+    all (\p -> approxEq (xyDist p) (shellRadius 1)) cFlat2DShGroup1
+
+  log "all atom shell-collapsed position properties hold."
 
 -- Fold applyZoomStep repeatedly with a fixed wheel delta, starting from `start`.
 -- Used to assert repeated stepping stays clamped within [minZoom, maxZoom].

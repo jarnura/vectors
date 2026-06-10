@@ -12,6 +12,7 @@ module Atom
   , electronShells
   , subshellCap
   , fillSubshells
+  , clampElectron
   , configString
   , nucleons
   , nucleusRadius
@@ -24,11 +25,14 @@ module Atom
   , electronPositions
   , electronPositionsBySubshell
   , electronPositionsBySubshell2D
+  , shellRings
+  , electronPositionsByShell
+  , electronPositionsByShell2D
   ) where
 
 import Prelude
 
-import Data.Array (concat, filter, mapWithIndex, range, sortBy, uncons, (!!))
+import Data.Array (concat, filter, mapWithIndex, range, sortBy, uncons, zipWith, (!!))
 import Data.Foldable (intercalate, maximum, sum)
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -390,3 +394,73 @@ electronPositionsBySubshell2D el frame =
               }
         )
         (range 0 (ss.count - 1))
+
+-- ───── Shell-collapsed electrons (one ring per principal shell) ──────
+
+-- Spread `count` electrons evenly on ONE 3D ring of radius `r`, tilted by
+-- `incl`, animated at `speed`. Same per-ring placement as the sub-shell helper.
+ringElectrons3D :: Number -> Number -> Number -> Number -> Int -> Array V3
+ringElectrons3D r incl speed frame count =
+  map
+    ( \k ->
+        let
+          theta = 2.0 * pi * toNumber k / toNumber count + frame * speed
+        in
+          { x: r * cos theta
+          , y: -r * sin theta * sin incl
+          , z: r * sin theta * cos incl
+          }
+    )
+    (range 0 (count - 1))
+
+-- Flat (XY-plane) variant of `ringElectrons3D`: z is always 0.
+ringElectrons2D :: Number -> Number -> Number -> Int -> Array V3
+ringElectrons2D r speed frame count =
+  map
+    ( \k ->
+        let
+          theta = 2.0 * pi * toNumber k / toNumber count + frame * speed
+        in
+          { x: r * cos theta
+          , y: r * sin theta
+          , z: 0.0
+          }
+    )
+    (range 0 (count - 1))
+
+-- Per-occupied-principal-shell ring geometry: one entry per shell with ≥1
+-- electron (same grouping as `electronShells`), `n` the principal number and
+-- `radius` the shell base radius `shellRadius (n - 1)`. Ordered by increasing n.
+shellRings :: Element -> Array { n :: Int, radius :: Number }
+shellRings el =
+  map (\n -> { n, radius: shellRadius (n - 1) }) (occupiedShells el.electrons)
+
+-- Principal shell numbers (1-based) with ≥1 electron, derived the same way as
+-- `electronShells` (group the Madelung fill by n), ordered by increasing n.
+occupiedShells :: Int -> Array Int
+occupiedShells z =
+  let
+    subs = fillSubshells (clampElectron z)
+    maxN = fromMaybe 0 (maximum (map _.n subs))
+  in
+    filter (\nn -> sum (map _.count (filter (\s -> s.n == nn) subs)) > 0) (range 1 maxN)
+
+-- Electron world positions GROUPED by principal shell (one ring per occupied
+-- shell), collapsing each shell's sub-shells onto a single ring of radius
+-- `shellRadius (n - 1)`, tilted by `subshellInclination n 0`, frame-animated.
+-- `concat` totals to `clampElectron el.electrons`.
+electronPositionsByShell :: Element -> Number -> Array (Array V3)
+electronPositionsByShell el frame =
+  zipWithShellCounts el (\n count -> ringElectrons3D (shellRadius (n - 1)) (subshellInclination n 0) (0.02 / (toNumber n + 1.0)) frame count)
+
+-- Flat (XY-plane) variant of `electronPositionsByShell`: every electron z = 0.
+electronPositionsByShell2D :: Element -> Number -> Array (Array V3)
+electronPositionsByShell2D el frame =
+  zipWithShellCounts el (\n count -> ringElectrons2D (shellRadius (n - 1)) (0.02 / (toNumber n + 1.0)) frame count)
+
+-- Pair each occupied principal shell n with its electron total (from
+-- `electronShells`) and apply `f n count`. The two arrays line up by index
+-- because both derive from the same Madelung fill grouped by n.
+zipWithShellCounts :: Element -> (Int -> Int -> Array V3) -> Array (Array V3)
+zipWithShellCounts el f =
+  zipWith f (occupiedShells el.electrons) (electronShells el.electrons)
