@@ -61,6 +61,14 @@ projection zoom w h =
   let
     aspect = w / h
     f = 1.0 / tan (fov / 2.0)
+    -- Scale the clip planes with the effective camera distance so the frustum
+    -- always brackets the scene. Without this, zooming OUT pulls the camera
+    -- back (effective distance cameraDistance / zoom) while the far plane stays
+    -- fixed, so past zoom ≈ 0.5 the world crosses the far plane and is culled
+    -- (everything disappears). Dividing both planes by zoom keeps the framing
+    -- proportional and is byte-identical at zoom 1.0 (near 1, far 2000).
+    near = clipNear / zoom
+    far = clipFar / zoom
     p = fromMaybe (M.zeros 4 4) $ M.fromArray 4 4
       [ f / aspect
       , 0.0
@@ -72,8 +80,8 @@ projection zoom w h =
       , 0.0
       , 0.0
       , 0.0
-      , (clipFar + clipNear) / (clipNear - clipFar)
-      , (2.0 * clipFar * clipNear) / (clipNear - clipFar)
+      , (far + near) / (near - far)
+      , (2.0 * far * near) / (near - far)
       , 0.0
       , 0.0
       , -1.0

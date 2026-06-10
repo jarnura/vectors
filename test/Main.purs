@@ -1204,6 +1204,20 @@ main = do
   check "projection 2.0 differs from projection 1.0 (some entry)" $
     not (approxEqMatrix (Cam.projection 2.0 800.0 600.0) (Cam.projection 1.0 800.0 600.0))
 
+  -- Zoom-out frustum: at minZoom the focal point (world origin) must stay INSIDE
+  -- the frustum (NDC z within [-1, 1]). Regression for the bug where the fixed
+  -- far plane (2000) clipped the scene once the camera pulled back past it
+  -- (effective distance cameraDistance / minZoom = 5000 > 2000 ⇒ atoms vanished).
+  let
+    projMin = Cam.projection Cam.minZoom 800.0 600.0
+    originClip = M.toVector $ M.multiply projMin
+      (fromMaybe (M.zeros 4 1) (M.fromArray 4 1 [ 0.0, 0.0, 0.0, 1.0 ]))
+    originNdcZ = fromMaybe 0.0 (index originClip 2) / fromMaybe 0.0 (index originClip 3)
+  check "projection minZoom: origin stays in front of the far plane (ndc z ≤ 1)" $
+    originNdcZ <= 1.0
+  check "projection minZoom: origin stays behind the near plane (ndc z ≥ -1)" $
+    originNdcZ >= -1.0
+
   log "all camera zoom projection properties hold."
 
   -- ───── Builder valence-only toggle (valence-only M2) ────────────────
