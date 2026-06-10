@@ -7,6 +7,7 @@ module Controls
   , installBondButton
   , runBondAnimation
   , animateControlBarIn
+  , installPanelToggle
   , installButtonPulse
   ) where
 
@@ -33,6 +34,12 @@ foreign import runBondAnimation :: (Number -> Effect Unit) -> Effect Unit
 -- initial CSS state is opacity 0, so an early sampled frame reads < 1 mid-flight
 -- and settles to ~1. No-op if the element is absent. DOM only — never WebGL.
 foreign import animateControlBarIn :: String -> Effect Unit
+
+-- Wire the left-drawer toggle: clicking the icon (first id) slides the panel
+-- (second id) in from the left and out again via anime.js (translateX/opacity).
+-- The closed drawer keeps pointer-events:none so it never traps canvas events.
+-- No-op if either element is absent. DOM only — never WebGL.
+foreign import installPanelToggle :: String -> String -> Effect Unit
 
 -- Wire a tasteful click "pulse" (a quick scale bounce) onto a button by id, as
 -- add/clear feedback. No-op if absent. DOM only.

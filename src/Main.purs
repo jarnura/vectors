@@ -520,10 +520,14 @@ main = do
       -- and the drag is on-screen immediately. Reads the live canvas size to build
       -- the exact projection the renderer uses.
       installBuilderPick canvas builderRef eagerRender (Ref.read lastStateRef)
-      -- Animate the glassy control bar IN on load (anime.js entrance: opacity
-      -- 0→1 + slide, children staggered) and wire tasteful Add/Clear click pulses.
-      -- DOM only via the Controls FFI — never touches WebGL.
-      Controls.animateControlBarIn "controls"
+      -- Wire the glassy controls as a left DRAWER: the #panel-toggle icon slides
+      -- the #controls panel IN from the left and OUT again (anime.js, closed
+      -- drawer keeps pointer-events:none so it never blocks the canvas). The icon
+      -- is the sole opener — the drawer no longer auto-opens on boot. Also wire a
+      -- click pulse on the icon and tasteful Add/Clear pulses. DOM only via the
+      -- Controls FFI — never touches WebGL.
+      Controls.installPanelToggle "panel-toggle" "controls"
+      Controls.installButtonPulse "panel-toggle"
       Controls.installButtonPulse "add-btn"
       Controls.installButtonPulse "clear-btn"
       runLoop

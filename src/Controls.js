@@ -91,6 +91,34 @@ export const animateControlBarIn = (id) => () => {
   }
 };
 
+// Wire the left-drawer toggle: clicking the icon (by id) slides the panel (by id)
+// IN from the left (translateX -120% → 0%, opacity 0 → 1) and OUT again, via
+// anime.js. pointer-events is set SYNCHRONOUSLY on every click from the new open
+// state (auto when opening, none when closing) — never deferred to onComplete —
+// so a closing/closed drawer can NEVER trap canvas events (Builder drag / wheel
+// zoom), even under rapid double-clicks that would otherwise desync an
+// animation-completion guard. DOM only — never WebGL.
+export const installPanelToggle = (iconId) => (panelId) => () => {
+  const icon = document.getElementById(iconId);
+  const panel = document.getElementById(panelId);
+  if (!icon || !panel) return;
+  let open = false;
+  panel.style.pointerEvents = "none";
+  icon.addEventListener("click", () => {
+    open = !open;
+    // Synchronous + idempotent: the closed/closing drawer is immediately
+    // non-interactive (it is sliding away off-screen, so it should not capture
+    // clicks/wheel anyway), the open drawer is immediately interactive.
+    panel.style.pointerEvents = open ? "auto" : "none";
+    animate(panel, {
+      translateX: open ? ["-120%", "0%"] : ["0%", "-120%"],
+      opacity: open ? [0, 1] : [1, 0],
+      duration: 420,
+      ease: "outCubic",
+    });
+  });
+};
+
 // Wire a quick "pulse" (scale bounce) onto a button by id, as click feedback for
 // the Add/Clear actions. No-op when absent. DOM only — animates the DOM node.
 export const installButtonPulse = (id) => () => {

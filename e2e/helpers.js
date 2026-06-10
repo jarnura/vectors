@@ -5,6 +5,32 @@ import { expect } from '@playwright/test';
 
 export const CANVAS = '#canvas';
 
+// Open the left controls drawer (clicking the #panel-toggle icon) and wait until
+// the panel has slid in (opacity ~1, snug at the left margin). The controls now
+// live in an anime.js-driven left drawer that no longer auto-opens on boot, so
+// tests that interact with controls open it first via this helper. Idempotent:
+// if already open it leaves it open (a no-op slide).
+export async function openDrawer(page) {
+  await page.waitForSelector('#panel-toggle', { state: 'visible' });
+  const isOpen = async () =>
+    page.evaluate(() => {
+      const el = document.querySelector('#controls');
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      const opacity = parseFloat(getComputedStyle(el).opacity);
+      return opacity >= 0.9 && r.left >= 0 && r.right > 0;
+    });
+  if (await isOpen()) return;
+  await page.click('#panel-toggle');
+  await page.waitForFunction(() => {
+    const el = document.querySelector('#controls');
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    const opacity = parseFloat(getComputedStyle(el).opacity);
+    return opacity >= 0.9 && r.left >= 0 && r.left < 80;
+  }, undefined, { timeout: 2500, polling: 100 });
+}
+
 // Wait until the WebGL2 canvas exists, is sized, and has rendered ≥1 frame.
 export async function waitForRenderedCanvas(page) {
   await page.waitForSelector(CANVAS, { state: 'attached' });

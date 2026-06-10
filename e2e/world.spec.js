@@ -6,12 +6,22 @@
 // horizon transition) are added/enabled as M1–M4 land.
 import { test } from '@playwright/test';
 import {
-  expect, waitForRenderedCanvas, readPixel, readRow, readRegion, distinctColors,
+  expect, waitForRenderedCanvas, openDrawer, readPixel, readRow, readRegion, distinctColors,
 } from './helpers.js';
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   await page.goto('/');
   await waitForRenderedCanvas(page);
+  // The controls now live in a left DRAWER that no longer auto-opens on boot.
+  // For every spec EXCEPT the two drawer specs (titled "controls: …"), open the
+  // drawer up front so the existing control interactions (scene-toggle, shear,
+  // element selector, bond/add/clear, 2D/valence checkboxes) remain reachable.
+  // The drawer specs need the initial CLOSED state, so we skip the auto-open for
+  // them. The open drawer sits top-left and never overlaps the centre-right canvas
+  // region the Builder drag/zoom specs operate on.
+  if (!testInfo.title.startsWith('controls:')) {
+    await openDrawer(page);
+  }
 });
 
 test('canvas renders a non-empty scene', async ({ page }) => {
@@ -1161,46 +1171,32 @@ test('control bar: all controls are present and visible', async ({ page }) => {
   }
 });
 
-// molecule-builder M4 (TEST B): the control bar animates IN on load via anime.js
-// (an entrance fade/slide that settles to fully visible). The DOM-only Controls
-// FFI drives the animation (animate/stagger), like the molecule-info rows.
-//
-// Timing is fragile under SwiftShader, so the MUST-PASS (hard) assertion is the
-// SETTLED state: after a generous wait the #controls opacity is ~1 and the bar is
-// visible + interactive (a control is clickable). The mid-animation sample (early
-// opacity < 1) is BEST-EFFORT only — it is the signature of the entrance
-// animation being ADDED in M4, but we do not fail the suite on its timing.
-//
-// NOTE: before M4 ships the entrance animation, #controls has the default
-// opacity 1, so the early sample reads ~1 (no animation yet) — that best-effort
-// branch is the RED signal that the entrance animation does not exist yet. The
-// hard settled-state assertion is already green (regression guard). Once M4 adds
-// the anime.js entrance, the early sample reads < 1 and BOTH stay green.
-test('control bar: animates in on load (anime.js entrance)', async ({ page }) => {
+// The control bar lives in an anime.js-driven LEFT DRAWER that opens on the
+// #panel-toggle click (it no longer auto-animates on boot — the animated
+// hidden→shown→hidden entrance is covered deterministically by the two
+// "controls: …" drawer specs below). This spec is the regression guard that the
+// entrance, driven from a genuinely CLOSED state, brings the drawer to FULLY
+// visible AND leaves it interactive (not pointer-blocked or transformed
+// off-screen). beforeEach already opened the drawer for this spec, so we first
+// close it to reach a real closed start state, then re-open and assert the
+// transition deterministically (hidden → settled-visible → a control is usable).
+test('control bar: drawer entrance settles fully visible and interactive', async ({ page }) => {
   const opacity = () =>
     page.evaluate(
-      () => getComputedStyle(document.getElementById('controls')).opacity,
+      () => parseFloat(getComputedStyle(document.getElementById('controls')).opacity),
     );
 
-  // Best-effort mid-animation sample: read opacity as early as possible. If M4's
-  // entrance animation is running, this is < 1 (or differs from the settled
-  // value); before M4 it is the default 1. We DO NOT hard-fail on this — it is
-  // documented as the behaviour M4 introduces. We surface it via a soft check.
-  const early = parseFloat(await opacity());
-  // Soft signal of the entrance animation (best-effort under SwiftShader timing):
-  // an animated entrance starts below the settled opacity. expect.soft records a
-  // failure without aborting the test, so the suite still passes on the hard
-  // settled-state assertion below even when the early frame already reads 1.
-  expect.soft(early, 'entrance animation: opacity starts below settled (best-effort)').toBeLessThan(1);
+  // Close the (beforeEach-opened) drawer to reach a real CLOSED state.
+  await page.click('#panel-toggle');
+  await expect.poll(opacity, { timeout: 4000 }).toBeLessThan(0.1);
 
-  // Hard assertion: the bar SETTLES fully visible (opacity ~1) and stays visible.
-  await expect
-    .poll(async () => parseFloat(await opacity()), { timeout: 4000 })
-    .toBeGreaterThan(0.95);
+  // Re-open: the anime.js entrance must bring it from hidden to FULLY visible.
+  await page.click('#panel-toggle');
+  await expect.poll(opacity, { timeout: 4000 }).toBeGreaterThan(0.95);
   await expect(page.locator('#controls')).toBeVisible();
 
   // And it is interactive once settled: a control is clickable (the entrance
-  // animation does not leave the bar pointer-blocked or transformed off-screen).
+  // does not leave the bar pointer-blocked or transformed off-screen).
   await page.click('#scene-toggle');
   await expect(page.locator('#scene-title')).toHaveText('atomos', { timeout: 4000 });
 });
@@ -1794,4 +1790,118 @@ test('builder: Valence only toggle hides core electrons, keeps valence', async (
   const bondOn = channelCounts(await poolMid());
   expect(bondOn.R + bondOn.G + bondOn.B).toBeGreaterThan(0);
   expect(bondOn.R).toBeGreaterThan(bondOn.B); // still amber after toggle
+});
+
+// controls-drawer M2: the #controls bar becomes a LEFT DRAWER that is HIDDEN on
+// load (translated off-screen left / opacity≈0) and opened by a new #panel-toggle
+// icon button rendered top-left, BELOW #scene-title. Clicking #panel-toggle slides
+// #controls IN from the left (anime.js); clicking again slides it OUT. This is a
+// pure DOM/anime.js overlay change, so we assert via getBoundingClientRect() +
+// computed opacity on #controls and the #panel-toggle button — NOT canvas pixels.
+// RED until M2 adds #panel-toggle to index.html and wires the slide toggle through
+// Controls/Main (today there is no #panel-toggle, and #controls is opacity:0 with
+// no slide-in toggle → the toggle click + the visible assertion fail).
+//
+// panelState() helper (read inside page.evaluate on #controls):
+//   x       = getBoundingClientRect().left  (drawer's left edge, px from viewport left)
+//   right   = getBoundingClientRect().right (drawer's right edge; <=0 ⇒ fully off-screen left)
+//   opacity = parseFloat(getComputedStyle(el).opacity)
+//   visible = NOT hidden, where HIDDEN = right <= 0 (off-screen left) OR opacity <= 0.05.
+// SHOWN criteria  : x >= 0 && x < 80 (snug at the left margin) && opacity >= 0.9.
+// HIDDEN criteria : right <= 0 (off-screen left) OR opacity <= 0.05.
+// Wait approach   : after each toggle click, waitForFunction polls panelState every
+//   frame until it settles to the expected open/closed state (opacity>=0.9 && x>=0
+//   to open; right<=0 || opacity<=0.05 to close), with a 2500ms timeout that
+//   comfortably covers the ~600ms anime.js slide; a try/catch lets the explicit
+//   assertions report the real RED failure rather than a bare timeout.
+async function panelState(page) {
+  return page.evaluate(() => {
+    const el = document.querySelector('#controls');
+    if (!el) return { x: NaN, right: NaN, opacity: NaN, visible: false };
+    const r = el.getBoundingClientRect();
+    const opacity = parseFloat(getComputedStyle(el).opacity);
+    const hidden = r.right <= 0 || opacity <= 0.05;
+    return { x: r.left, right: r.right, opacity, visible: !hidden };
+  });
+}
+
+// Poll panelState until `pred` holds (drawer settled) or the timeout elapses.
+// Swallows the timeout so the caller's explicit expect() reports the real failure.
+async function waitForPanel(page, pred, timeout = 2500) {
+  try {
+    await page.waitForFunction(
+      (predSrc) => {
+        const fn = new Function('s', `return (${predSrc})(s);`);
+        const el = document.querySelector('#controls');
+        if (!el) return false;
+        const r = el.getBoundingClientRect();
+        const opacity = parseFloat(getComputedStyle(el).opacity);
+        const hidden = r.right <= 0 || opacity <= 0.05;
+        return fn({ x: r.left, right: r.right, opacity, visible: !hidden });
+      },
+      pred.toString(),
+      { timeout, polling: 100 },
+    );
+  } catch {
+    // settle timed out — let the explicit assertion below surface the RED state.
+  }
+}
+
+// SPEC A — controls: panel is a left drawer toggled by the panel icon.
+test('controls: panel is a left drawer toggled by the panel icon', async ({ page }) => {
+  // 1. The #panel-toggle icon button exists and is visible top-left.
+  await expect(page.locator('#panel-toggle')).toBeVisible();
+
+  // 2. On load #controls is HIDDEN: off-screen left (right<=0) OR opacity≈0.
+  const initial = await panelState(page);
+  expect(initial.right <= 0 || initial.opacity <= 0.05).toBe(true);
+
+  // 3. Click #panel-toggle → the drawer slides IN from the left (anime.js).
+  await page.click('#panel-toggle');
+  await waitForPanel(page, (s) => s.opacity >= 0.9 && s.x >= 0);
+  const opened = await panelState(page);
+  expect(opened.x).toBeGreaterThanOrEqual(0);
+  expect(opened.x).toBeLessThan(80); // snug at the left margin
+  expect(opened.opacity).toBeGreaterThanOrEqual(0.9);
+
+  // 4. Click #panel-toggle again → the drawer slides back OUT (hidden again).
+  await page.click('#panel-toggle');
+  await waitForPanel(page, (s) => s.right <= 0 || s.opacity <= 0.05);
+  const closed = await panelState(page);
+  expect(closed.right <= 0 || closed.opacity <= 0.05).toBe(true);
+});
+
+// SPEC B — controls: drawer icon is below the scene title; open drawer keeps
+// controls working. Asserts the icon geometry (below #scene-title, near the left)
+// and that, once the drawer is open, an existing control still functions through
+// it. RED until M2 adds #panel-toggle.
+test('controls: drawer icon is below the scene title; open drawer keeps controls working', async ({ page }) => {
+  await expect(page.locator('#panel-toggle')).toBeVisible();
+
+  // 1. Geometry: #panel-toggle sits BELOW #scene-title's bottom and near the left.
+  const geo = await page.evaluate(() => {
+    const toggle = document.querySelector('#panel-toggle');
+    const title = document.querySelector('#scene-title');
+    const t = toggle.getBoundingClientRect();
+    const s = title.getBoundingClientRect();
+    return { toggleTop: t.top, toggleLeft: t.left, titleBottom: s.bottom };
+  });
+  expect(geo.toggleTop).toBeGreaterThanOrEqual(geo.titleBottom - 4); // below title (small tol)
+  expect(geo.toggleLeft).toBeLessThan(80); // near the left edge
+
+  // 2. Open the drawer, then confirm an existing control still works through it.
+  await page.click('#panel-toggle');
+  await waitForPanel(page, (s) => s.opacity >= 0.9 && s.x >= 0);
+  const opened = await panelState(page);
+  expect(opened.visible).toBe(true);
+
+  // The #scene-toggle inside the open drawer still cycles scenes (title changes).
+  const title = page.locator('#scene-title');
+  await expect(title).toHaveText('Cube POC');
+  await page.click('#scene-toggle');
+  await expect(title).toHaveText('atomos', { timeout: 4000 });
+
+  // NOTE: a closed-drawer-doesn't-block-canvas check (Builder drag / wheel zoom
+  // with the drawer closed) is already covered by the existing pointer-drag and
+  // zoom specs once M2 lands; we deliberately avoid a flaky synthetic-drag test here.
 });
