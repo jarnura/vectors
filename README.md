@@ -43,6 +43,10 @@ four scenes, toggled by an on-screen switch:
   sub-shell electron rings update live.
 - **2D checkbox** (atomos) — flatten the atom into a 2D Bohr diagram (concentric
   circles facing the camera); uncheck to restore the tilted 3D orbital view.
+- **Sub-shells checkbox** (atomos, checked by default) — show the sub-shell ring
+  view (one thin ring per filled sub-shell, sub-shell colours); uncheck for a
+  shell-only view (one ring per principal shell, collapsed from all sub-shells,
+  shell colours).
 - **Form bond** (Molecule) — run the anime.js bond-formation animation that draws
   the two hydrogen atoms together into the H₂ covalent bond.
 - **Add / Clear** (Builder) — Add an atom of the selected element (Z = 1..36) to
