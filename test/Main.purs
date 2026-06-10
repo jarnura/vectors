@@ -13,7 +13,7 @@ import Effect.Console (log)
 import Effect.Exception (throw)
 import Math.Matrix as M
 
-import Main (applyValenceOnly, initialState)
+import Main (applySubshellView, applyValenceOnly, initialState)
 import Atom (clampElectron, configString, electronPositions, electronPositionsByShell, electronPositionsByShell2D, electronPositionsBySubshell, electronPositionsBySubshell2D, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, shellRings, subshellCap, subshellInclination, subshellRadius)
 import Atom as Atom
 import Chem (valence)
@@ -1227,6 +1227,38 @@ main = do
     (applyValenceOnly false initialState).view2D == initialState.view2D
 
   log "all builder valence-only toggle properties hold."
+
+  -- ───── Atomos sub-shell view toggle (atomos shell/sub-shell toggle M2) ─────
+  -- RED: Main does not yet export `applySubshellView` and `State.subshellView`
+  -- does not exist. This test will fail to compile until the implementer adds:
+  --   * `subshellView :: Boolean` to State (initialised to `true` in initialState)
+  --   * `applySubshellView :: Boolean -> State -> State` where
+  --       `applySubshellView true s  = s { subshellView = not s.subshellView }`
+  --       `applySubshellView false s = s`  (identity)
+  -- and exports `applySubshellView` from Main.
+  log "atomos sub-shell view toggle properties:"
+
+  -- Default: subshellView starts as true (sub-shell view is on by default).
+  check "initialState.subshellView == true (default is sub-shell view)" $
+    initialState.subshellView == true
+
+  -- true flips the field from its true init (true → false).
+  check "applySubshellView true flips true→false" $
+    (applySubshellView true initialState).subshellView == false
+
+  -- A double-toggle returns to the original value (false → true via not).
+  check "applySubshellView true twice returns to true" $
+    (applySubshellView true (applySubshellView true initialState)).subshellView == true
+
+  -- false is identity on the field (unchanged from the default true).
+  check "applySubshellView false leaves subshellView = true" $
+    (applySubshellView false initialState).subshellView == true
+
+  -- false is a no-op: other fields (e.g. view2D) are untouched.
+  check "applySubshellView false leaves view2D unchanged" $
+    (applySubshellView false initialState).view2D == initialState.view2D
+
+  log "all atomos sub-shell view toggle properties hold."
 
   -- ───── Atom shell-collapsed positions (atomos shell/sub-shell toggle M1) ─
   -- RED: Atom.purs does not yet export electronPositionsByShell,

@@ -453,6 +453,105 @@ test('atomos: 2D toggle flattens the atom (rings become concentric)', async ({ p
   expect(restoreDelta).toBeLessThan(flattenDelta);
 });
 
+// atomos shell/sub-shell toggle M2: a "#subshell-view" checkbox (CHECKED by
+// default) switches the atomos rings between SUB-SHELL view (one ring per filled
+// sub-shell — Carbon's L shell = 2s + 2p at DISTINCT radii → two rings) and
+// SHELL-only (Bohr) view (each principal shell collapsed onto ONE ring — Carbon's
+// L shell = a single ring). Unchecking MERGES the L sub-shell rings, so the count
+// of distinct lit ring bands in a radial sample DROPS; re-checking restores it.
+//
+// Signature: rings are coloured by sub-shell (shell hue, lighter outward) in
+// sub-shell view and by shell (one hue per shell) in shell view, and distinct
+// sub-shell radii spread lit mass across more radial bands. So both a colour
+// count AND a distinct-radial-band count over a region around the atom DROP when
+// the sub-shells collapse. We reuse the region/distinctColors helpers and poll
+// for render-readiness (SwiftShader robustness), exactly like the 2D-toggle and
+// colour-coded specs. The merge must hold in flat (2D) view too.
+test('atomos: sub-shell toggle merges sub-shell rings (Carbon L shell)', async ({ page }) => {
+  await page.click('#scene-toggle'); // → atomos
+  await page.fill('#element-value', '6'); // Carbon: K [1s], L [2s,2p] → 3 sub-shells / 2 shells
+  await page.waitForTimeout(500);
+
+  // Region around the atom; rows top→bottom. The Carbon rings sit in this band.
+  const COLS = 40;
+  const ROWS = 28;
+  const region = () => readRegion(page, 0.16, 0.16, 0.84, 0.84, COLS, ROWS);
+  const isLit = (p) => p[0] + p[1] + p[2] > 60;
+
+  // Count distinct LIT colour buckets — sub-shell view surfaces more (1s red,
+  // 2s amber-base, 2p lighter amber) than shell view (K red, L amber).
+  const ringColours = (px) => distinctColors(px.filter(isLit), 20);
+
+  // Count distinct LIT radial bands: bucket each lit pixel by its distance from
+  // the region centre (in row/col grid units) and count how many buckets light
+  // up. Distinct sub-shell radii spread lit mass over MORE bands than a single
+  // collapsed shell ring, so this DROPS when sub-shells merge. Ring-animation
+  // robust: rings are the dominant static lit structure.
+  const ringBands = (px) => {
+    const cr = (ROWS - 1) / 2, cc = (COLS - 1) / 2;
+    const set = new Set();
+    for (let r = 0; r < ROWS; r++) {
+      for (let i = 0; i < COLS; i++) {
+        if (isLit(px[r * COLS + i])) {
+          const dr = r - cr, dc = i - cc;
+          set.add(Math.round(Math.sqrt(dr * dr + dc * dc)));
+        }
+      }
+    }
+    return set.size;
+  };
+
+  const litCount = (px) => px.filter(isLit).length;
+
+  // Poll until the atom region has painted (render-ready), like the 2D-toggle spec.
+  const waitForLit = async (min = 3, tries = 25) => {
+    for (let i = 0; i < tries; i++) {
+      if (litCount(await region()) > min) return;
+      await page.waitForTimeout(120);
+    }
+  };
+
+  // A metric that combines colour + band counts; both shrink when sub-shells merge.
+  const metric = async () => {
+    await waitForLit();
+    const px = await region();
+    return ringColours(px) + ringBands(px);
+  };
+
+  // --- baseline: sub-shell view (checkbox CHECKED by default) ----------------
+  await expect(page.locator('#subshell-view')).toBeVisible();
+  await expect(page.locator('#subshell-view')).toBeChecked();
+  const baseline = await metric();
+  expect(baseline).toBeGreaterThan(2);
+
+  // --- UNCHECK → shell-only (Bohr): L sub-shell rings merge → metric DROPS ----
+  await page.uncheck('#subshell-view');
+  await page.waitForTimeout(600);
+  const merged = await metric();
+  expect(merged).toBeLessThan(baseline);
+
+  // --- RE-CHECK → sub-shell view restored: metric returns toward baseline -----
+  await page.check('#subshell-view');
+  await page.waitForTimeout(600);
+  const restored = await metric();
+  expect(restored).toBeGreaterThan(merged);
+
+  // --- flat (2D) view: the merge must hold there too --------------------------
+  await page.check('#view-2d');
+  await page.waitForTimeout(600);
+  const flatSub = await metric();
+
+  await page.uncheck('#subshell-view');
+  await page.waitForTimeout(600);
+  const flatMerged = await metric();
+  expect(flatMerged).toBeLessThan(flatSub);
+
+  await page.check('#subshell-view');
+  await page.waitForTimeout(600);
+  const flatRestored = await metric();
+  expect(flatRestored).toBeGreaterThan(flatMerged);
+});
+
 // molecule-platform M2: a third scene `Molecule` renders the H₂ molecule — two
 // hydrogen nuclei separated along x with a shared electron pair in the bond
 // between them. Reached by clicking #scene-toggle TWICE from the initial Cube

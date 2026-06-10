@@ -7,6 +7,7 @@ module FRP.Loop
   , installCanvasPointer
   , installWheelListener
   , installValenceOnlyToggle
+  , installSubshellViewToggle
   ) where
 
 import Prelude
@@ -23,6 +24,7 @@ type Input =
   , toggleScene :: Boolean
   , toggle2D :: Boolean
   , toggleValenceOnly :: Boolean
+  , toggleSubshellView :: Boolean
   , element :: Maybe Int
   , bondProgress :: Maybe Number
   , zoomDelta :: Maybe Number
@@ -36,6 +38,7 @@ emptyInput =
   , toggleScene: false
   , toggle2D: false
   , toggleValenceOnly: false
+  , toggleSubshellView: false
   , element: Nothing
   , bondProgress: Nothing
   , zoomDelta: Nothing
@@ -62,6 +65,10 @@ foreign import installView2DToggle
 
 -- Wires the "valence only" checkbox: runs the given effect on each change.
 foreign import installValenceOnlyToggle
+  :: Effect Unit -> Effect Unit
+
+-- Wires the "sub-shells" view checkbox: runs the given effect on each change.
+foreign import installSubshellViewToggle
   :: Effect Unit -> Effect Unit
 
 -- Wires the element selector: on change, invokes the callback with the chosen
@@ -120,6 +127,8 @@ runLoop spec = do
     (Ref.modify_ (_ { toggle2D = true }) inputRef)
   installValenceOnlyToggle
     (Ref.modify_ (_ { toggleValenceOnly = true }) inputRef)
+  installSubshellViewToggle
+    (Ref.modify_ (_ { toggleSubshellView = true }) inputRef)
   installElementInput \z ->
     Ref.modify_ (_ { element = Just z }) inputRef
   -- Mouse wheel over the canvas: push the raw deltaY as a zoom step. The FFI

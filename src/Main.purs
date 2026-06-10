@@ -2,6 +2,7 @@ module Main
   ( main
   , initialState
   , applyValenceOnly
+  , applySubshellView
   ) where
 
 import Prelude
@@ -34,7 +35,7 @@ import Camera as Camera
 import Controls as Controls
 import Meshes as Meshes
 import Molecule as Molecule
-import Palette (subshellColor)
+import Palette (shellColor, subshellColor)
 import Scene (Scene(..), nextScene, sceneTitle, spaceColor)
 import Starfield (starPositions)
 import Text as Text
@@ -50,6 +51,7 @@ type State =
   , element :: Int
   , view2D :: Boolean
   , valenceOnly :: Boolean
+  , subshellView :: Boolean
   , bondProgress :: Number
   , zoom :: Number
   , builder :: Builder.BuilderState
@@ -96,6 +98,9 @@ initialState =
   , element: 6 -- Carbon by default
   , view2D: false
   , valenceOnly: false
+  -- Sub-shell view is the default (each filled sub-shell its own ring); the
+  -- #subshell-view checkbox unchecks to the SHELL-only (Bohr) ring view.
+  , subshellView: true
   -- 1.0 = bonded resting state (nuclei at full separation, in the outer thirds).
   -- The bond animation sweeps this 1→0→1, drawing the atoms together and back.
   , bondProgress: 1.0
@@ -110,6 +115,7 @@ step input =
   applyToggle input.toggleScene
     >>> applyToggle2D input.toggle2D
     >>> applyValenceOnly input.toggleValenceOnly
+    >>> applySubshellView input.toggleSubshellView
     >>> applyElement input.element
     >>> applyBondProgress input.bondProgress
     >>> applyShear input.shear
@@ -140,6 +146,14 @@ applyToggle2D true s = s { view2D = not s.view2D }
 applyValenceOnly :: Boolean -> State -> State
 applyValenceOnly false s = s
 applyValenceOnly true s = s { valenceOnly = not s.valenceOnly }
+
+-- Flip the atomos sub-shell/shell view when the "#subshell-view" checkbox
+-- changes. true (sub-shells) draws one ring per filled sub-shell; false
+-- (shell-only/Bohr) collapses each shell onto a single ring. Mirrors
+-- applyToggle2D.
+applySubshellView :: Boolean -> State -> State
+applySubshellView false s = s
+applySubshellView true s = s { subshellView = not s.subshellView }
 
 -- Select the rendered element (atomic number) from the selector. Out-of-range
 -- values are clamped downstream by Atom.elementOf.
@@ -294,6 +308,29 @@ main = do
       electronMeshes <- traverse
         (\ss -> GL.createSolidMesh renderer (electronSphere (subshellColor ss.n ss.l)))
         (Atom.fillSubshells Atom.maxElectron)
+      -- SHELL-only (Bohr) ring set: one ring per occupied PRINCIPAL shell of the
+      -- maximal element (Krypton → 4 shells), built ONCE in parallel to the
+      -- sub-shell ringMeshes. A smaller element uses an exact prefix `take`. Each
+      -- ring is coloured by its shell (shellColor n) and tilted like the shell's
+      -- ℓ=0 sub-shell so the ring traces the collapsed electron path. The 2D
+      -- counterpart is flat (concentric) for the Bohr-diagram view.
+      shellRingMeshes <- traverse
+        ( \sh -> GL.createWireframeMesh renderer
+            ( (Meshes.orbitRing ringSegments sh.radius (Atom.subshellInclination sh.n 0))
+                { color = shellColor sh.n }
+            )
+        )
+        (Atom.shellRings (Atom.elementOf Atom.maxElectron))
+      shellRingMeshes2D <- traverse
+        ( \sh -> GL.createWireframeMesh renderer
+            ( (Meshes.orbitRingFlat ringSegments sh.radius)
+                { color = shellColor sh.n }
+            )
+        )
+        (Atom.shellRings (Atom.elementOf Atom.maxElectron))
+      shellElectronMeshes <- traverse
+        (\sh -> GL.createSolidMesh renderer (electronSphere (shellColor sh.n)))
+        (Atom.shellRings (Atom.elementOf Atom.maxElectron))
       -- Molecule scene: one dedicated bright electron mesh for the shared
       -- bonding pair (created ONCE, reused per shared electron position). A
       -- touch larger than atomos electrons so the central pair reads clearly
@@ -343,18 +380,28 @@ main = do
             )
             (Atom.nucleons (Atom.elementOf s.element))
 
-        -- One thin ring per filled sub-shell of the current element: the first
-        -- `k` shared ring meshes (Madelung prefix). Rings are world-centered.
+        -- Orbital ring lines for the current element, world-centered. In SUB-SHELL
+        -- view (default) one ring per filled sub-shell (Madelung prefix of the
+        -- shared sub-shell meshes); in SHELL-only (Bohr) view one ring per occupied
+        -- principal shell (prefix of the shell meshes). Each composes with s.view2D:
+        -- the flat (2D) mesh set is chosen for the camera-facing concentric circles.
         ringEntities :: State -> Array Entity
         ringEntities s =
           map (\m -> { mesh: Wire m, modelMatrix: \_ -> M.identity })
-            ( take (length (Atom.fillSubshells (Atom.elementOf s.element).electrons))
-                (if s.view2D then ringMeshes2D else ringMeshes)
+            ( if s.subshellView then
+                take (length (Atom.fillSubshells (Atom.elementOf s.element).electrons))
+                  (if s.view2D then ringMeshes2D else ringMeshes)
+              else
+                take (length (Atom.shellRings (Atom.elementOf s.element)))
+                  (if s.view2D then shellRingMeshes2D else shellRingMeshes)
             )
 
         -- Discrete electrons orbiting on the rings; positions advance with frame.
-        -- Each sub-shell's electrons use that sub-shell's colour mesh (matching
-        -- its ring), zipping the per-sub-shell meshes with the grouped positions.
+        -- Each ring's electrons use that ring's colour mesh (matching its ring),
+        -- zipping the per-ring meshes with the grouped positions. The grouping +
+        -- mesh set switch on s.subshellView (sub-shell vs shell-collapsed) and the
+        -- flat/inclined position helper switches on s.view2D — so the electron
+        -- helper always matches the ring set (3D helper ↔ 3D rings, 2D ↔ flat).
         electronEntities :: State -> Array Entity
         electronEntities s =
           concat
@@ -362,9 +409,15 @@ main = do
                 ( \mesh group ->
                     map (\p -> { mesh: Solid mesh, modelMatrix: \_ -> M.translate p.x p.y p.z }) group
                 )
-                electronMeshes
-                ( if s.view2D then Atom.electronPositionsBySubshell2D (Atom.elementOf s.element) s.frame
-                  else Atom.electronPositionsBySubshell (Atom.elementOf s.element) s.frame
+                (if s.subshellView then electronMeshes else shellElectronMeshes)
+                ( if s.subshellView then
+                    ( if s.view2D then Atom.electronPositionsBySubshell2D (Atom.elementOf s.element) s.frame
+                      else Atom.electronPositionsBySubshell (Atom.elementOf s.element) s.frame
+                    )
+                  else
+                    ( if s.view2D then Atom.electronPositionsByShell2D (Atom.elementOf s.element) s.frame
+                      else Atom.electronPositionsByShell (Atom.elementOf s.element) s.frame
+                    )
                 )
             )
 
