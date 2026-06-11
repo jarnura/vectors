@@ -2,7 +2,7 @@
 
 A PureScript + WebGL2 3D graphics demo — a vertical-sliced
 **"learn matter" learning platform** (atoms → chemistry → properties of matter) —
-with four **scenes**, toggled by an on-screen switch (`nextScene` 4-cycles):
+with five **scenes**, toggled by an on-screen switch (`nextScene` 5-cycles):
 - **Cube POC** — a solid-lit main cube + orbiting satellite inside a world
   backdrop (green ground, wireframe grid, sky-blue horizon), with
   mouse/keyboard rotation and a **Shear** control.
@@ -65,6 +65,24 @@ with four **scenes**, toggled by an on-screen switch (`nextScene` 4-cycles):
   The controls live in a **left drawer**, opened by a `#panel-toggle` icon
   (top-left, below the scene title) that slides the glassy panel in from the
   left via anime.js on click and back out on a second click.
+- **Scale** — a **zoom-driven, ordered, extensible ladder of scale LAYERS**
+  ("powers of ten"), today two: a **Sub-atomic** layer (the default) rendering one
+  **focus atom** atomos-style — nucleus (`Atom.nucleons`) + per-shell orbital
+  rings + frame-animated electrons (focus element: **Hydrogen**) — and a higher
+  **Atomic** layer rendering the **focus molecule** as whole **atom-balls + bonds**
+  (one `Meshes.sphere` per atom, not nucleon clusters; molecule: **H₂**, the
+  `Molecule` registry's current entry). **Crossing a zoom threshold swaps the layer
+  AND resets the camera zoom to a mid value** (each layer with its own fresh 0.2–5.0
+  range): in Sub-atomic, zooming **out** past ≈0.3 switches up to Atomic (zoom
+  resets to 1.0); in Atomic, zooming **in** past ≈3.0 switches down to Sub-atomic;
+  at the top/bottom layer a further zoom just clamps (no switch). It **reuses the
+  existing `Input.zoomDelta` camera input** (mouse wheel + `#zoom-in`/`#zoom-out`
+  buttons → `Main.applyZoom`) — no new input channel; the crossing is a pure
+  function of accumulated zoom (`Layer.applyLayerZoom`) applied **scene-gated** in
+  the step right after `applyZoom`. A `#scale-layer` HTML overlay label (anime.js
+  **text only**, never WebGL) announces the active layer, shown only in this scene.
+  The ladder is **extensible** — a future Molecular/Nuclear layer is one
+  constructor + ladder entry. Other scenes are untouched.
 
 Each fundamental particle is a sphere. Perspective projection + canvas-resize
 throughout. **Zoom** works across all scenes — scroll out to pull the camera back
@@ -100,14 +118,15 @@ Module map (under `src/`):
 
 | Module | Files | Role |
 |--------|-------|------|
-| `Main` | `Main.purs` | Entry point; wires canvas, renderer, loop, input; builds per-scene `Entity` lists and selects on `State.scene`. `EntityMesh = Solid \| Wire` dispatch. Uses `Camera.projection` for the perspective projection; the draw loop re-projects when **zoom or size** changes (`applyZoom` folds wheel input via `Camera.applyZoomStep`). Molecule scene renders two nuclei + the shared electron pair model-driven; `#bond-btn` runs the anime.js bond animation (drawing atoms together via `State.bondProgress`); `updateOverlay` shows `#molecule-info` only in the molecule scene. Atomos render selects sub-shell vs shell-only ring geometry on `State.subshellView` × `State.view2D` (4 combos; both geometries built once at init); pure `applySubshellView` composed into step. Builder scene renders placed atoms + bonds (instanced/reused meshes built once at init, placed each frame from the shared `Ref`); `installBuilderPick` does a 3D pointer pick + drag (scene-gated to Builder so cube rotation is unaffected; builds `Camera.projection State.zoom` so pick/drag matches the zoomed view) → live valence-aware re-bonding; the pick latches a `whole` flag from the mouse click count (`event.detail < 2` ⇒ single-click ⇒ drag the **whole molecule** via `Builder.moveMolecule`; double-click ⇒ drag a **single atom** via `Builder.moveAtom`). When `State.valenceOnly`, the Builder render drops the core-electron group (Builder-only). Wires `Controls.installPanelToggle` for the left-drawer controls panel |
+| `Main` | `Main.purs` | Entry point; wires canvas, renderer, loop, input; builds per-scene `Entity` lists and selects on `State.scene`. `EntityMesh = Solid \| Wire` dispatch. Uses `Camera.projection` for the perspective projection; the draw loop re-projects when **zoom or size** changes (`applyZoom` folds wheel input via `Camera.applyZoomStep`). Molecule scene renders two nuclei + the shared electron pair model-driven; `#bond-btn` runs the anime.js bond animation (drawing atoms together via `State.bondProgress`); `updateOverlay` shows `#molecule-info` only in the molecule scene. Atomos render selects sub-shell vs shell-only ring geometry on `State.subshellView` × `State.view2D` (4 combos; both geometries built once at init); pure `applySubshellView` composed into step. Builder scene renders placed atoms + bonds (instanced/reused meshes built once at init, placed each frame from the shared `Ref`); `installBuilderPick` does a 3D pointer pick + drag (scene-gated to Builder so cube rotation is unaffected; builds `Camera.projection State.zoom` so pick/drag matches the zoomed view) → live valence-aware re-bonding; the pick latches a `whole` flag from the mouse click count (`event.detail < 2` ⇒ single-click ⇒ drag the **whole molecule** via `Builder.moveMolecule`; double-click ⇒ drag a **single atom** via `Builder.moveAtom`). When `State.valenceOnly`, the Builder render drops the core-electron group (Builder-only). Scale scene renders the active `State.layer` (Atomic ⇒ molecule atom-balls + bonds; Sub-atomic ⇒ focus-atom nucleus + rings + electrons; both meshes built once at init), with a pure scene-gated `applyLayer` (`Layer.applyLayerZoom`) composed right after `applyZoom`, and `updateOverlay` driving the `#scale-layer` overlay. Wires `Controls.installPanelToggle` for the left-drawer controls panel |
 | `Camera` | `Camera.purs` | Pure **camera** module (imports `Math.Matrix` only; no `Effect`/WebGL): single source of truth for the camera constants (`fov`, `cameraDistance`, `clipNear`, `clipFar`) + `minZoom`/`maxZoom` (0.2–5.0). `projection zoom w h` builds a zoom-aware perspective projection (effective camera distance = `cameraDistance/zoom`; byte-identical to the old projection at zoom 1.0); `clampZoom` clamps to range; `applyZoomStep` applies a multiplicative wheel step; `buttonZoomDelta` is the fixed synthetic wheel-delta magnitude the on-screen `#zoom-in`/`#zoom-out` buttons push through `applyZoomStep`. Replaces the old `Main.perspectiveProjection` |
 | `Graphics.GL` | `GL.purs` + `GL.js` | WebGL2 FFI: renderer, meshes, colors, clear color, draw calls |
 | `Math.Matrix` | `Math/Matrix.purs` | Matrix linear algebra (multiply, projection, `translate`, `scale`, `shear`, etc.) |
 | `Vector` | `Vector.purs` | Rotation matrices (`rotateX/Y/Z`) and vector ops |
 | `Meshes` | `Meshes.purs` | Geometry specs: cubes, world (`groundPlane`, `gridFloor`), `sphere` (particles/stars), `orbitRing` (thin per-sub-shell orbital ring line), and `orbitRingFlat` (flat XY-plane ring for the 2D Bohr view) |
 | `World` | `World.purs` | Static world-backdrop constants/transforms (`groundTransform`, `gridTransform`, `skyColor`) |
-| `Scene` | `Scene.purs` | `Scene = CubePoc \| Atomos \| Molecule \| Builder` (4 scenes), `nextScene` (4-cycles), `sceneTitle`, atomos `spaceColor` |
+| `Scene` | `Scene.purs` | `Scene = CubePoc \| Atomos \| Molecule \| Builder \| Scale` (5 scenes), `nextScene` (5-cycles), `sceneTitle` (`Scale = "scale"`), atomos `spaceColor` |
+| `Layer` | `Layer.purs` | Pure **scale-ladder** model for the Scale scene (no `Effect`/WebGL): `data ScaleLayer = SubAtomic \| Atomic` (ordered micro→macro), `allLayers`, `layerUp`/`layerDown :: ScaleLayer -> Maybe ScaleLayer`, `layerName`, threshold/reset constants (`zoomOutThreshold`/`zoomInThreshold`/`layerResetZoom`), and `applyLayerZoom :: ScaleLayer -> Number -> { layer, zoom }` (the crossing/reset rule: cross a threshold ⇒ step layer + reset zoom to mid; clamp at the ends). Extensible — a future layer is one constructor + ladder entry |
 | `Atom` | `Atom.purs` | Element table (Z=1..36, H…Kr) + Madelung sub-shell filling (`fillSubshells`/`subshellCap`/`configString`, per-shell totals via `electronShells`) + nucleon cluster + `electronPositions` (discrete electrons on per-sub-shell orbital rings, `subshellRadius`/`subshellInclination`; `electronPositionsBySubshell2D` gives flat XY-plane positions for the 2D Bohr view); `electronPositionsByShell` / `electronPositionsByShell2D` give shell-collapsed positions (all electrons on their principal shell ring, 3D + flat); `shellRings` returns occupied principal shell rings with radii; `clampElectron` exported for electron count clamping |
 | `Molecule` | `Molecule.purs` | Pure, open-ended molecule model: records `Bond {a,b,order,shared}` / `MolAtom {element,center}` / `Property {label,value}` / `Molecule {name,formula,atoms,bonds,properties}`; a `molecules` registry + total/clamp-safe `moleculeOf`; `bondLength`; `sharedElectronPositions` (the shared covalent pair in the internuclear overlap, frame-animated); `moleculeNucleons` (reuses `Atom.nucleons` per atom, translated). Imports `Atom` only |
 | `Chem` | `Chem.purs` | Pure, clamp-safe **valence table** `valence :: Int -> Int` for Z = 1..36 (H…Kr). Main-group elements use their common covalent valence; transition metals (Sc…Zn) use a documented flat default of 2. Used to cap bond formation in `Builder` |
@@ -116,11 +135,11 @@ Module map (under `src/`):
 | `Controls` | `Controls.purs` + `Controls.js` | DOM-only **anime.js** controls FFI (imports only animejs; never WebGL): `renderInfoPanel` (data-driven `#molecule-info` rows + anime.js stagger reveal), `installBondButton`, `runBondAnimation` (tweens a JS value → `State.bondProgress`), `animateControlBarIn` (glassy control-bar entrance animation), `installPanelToggle` (a `#panel-toggle` icon that slides the `#controls` panel in/out as a left drawer via anime.js; closed drawer is `pointer-events:none` + off-screen so it never blocks the canvas), `installButtonPulse` (click-pulse bounce on a button by id). Sibling to `Text` |
 | `Palette` | `Palette.purs` | Shell/sub-shell colours: `shellColor n` (distinct per shell) + `subshellColor n l` (shell hue, lighter by ℓ). Pure |
 | `Starfield` | `Starfield.purs` | Deterministic Fibonacci-sphere star positions for the atomos backdrop |
-| `Text` | `Text.purs` + `Text.js` | anime.js **HTML overlay-text** FFI (`scrambleInto`/`setVisible`) — DOM only, never WebGL. Drives the atomos element label, scene-title banner, and orbital-info (electron-configuration) overlay. (`Controls` is the sibling control FFI for the molecule scene.) |
+| `Text` | `Text.purs` + `Text.js` | anime.js **HTML overlay-text** FFI (`scrambleInto`/`setVisible`) — DOM only, never WebGL. Drives the atomos element label, scene-title banner, orbital-info (electron-configuration) overlay, and the Scale-scene `#scale-layer` active-layer label. (`Controls` is the sibling control FFI for the molecule scene.) |
 | `FRP.Loop` | `FRP/Loop.purs` + `FRP/Loop.js` | rAF loop + input plumbing (keyboard, mouse, shear button, scene toggle, element selector, `#view-2d` checkbox via `installView2DToggle`, the `#valence-only` checkbox via `installValenceOnlyToggle` → `Input.toggleValenceOnly`, the `#subshell-view` checkbox via `installSubshellViewToggle` → `Input.toggleSubshellView`, and a `bondProgress` channel via `installBondButton` → `Input`). Also a canvas-scoped **wheel FFI** (`installWheelListener`: `wheel` with `{passive:false}` + `preventDefault`, feeding `Input.zoomDelta`), the on-screen **zoom buttons FFI** (`installZoomButtons`: `#zoom-in`/`#zoom-out` click listeners that push ∓`Camera.buttonZoomDelta` into the same `Input.zoomDelta` channel as the wheel), a canvas **pointer FFI** (`installCanvasPointer`: mousedown/move/up — the mousedown callback also passes the native click count `event.detail` so `Main.installBuilderPick` can tell single-click [whole molecule] from double-click [single atom]) and `installAddButton`/`installClearButton` for the Builder `#add-btn`/`#clear-btn` |
 
 State is a plain record (`transform`, `speed`, `mouseLast`, `frame`, `scene`,
-`element`, `view2D`, `subshellView`, `valenceOnly`, `bondProgress`, `zoom`, `builder`) advanced each
+`element`, `view2D`, `subshellView`, `valenceOnly`, `bondProgress`, `zoom`, `layer`, `builder`) advanced each
 frame (the `Input` channel gained `toggle2D`, applied via `Main.applyToggle2D`,
 `toggleSubshellView`, applied via the pure `Main.applySubshellView` (`subshellView`
 initialises to `true`), `toggleValenceOnly`, applied via the pure `Main.applyValenceOnly` (`valenceOnly`
@@ -128,7 +147,9 @@ initialises to `false`), a `bondProgress`
 channel fed by the anime.js bond animation, and a `zoomDelta` channel fed by both the wheel
 FFI and the on-screen `#zoom-in`/`#zoom-out` buttons (`installZoomButtons`), applied via
 `Main.applyZoom` → `Camera.applyZoomStep`); updates return new records
-rather than mutating. `zoom` initialises to `1.0`. The `builder` field mirrors the shared `BuilderApi` `Ref` (the Builder
+rather than mutating. `zoom` initialises to `1.0`. `layer` (the Scale-scene active
+`ScaleLayer`) initialises to `SubAtomic`, advanced by the pure scene-gated
+`Main.applyLayer` (`Layer.applyLayerZoom`) composed right after `applyZoom`. The `builder` field mirrors the shared `BuilderApi` `Ref` (the Builder
 world model), refreshed into the rendered state each frame and on eager
 re-render. The world meshes, nucleus, and starfield use scene-/element-derived
 transforms; electrons and the shared molecule pair advance with `frame`. The
