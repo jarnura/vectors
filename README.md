@@ -28,8 +28,12 @@ four scenes, toggled by an on-screen switch:
   mouse. Atoms that come near each other **auto-bond, valence-aware** (H=1, C=4,
   N=3, O=2, … with break hysteresis); connected atoms form a **molecule** with a
   derived Unicode formula (e.g. `H₂O`). Each atom renders its **real per-element
-  nucleus** (Carbon/Oxygen denser/larger than Hydrogen); each bond shows a **shared
+  nucleus** (Carbon/Oxygen denser/larger than Hydrogen), sits at a **per-element
+  size** (normalised covalent radius — Hydrogen smallest), and shows its **atomic
+  symbol** (H, C, O, …) as an HTML overlay label; each bond shows a **shared
   electron pair**, and atoms carry only their **lone electrons** (valence-conserved).
+  The Builder background is **plain space — no starfield** (atomos and Molecule
+  keep theirs).
   An atom's **valence** electrons (outermost shell + the bonding pair) render in
   **amber**, vs its **core** inner-shell electrons in **blue**; a **"Valence only"
   toggle** hides the blue core electrons, leaving just the amber valence + bonds.
@@ -39,8 +43,9 @@ four scenes, toggled by an on-screen switch:
   collapses to a single element-coloured ball; zoom **in** and it blooms into its
   real nucleus + electrons. The in-between is a continuous, frame-eased cross-fade
   (even the +/− zoom buttons animate smoothly — no abrupt swap, no zoom reset),
-  reusing the existing camera zoom; bonds stay visible and "Valence only" still
-  applies.
+  reusing the existing camera zoom; bonds stay visible in both layers — drawn as
+  **connecting lines** between atom-balls when zoomed out and as the shared
+  electron pair when zoomed in — and "Valence only" still applies.
 
 ## Controls
 
