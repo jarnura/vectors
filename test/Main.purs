@@ -940,6 +940,73 @@ main = do
   check "molecules: a lone atom ⇒ its own singleton component" $
     length (B.molecules lone) == 1 && map length (B.molecules lone) == [ 1 ]
 
+  -- ───── Builder molecule-move: componentOf + moveMolecule (rigid) ─────
+  -- RED until Builder.purs adds the pure helpers `componentOf` (the connected
+  -- component containing an atom id, reusing the molecules/flood logic) and
+  -- `moveMolecule` (translate the WHOLE component of the anchor atom rigidly so
+  -- the anchor lands at the target — delta applied to every component atom —
+  -- then recomputeBonds). Single-click+drag uses moveMolecule (whole molecule);
+  -- double-click+drag keeps moveAtom (one atom).
+  log "builder molecule-move (componentOf + moveMolecule) properties:"
+  let
+    -- H₂O: O (id oId) bonded to two H ⇒ one 3-atom component.
+    h2oAtomIds = map _.id oWith2H.atoms
+    compOfO = B.componentOf oWith2H oId
+    loneId = fromMaybe (-1) (map _.id (index lone.atoms 0))
+
+    -- Move the whole H₂O molecule by dragging the O anchor to a new position.
+    oOldPos = fromMaybe { x: 0.0, y: 0.0, z: 0.0 } (map _.pos (B.atomById oWith2H oId))
+    target = { x: oOldPos.x + 500.0, y: oOldPos.y - 300.0, z: oOldPos.z + 120.0 }
+    dx = target.x - oOldPos.x
+    dy = target.y - oOldPos.y
+    dz = target.z - oOldPos.z
+    movedMol = B.moveMolecule oId target oWith2H
+
+    posById st aid = map _.pos (B.atomById st aid)
+    shiftedBy st0 st1 aid =
+      case posById st0 aid, posById st1 aid of
+        Just a, Just b ->
+          approxEq (b.x - a.x) dx && approxEq (b.y - a.y) dy && approxEq (b.z - a.z) dz
+        _, _ -> false
+
+  -- componentOf returns the full connected component (all 3 ids of H₂O).
+  check "componentOf: H₂O O-anchor ⇒ all 3 atom ids" $
+    length compOfO == 3 && all (\i -> any (_ == i) compOfO) h2oAtomIds
+  -- componentOf of a lone atom is just itself.
+  check "componentOf: lone atom ⇒ singleton [itself]" $
+    B.componentOf lone loneId == [ loneId ]
+  -- The anchor lands exactly at the target.
+  check "moveMolecule: anchor (O) lands at the target position" $
+    case posById movedMol oId of
+      Just p -> approxEq p.x target.x && approxEq p.y target.y && approxEq p.z target.z
+      Nothing -> false
+  -- EVERY atom in the component shifts by the SAME delta (rigid translation).
+  check "moveMolecule: every component atom shifts by the same delta" $
+    all (shiftedBy oWith2H movedMol) compOfO
+  -- The atom count is preserved and the internal bonds survive (rigid move ⇒
+  -- intra-component distances unchanged ⇒ same bond count).
+  check "moveMolecule: atom count unchanged" $
+    length movedMol.atoms == length oWith2H.atoms
+  check "moveMolecule: internal bonds preserved (same bond count)" $
+    length movedMol.bonds == length oWith2H.bonds
+  -- A singleton component: moveMolecule == moveAtom (same resulting position).
+  check "moveMolecule: singleton ⇒ same final pos as moveAtom" $
+    let
+      mm = B.moveMolecule loneId { x: 700.0, y: 0.0, z: 0.0 } lone
+      ma = B.moveAtom loneId { x: 700.0, y: 0.0, z: 0.0 } lone
+    in
+      posById mm loneId == posById ma loneId
+  -- moveAtom still moves ONLY the named atom (the other H₂O atoms stay put).
+  check "moveAtom: moving O leaves the two H positions unchanged" $
+    let
+      movedO = B.moveAtom oId target oWith2H
+      others = filter (_ /= oId) compOfO
+      unchanged aid = posById movedO aid == posById oWith2H aid
+    in
+      all unchanged others
+
+  log "all builder molecule-move properties hold."
+
   -- ───── Builder lone/bonding electrons (electron conservation) ────────
   -- RED until Builder.purs adds the pure helpers degreeOf/loneCountOf and the
   -- frame-animated bondElectronPositions/loneElectronPositions. The key

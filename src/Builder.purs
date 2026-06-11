@@ -12,6 +12,9 @@ module Builder
   , emptyBuilder
   , addAtom
   , moveAtom
+  , moveMolecule
+  , componentOf
+  , atomById
   , clear
   , bondThreshold
   , breakThreshold
@@ -34,7 +37,7 @@ import Prelude
 
 import Atom (V3, electronShells, elementOf, nucleonRadius, nucleusRadius)
 import Chem (valence)
-import Data.Array (any, concat, concatMap, filter, foldl, index, last, length, mapWithIndex, nub, range, snoc, sortBy, sortWith, uncons, (!!))
+import Data.Array (any, concat, concatMap, filter, find, foldl, index, last, length, mapWithIndex, nub, range, snoc, sortBy, sortWith, uncons, (!!))
 import Data.Foldable (elem)
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -87,6 +90,36 @@ moveAtom aid pos st =
   recomputeBonds
     st
       { atoms = map (\a -> if a.id == aid then a { pos = pos } else a) st.atoms }
+
+-- The connected component (molecule) containing `aid`, as the sorted atom ids —
+-- reusing the SAME connected-component flood `molecules` uses, so there is one
+-- definition of "molecule". A lone atom is its own singleton; an absent id is
+-- the empty array.
+componentOf :: BuilderState -> Int -> Array Int
+componentOf st aid = fromMaybe [] (find (\comp -> elem aid comp) (molecules st))
+
+-- Move the WHOLE molecule of the anchor atom `aid` rigidly so the anchor lands
+-- at `pos`: the SAME delta (pos − anchor.pos) is applied to every atom in the
+-- anchor's connected component, preserving relative geometry (and therefore the
+-- internal bonds), then bonds are recomputed. An absent anchor is identity. A
+-- lone/singleton atom reduces to `moveAtom`. Single-click+drag uses this; a
+-- double-click+drag uses `moveAtom` to move just the one atom.
+moveMolecule :: Int -> V3 -> BuilderState -> BuilderState
+moveMolecule aid pos st =
+  case atomById st aid of
+    Nothing -> st
+    Just anchor ->
+      let
+        comp = componentOf st aid
+        dx = pos.x - anchor.pos.x
+        dy = pos.y - anchor.pos.y
+        dz = pos.z - anchor.pos.z
+        shift a =
+          if elem a.id comp then
+            a { pos = { x: a.pos.x + dx, y: a.pos.y + dy, z: a.pos.z + dz } }
+          else a
+      in
+        recomputeBonds (st { atoms = map shift st.atoms })
 
 -- Reset to the empty world.
 clear :: BuilderState -> BuilderState
