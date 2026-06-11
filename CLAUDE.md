@@ -79,6 +79,7 @@ in, − zooms out.
 | `npm test` | `spago test` → runs `Test.Main` |
 | `npm run dev` | bundle, then `node dev-server.js` (static server on `0.0.0.0:47474`) |
 | `npm run e2e` | Playwright canvas-verification E2E suite (boots the dev server) |
+| `npm run docker:build` / `npm run docker:run` | Build + run the static site as a local Docker container (multi-stage glibc-Node builder → nginx:alpine runtime, on `localhost:8080`) |
 
 Toolchain: spago + purs 0.15.16 + esbuild, driven via npm. PureScript deps are
 declared in `spago.yaml`; npm holds the dev toolchain, Playwright, and

@@ -86,6 +86,20 @@ scene is an `Entity` list; each entity carries either a `Solid` or `Wire` mesh
 and a `State -> Matrix` model transform (the world meshes use constant
 transforms). See [`CLAUDE.md`](./CLAUDE.md) for the full module map.
 
+## Run with Docker (local)
+
+Build and run the static site as a local container (multi-stage build: a glibc
+Node builder runs `spago bundle`, then a tiny nginx image serves `index.html` +
+`dist/`):
+
+```bash
+npm run docker:build   # docker build -t vectors:local .
+npm run docker:run     # docker run --rm -p 8080:80 vectors:local
+```
+
+Then open http://localhost:8080. This is a local container only — distinct from
+the GitHub Pages deploy below.
+
 ## Deploy
 
 Pushing to `master` builds and deploys to GitHub Pages
