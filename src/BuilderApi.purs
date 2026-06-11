@@ -15,7 +15,7 @@ module BuilderApi
 
 import Prelude
 
-import Builder (BuilderState, addAtom, bondThreshold, clear, emptyBuilder, formulaOf, molecules, moveAtom)
+import Builder (BuilderState, addAtom, bondThreshold, clear, emptyBuilder, formulaOf, molecules, moveAtom, moveMolecule)
 import Data.Array (length)
 import Data.Int (toNumber)
 import Effect (Effect)
@@ -29,15 +29,21 @@ type JsBond = { a :: Int, b :: Int }
 -- atom ids and the Unicode formula, so the E2E can adapt to either shape.
 type JsMolecule = { ids :: Array Int, formula :: String }
 
+-- One placed atom rendered as a plain JS object the test reads as an array
+-- element: its id, atomic number, and {x,y,z} model position.
+type JsAtom = { id :: Int, z :: Int, pos :: { x :: Number, y :: Number, z :: Number } }
+
 -- The bridge handed to the FFI: synchronous mutators + readers over a shared
 -- builder Ref. addAtom/moveAtom/clear mutate the Ref in place (immutably
 -- replacing the held record); getBonds/getMolecules read the current snapshot.
 type Bridge =
   { addAtom :: Int -> Number -> Number -> Number -> Effect Unit
   , moveAtom :: Int -> Number -> Number -> Number -> Effect Unit
+  , moveMolecule :: Int -> Number -> Number -> Number -> Effect Unit
   , clear :: Effect Unit
   , getBonds :: Effect (Array JsBond)
   , getMolecules :: Effect (Array JsMolecule)
+  , getAtoms :: Effect (Array JsAtom)
   }
 
 -- Installs `window.__builder` and returns the shared Ref so the render loop can
@@ -62,6 +68,8 @@ installBuilderApi onChange = do
           mutate (addAtom z { x, y, z: z3 })
       , moveAtom: \aid x y z3 ->
           mutate (moveAtom aid { x, y, z: z3 })
+      , moveMolecule: \aid x y z3 ->
+          mutate (moveMolecule aid { x, y, z: z3 })
       , clear:
           mutate clear
       , getBonds: do
@@ -74,6 +82,9 @@ installBuilderApi onChange = do
                 (\comp -> { ids: comp, formula: formulaOf st comp })
                 (molecules st)
             )
+      , getAtoms: do
+          st <- Ref.read ref
+          pure (map (\a -> { id: a.id, z: a.z, pos: a.pos }) st.atoms)
       }
   installWindowBuilder bridge
   pure ref

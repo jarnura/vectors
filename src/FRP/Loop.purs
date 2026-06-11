@@ -90,10 +90,13 @@ foreign import installClearButton
 -- Wires pointer (mouse) down/move/up listeners over the canvas element
 -- (#canvas). Each callback receives canvas-LOCAL coordinates in backing-store
 -- pixels (the event clientX/Y minus the canvas bounding rect, scaled by the
--- canvas backing width/height vs its CSS size). DOM-only input plumbing — reads
--- canvas geometry but never touches WebGL.
+-- canvas backing width/height vs its CSS size). The down callback also receives
+-- the native mouse click count (event.detail) — 1 for a single click, ≥2 for the
+-- 2nd mousedown of a double-click — so callers can distinguish single- vs
+-- double-click drags. DOM-only input plumbing — reads canvas geometry but never
+-- touches WebGL.
 foreign import installCanvasPointer
-  :: (Number -> Number -> Effect Unit)
+  :: (Number -> Number -> Int -> Effect Unit)
   -> (Number -> Number -> Effect Unit)
   -> Effect Unit
   -> Effect Unit

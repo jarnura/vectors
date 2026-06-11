@@ -86,7 +86,7 @@ export const installCanvasPointer = (down) => (move) => (up) => () => {
   };
   canvas.addEventListener("mousedown", (e) => {
     const p = toLocal(e);
-    down(p.x)(p.y)();
+    down(p.x)(p.y)(e.detail)();
   });
   // Listen on window for move/up so a drag that strays off the canvas still
   // tracks (standard drag behaviour).

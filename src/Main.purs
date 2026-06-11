@@ -723,7 +723,7 @@ installBuilderPick
   -> Effect State
   -> Effect Unit
 installBuilderPick canvas builderRef eagerRender readState = do
-  pickRef <- Ref.new (Nothing :: Maybe { id :: Int, depth :: Number })
+  pickRef <- Ref.new (Nothing :: Maybe { id :: Int, depth :: Number, whole :: Boolean })
   let
     -- Current full projection + canvas dims (live size) at the live camera zoom,
     -- so pick/unproject use the SAME matrix the renderer drew with.
@@ -732,7 +732,7 @@ installBuilderPick canvas builderRef eagerRender readState = do
       h <- getCanvasHeight canvas
       pure { proj: Camera.projection zoom w h, canvas: { w, h } }
 
-    onDown px py = do
+    onDown px py detail = do
       s <- readState
       when (s.scene == Builder) do
         pc <- projAndCanvas s.zoom
@@ -754,7 +754,7 @@ installBuilderPick canvas builderRef eagerRender readState = do
           nearest = minimumBy (comparing _.dist) candidates
         case nearest of
           Just c | c.dist <= pickRadius ->
-            Ref.write (Just { id: c.id, depth: (builderWorldPos c.pos).z }) pickRef
+            Ref.write (Just { id: c.id, depth: (builderWorldPos c.pos).z, whole: detail < 2 }) pickRef
           _ -> pure unit
 
     onMove px py = do
@@ -776,7 +776,7 @@ installBuilderPick canvas builderRef eagerRender readState = do
                 , y: world.y / builderScale
                 , z: world.z / builderScale
                 }
-            Ref.modify_ (Builder.moveAtom pick.id modelPos) builderRef
+            Ref.modify_ (if pick.whole then Builder.moveMolecule pick.id modelPos else Builder.moveAtom pick.id modelPos) builderRef
             bs <- Ref.read builderRef
             eagerRender bs
 
