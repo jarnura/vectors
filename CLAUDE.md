@@ -159,6 +159,15 @@ longer wired. Buttons keep their click pulses.
   `npm test` on every PR and on push to `master` (and `workflow_dispatch`).
 - `.github/workflows/jekyll-gh-pages.yml` — deploys to GitHub Pages on push to
   `master`.
+- **Local Docker** (separate from the Pages deploy) — a root multi-stage
+  `Dockerfile` builds the bundle in a **glibc Node builder** (`node:22-bookworm-slim`;
+  installs `git` + `ca-certificates`, runs `npm ci` then `npm run build` =
+  `spago bundle`) and serves the static output (`index.html` + `dist/`) from a tiny
+  `nginx:1.27-alpine` runtime. `.dockerignore` trims the build context (keeping
+  `package*.json`, `spago.yaml`, `spago.lock`, `src/`, `index.html`).
+  `npm run docker:build` then `npm run docker:run` → `http://localhost:8080`.
+  The builder **must** stay glibc — the `purescript` npm package ships a prebuilt
+  glibc `purs` binary that won't run on Alpine/musl.
 
 ## Memory (Hindsight)
 
