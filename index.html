@@ -141,6 +141,22 @@
         text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
         display: none;
       }
+      #scale-layer {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 1;
+        margin-top: 24px;
+        text-align: center;
+        font-family: sans-serif;
+        font-size: 40px;
+        font-weight: 700;
+        letter-spacing: 2px;
+        color: #9ec5ff;
+        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+        display: none;
+      }
       #orbital-info {
         position: absolute;
         bottom: 16px;
@@ -191,6 +207,7 @@
     <div id="scene-title">Cube POC</div>
     <button id="panel-toggle" type="button" aria-label="Toggle controls">☰</button>
     <div id="atom-label">Carbon</div>
+    <div id="scale-layer">Sub-atomic layer</div>
     <div id="orbital-info">1s2 2s2 2p2</div>
     <div id="molecule-info"></div>
     <div id="controls">
