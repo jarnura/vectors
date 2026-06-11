@@ -24,9 +24,12 @@ module Builder
   , loneCountOf
   , valenceShellOf
   , bondElectronPositions
+  , bondElectronGroups
   , loneElectronPositions
   , coreLoneElectronPositions
   , valenceLoneElectronPositions
+  , coreLoneElectronGroups
+  , valenceLoneElectronGroups
   , molecules
   , formulaOf
   , projectToScreen
@@ -240,6 +243,19 @@ bondElectronPositions st frame = concatMap bondPair st.bonds
   where
   bondPair bd =
     case atomById st bd.a, atomById st bd.b of
+      Just a, Just b -> bondPairAt a b frame
+      _, _ -> []
+
+-- The bloom centre + the two shared electrons of each resolvable bond (the bond
+-- MIDPOINT and its mirrored pair). Used by the renderer's LOD cross-fade so a
+-- bond's shared pair blooms out of the bond midpoint as detail rises. Same data
+-- as `bondElectronPositions`, grouped by bond with its midpoint as the centre.
+bondElectronGroups
+  :: BuilderState -> Number -> Array { center :: V3, positions :: Array V3 }
+bondElectronGroups st frame = foldl collect [] st.bonds
+  where
+  collect acc bd =
+    case atomById st bd.a, atomById st bd.b of
       Just a, Just b ->
         let
           mid =
@@ -247,20 +263,46 @@ bondElectronPositions st frame = concatMap bondPair st.bonds
             , y: (a.pos.y + b.pos.y) / 2.0
             , z: (a.pos.z + b.pos.z) / 2.0
             }
-          -- Half the separation, used to bound the offset within the bond.
-          span = distance a.pos b.pos / 2.0
-          speed = 0.03
-          phase = frame * speed
-          -- A single offset vector; the two electrons sit at mid ± offset so their
-          -- mean is exactly the midpoint regardless of frame.
-          dx = 0.25 * span * cos phase
-          dy = electronCloud * sin phase
-          dz = electronCloud * cos phase
         in
-          [ { x: mid.x + dx, y: mid.y + dy, z: mid.z + dz }
-          , { x: mid.x - dx, y: mid.y - dy, z: mid.z - dz }
-          ]
-      _, _ -> []
+          snoc acc { center: mid, positions: bondPairAt a b frame }
+      _, _ -> acc
+
+-- The shared electron pair for the resolved bond endpoints `a`/`b` at `frame`
+-- (mirrored about their midpoint). Extracted so both `bondElectronPositions` and
+-- `bondElectronGroups` share one definition.
+bondPairAt :: PlacedAtom -> PlacedAtom -> Number -> Array V3
+bondPairAt a b frame =
+  let
+    mid =
+      { x: (a.pos.x + b.pos.x) / 2.0
+      , y: (a.pos.y + b.pos.y) / 2.0
+      , z: (a.pos.z + b.pos.z) / 2.0
+      }
+    span = distance a.pos b.pos / 2.0
+    speed = 0.03
+    phase = frame * speed
+    dx = 0.25 * span * cos phase
+    dy = electronCloud * sin phase
+    dz = electronCloud * cos phase
+  in
+    [ { x: mid.x + dx, y: mid.y + dy, z: mid.z + dz }
+    , { x: mid.x - dx, y: mid.y - dy, z: mid.z - dz }
+    ]
+
+-- Per-atom CORE lone electrons grouped with the bloom centre (the atom centre):
+-- the same data as `coreLoneElectronPositions`, kept per atom so the renderer can
+-- bloom each atom's core electrons out of that atom's centre under the LOD fade.
+coreLoneElectronGroups
+  :: BuilderState -> Number -> Array { center :: V3, positions :: Array V3 }
+coreLoneElectronGroups st frame =
+  map (\a -> { center: a.pos, positions: atomCorePositions st a frame }) st.atoms
+
+-- Per-atom VALENCE lone electrons grouped with the bloom centre (the atom
+-- centre): the per-atom companion to `valenceLoneElectronPositions`.
+valenceLoneElectronGroups
+  :: BuilderState -> Number -> Array { center :: V3, positions :: Array V3 }
+valenceLoneElectronGroups st frame =
+  map (\a -> { center: a.pos, positions: atomValencePositions st a frame }) st.atoms
 
 -- Lone electron positions: `loneCountOf` electrons per atom, orbiting on a ring
 -- clearly OUTSIDE the nucleus cluster (radius `loneOrbitRadius`) around the atom
@@ -289,13 +331,17 @@ valenceShellOf z = fromMaybe 0 (last (electronShells z))
 -- fillShells placement. Length = Σ (z − valenceShellOf z) over atoms.
 -- Deterministic for a fixed frame. Pure, total. Model-space.
 coreLoneElectronPositions :: BuilderState -> Number -> Array V3
-coreLoneElectronPositions st frame = concatMap atomCore st.atoms
-  where
-  atomCore a =
-    let
-      coreCount = a.z - valenceShellOf a.z
-    in
-      concat (mapWithIndex (\i count -> shellRing a frame i count) (fillShells coreCount))
+coreLoneElectronPositions st frame =
+  concatMap (\a -> atomCorePositions st a frame) st.atoms
+
+-- CORE lone electron positions for a single atom (the inner always-lone shells).
+-- Shared by `coreLoneElectronPositions` (flat) and `coreLoneElectronGroups`.
+atomCorePositions :: BuilderState -> PlacedAtom -> Number -> Array V3
+atomCorePositions _ a frame =
+  let
+    coreCount = a.z - valenceShellOf a.z
+  in
+    concat (mapWithIndex (\i count -> shellRing a frame i count) (fillShells coreCount))
 
 -- VALENCE lone electrons: the outermost shell's non-bonding electrons. Per atom,
 -- valenceLone = max 0 (valenceShellOf z − degree) electrons sit on the VALENCE
@@ -304,15 +350,20 @@ coreLoneElectronPositions st frame = concatMap atomCore st.atoms
 -- Σ max 0 (valenceShellOf z − degree). Deterministic for a fixed frame. Pure,
 -- total. Model-space.
 valenceLoneElectronPositions :: BuilderState -> Number -> Array V3
-valenceLoneElectronPositions st frame = concatMap atomValence st.atoms
-  where
-  atomValence a =
-    let
-      valenceCount = valenceShellOf a.z
-      valenceLone = max 0 (valenceCount - degreeOf st a.id)
-      numInner = max 0 (length (electronShells a.z) - 1)
-    in
-      shellRing a frame numInner valenceLone
+valenceLoneElectronPositions st frame =
+  concatMap (\a -> atomValencePositions st a frame) st.atoms
+
+-- VALENCE lone electron positions for a single atom (its outermost-shell
+-- non-bonding electrons). Shared by `valenceLoneElectronPositions` (flat) and
+-- `valenceLoneElectronGroups`.
+atomValencePositions :: BuilderState -> PlacedAtom -> Number -> Array V3
+atomValencePositions st a frame =
+  let
+    valenceCount = valenceShellOf a.z
+    valenceLone = max 0 (valenceCount - degreeOf st a.id)
+    numInner = max 0 (length (electronShells a.z) - 1)
+  in
+    shellRing a frame numInner valenceLone
 
 -- Shared ring-placement helper: `count` electrons evenly spaced on the ring at
 -- shell index `idx` around atom `a`'s centre, frame-rotated. Radius grows with

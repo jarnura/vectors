@@ -9,6 +9,7 @@ module FRP.Loop
   , installZoomButtons
   , installValenceOnlyToggle
   , installSubshellViewToggle
+  , setBuilderDetail
   ) where
 
 import Prelude
@@ -113,6 +114,11 @@ foreign import installWheelListener
 -- channel as the mouse wheel. DOM-only input plumbing — never touches WebGL.
 foreign import installZoomButtons
   :: Number -> (Number -> Effect Unit) -> Effect Unit
+
+-- Publish the live eased Builder detail level to the `window.__builderDetail`
+-- debug global (a number in [0,1]) for deterministic E2E observation. Called
+-- every frame from the draw loop. DOM-only — never touches WebGL.
+foreign import setBuilderDetail :: Number -> Effect Unit
 
 foreign import requestAnimationFrame
   :: Effect Unit -> Effect Unit

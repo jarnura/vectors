@@ -16,7 +16,7 @@ import Data.Traversable (traverse)
 import Effect (Effect)
 import Effect.Console (log)
 import Effect.Ref as Ref
-import FRP.Loop (Input, installCanvasPointer, runLoop)
+import FRP.Loop (Input, installCanvasPointer, runLoop, setBuilderDetail)
 import Graphics.Canvas
   ( CanvasElement
   , getCanvasElementById
@@ -33,6 +33,7 @@ import Builder as Builder
 import BuilderApi (installBuilderApi, installBuilderControls)
 import Camera as Camera
 import Controls as Controls
+import Layer as Layer
 import Meshes as Meshes
 import Molecule as Molecule
 import Palette (shellColor, subshellColor)
@@ -54,6 +55,7 @@ type State =
   , subshellView :: Boolean
   , bondProgress :: Number
   , zoom :: Number
+  , detail :: Number
   , builder :: Builder.BuilderState
   }
 
@@ -107,6 +109,10 @@ initialState =
   -- 1.0 = the unchanged default camera distance (no zoom). Mouse-wheel events
   -- multiply this in/out, clamped to Camera.min/maxZoom.
   , zoom: 1.0
+  -- 1.0 = full sub-atomic detail (Builder default zoom 1.0 → smoothstep == 1.0).
+  -- Eased toward Layer.layerBlend s.zoom each frame so zoom changes cross-fade
+  -- the Builder atoms smoothly between balls (0) and full detail (1).
+  , detail: 1.0
   , builder: Builder.emptyBuilder
   }
 
@@ -122,9 +128,17 @@ step input =
     >>> applyKey input.lastKey
     >>> applyMouse input.mouse
     >>> applyZoom input.zoomDelta
+    >>> applyDetail
     >>> tickFrame
   where
   tickFrame s = s { frame = s.frame + 1.0 }
+
+-- Ease the Builder level-of-detail one frame toward the smoothstep of the live
+-- zoom (Layer.layerBlend). Run EVERY frame (right after applyZoom) so even
+-- discrete #zoom-in/#zoom-out steps cross-fade smoothly rather than snapping.
+-- Other scenes ignore s.detail when rendering, so easing always is harmless.
+applyDetail :: State -> State
+applyDetail s = s { detail = Layer.easeDetail s.detail (Layer.layerBlend s.zoom) }
 
 -- Apply one mouse-wheel step to the camera zoom (clamped inside applyZoomStep).
 applyZoom :: Maybe Number -> State -> State
@@ -351,6 +365,11 @@ main = do
       -- electrons clearly orbiting outside it.
       builderProtonMesh <- GL.createSolidMesh renderer builderProtonSphere
       builderNeutronMesh <- GL.createSolidMesh renderer builderNeutronSphere
+      -- Builder LOD atom-BALL mesh: a single solid sphere reused for every placed
+      -- atom in the zoomed-OUT layer. Created ONCE; only its model matrix varies
+      -- per atom/frame (scaled by 1−detail about each atom centre), so the ball is
+      -- full size when zoomed out and vanishes as the sub-atomic detail blooms in.
+      builderBallMesh <- GL.createSolidMesh renderer builderBallSphere
       let
         cubeEntities :: Array Entity
         cubeEntities =
@@ -469,9 +488,11 @@ main = do
                       -- The nucleon OFFSET is compressed (builderNucleusCompress) so
                       -- the nucleus stays a small tight clump around the scaled atom
                       -- centre, while the atom centres + electron orbits keep the full
-                      -- builderScale spacing.
-                      , modelMatrix: \_ ->
-                          builderPlace
+                      -- builderScale spacing. The whole nucleus BLOOMS out of the atom
+                      -- centre with detail (d): at d→0 each nucleon collapses into the
+                      -- centre (and shrinks to ~0), at d→1 it reaches its full offset.
+                      , modelMatrix: \st ->
+                          builderDetailPlace st.detail a.pos
                             { x: a.pos.x + n.pos.x * builderNucleusCompress
                             , y: a.pos.y + n.pos.y * builderNucleusCompress
                             , z: a.pos.z + n.pos.z * builderNucleusCompress
@@ -482,45 +503,44 @@ main = do
             )
             s.builder.atoms
 
+        -- Zoomed-OUT atom-BALL layer: one slate ball per placed atom at its
+        -- centre, scaled by (1 − detail) so it is full size when zoomed out
+        -- (detail→0) and vanishes as the sub-atomic detail blooms in (detail→1).
+        -- The cross-fade complement of builderAtomEntities / the electron groups.
+        builderAtomBallEntities :: State -> Array Entity
+        builderAtomBallEntities s =
+          map
+            ( \a ->
+                { mesh: Solid builderBallMesh
+                , modelMatrix: \st -> builderBallPlace st.detail a.pos
+                }
+            )
+            s.builder.atoms
+
         -- CORE (inner-shell) lone electrons: one blue sphere per core lone
         -- electron, on the inner ring around each atom's centre
         -- (Builder.coreLoneElectronPositions). Reuses the single blue
         -- molElectronMesh — core electrons keep the existing colour.
         builderLoneElectronEntities :: State -> Array Entity
         builderLoneElectronEntities s =
-          map
-            ( \p ->
-                { mesh: Solid molElectronMesh
-                , modelMatrix: \_ -> builderPlace p
-                }
-            )
-            (Builder.coreLoneElectronPositions s.builder s.frame)
+          builderElectronGroupEntities molElectronMesh
+            (Builder.coreLoneElectronGroups s.builder s.frame)
 
         -- VALENCE (outermost-shell) lone electrons: one amber sphere per valence
         -- lone electron, on the outer ring (Builder.valenceLoneElectronPositions).
         -- Uses the distinct builderValenceElectronMesh (amber/gold).
         builderValenceElectronEntities :: State -> Array Entity
         builderValenceElectronEntities s =
-          map
-            ( \p ->
-                { mesh: Solid builderValenceElectronMesh
-                , modelMatrix: \_ -> builderPlace p
-                }
-            )
-            (Builder.valenceLoneElectronPositions s.builder s.frame)
+          builderElectronGroupEntities builderValenceElectronMesh
+            (Builder.valenceLoneElectronGroups s.builder s.frame)
 
         -- Shared (bonding) electrons: the pair sitting BETWEEN each bond's two
         -- nuclei (Builder.bondElectronPositions), breathing with the frame.
         -- Bonding electrons ARE valence electrons → reuses the amber valence mesh.
         builderBondElectronEntities :: State -> Array Entity
         builderBondElectronEntities s =
-          map
-            ( \p ->
-                { mesh: Solid builderValenceElectronMesh
-                , modelMatrix: \_ -> builderPlace p
-                }
-            )
-            (Builder.bondElectronPositions s.builder s.frame)
+          builderElectronGroupEntities builderValenceElectronMesh
+            (Builder.bondElectronGroups s.builder s.frame)
 
         entitiesFor :: State -> Array Entity
         entitiesFor s = case s.scene of
@@ -529,6 +549,7 @@ main = do
           Molecule -> starEntities <> moleculeNucleusEntities s <> moleculeElectronEntities s
           Builder ->
             starEntities
+              <> builderAtomBallEntities s
               <> builderAtomEntities s
               <> (if s.valenceOnly then [] else builderLoneElectronEntities s)
               <> builderValenceElectronEntities s
@@ -594,6 +615,9 @@ main = do
             bs <- Ref.read builderRef
             let s = s0 { builder = bs }
             Ref.write s lastStateRef
+            -- Publish the live eased Builder detail to window.__builderDetail every
+            -- frame (deterministic E2E hook for the LOD cross-fade).
+            setBuilderDetail s.detail
             updateOverlay overlayRef s
             w <- getCanvasWidth canvas
             h <- getCanvasHeight canvas
@@ -630,6 +654,19 @@ builderProtonSphere = (Meshes.sphere 12 12 builderNucleonRadius) { color = { r: 
 
 builderNeutronSphere :: Meshes.SolidSpec
 builderNeutronSphere = (Meshes.sphere 12 12 builderNucleonRadius) { color = { r: 0.62, g: 0.64, b: 0.67, a: 1.0 } }
+
+-- Builder LOD atom-ball radius: roughly the nucleus extent so the collapsed
+-- ball reads as a solid atom at the same on-screen footprint as the detailed
+-- nucleus cluster it replaces.
+builderBallRadius :: Number
+builderBallRadius = Atom.nucleusRadius * 0.9
+
+-- The Builder atom-ball sphere: a single solid sphere reused for every placed
+-- atom in the zoomed-out layer. A muted slate so it reads as a neutral atom and
+-- is clearly distinct from the red proton / grey neutron / amber valence dots.
+builderBallSphere :: Meshes.SolidSpec
+builderBallSphere =
+  (Meshes.sphere 18 18 builderBallRadius) { color = { r: 0.62, g: 0.70, b: 0.82, a: 1.0 } }
 
 -- A discrete electron sphere in the given (sub-shell) colour, instanced at every
 -- electron position on that sub-shell's ring.
@@ -697,11 +734,59 @@ builderPlace :: Atom.V3 -> Matrix Number
 builderPlace p =
   M.translate (p.x * builderScale) (p.y * builderScale) (p.z * builderScale)
 
+-- Lower floor for the per-particle detail scale, so a sub-atomic sphere never
+-- collapses to a zero-scale (degenerate) model matrix at detail 0.
+builderDetailFloor :: Number
+builderDetailFloor = 0.001
+
+-- LOD model matrix for a sub-atomic particle (nucleon/electron) that blooms OUT
+-- of its atom centre as detail (d) rises: its position interpolates from the
+-- atom centre (d=0) to its full position (d=1), and its sphere shrinks by d (with
+-- a small floor). Both centre & full are MODEL-space; builderPlace scales them.
+builderDetailPlace :: Number -> Atom.V3 -> Atom.V3 -> Matrix Number
+builderDetailPlace d center full =
+  let
+    lerp c f = c + (f - c) * d
+    pos = { x: lerp center.x full.x, y: lerp center.y full.y, z: lerp center.z full.z }
+    s = max builderDetailFloor d
+  in
+    M.multiply (builderPlace pos) (M.scale s s s)
+
+-- LOD model matrix for the zoomed-OUT atom ball: full size at detail 0, shrinking
+-- to nothing as detail (d) rises to 1, scaled about the (scaled) atom centre.
+builderBallPlace :: Number -> Atom.V3 -> Matrix Number
+builderBallPlace d center =
+  let
+    s = max builderDetailFloor (1.0 - d)
+  in
+    M.multiply (builderPlace center) (M.scale s s s)
+
 -- The world-space point the renderer projects for a builder atom: its model-pos
 -- scaled about the origin by builderScale (matching builderPlace's translation).
 builderWorldPos :: Atom.V3 -> Atom.V3
 builderWorldPos p =
   { x: p.x * builderScale, y: p.y * builderScale, z: p.z * builderScale }
+
+-- Build the LOD electron entities for a set of bloom GROUPS (each a bloom centre
+-- + the electron positions that bloom out of it). Every electron's model matrix
+-- interpolates from its group centre (detail 0) to its full position (detail 1)
+-- and shrinks with detail, via builderDetailPlace — so the electrons collapse
+-- into the atom centre / bond midpoint as the atom-ball takes over. Reused by the
+-- core (blue), valence (amber) and bond (amber) electron entity builders.
+builderElectronGroupEntities
+  :: SolidMesh -> Array { center :: Atom.V3, positions :: Array Atom.V3 } -> Array Entity
+builderElectronGroupEntities mesh groups =
+  concatMap
+    ( \g ->
+        map
+          ( \p ->
+              { mesh: Solid mesh
+              , modelMatrix: \st -> builderDetailPlace st.detail g.center p
+              }
+          )
+          g.positions
+    )
+    groups
 
 -- Pixel radius within which a pointer-down counts as picking an atom. Generous
 -- enough to grab the centre atom under a real mouse drag.

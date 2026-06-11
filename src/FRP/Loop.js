@@ -124,6 +124,11 @@ export const installZoomButtons = (delta) => (cb) => () => {
   if (zout) zout.addEventListener("click", () => cb(delta)());
 };
 
+// Publish the live eased Builder detail level for deterministic E2E observation.
+export const setBuilderDetail = (d) => () => {
+  window.__builderDetail = d;
+};
+
 export const requestAnimationFrame = (effect) => () => {
   window.requestAnimationFrame(() => effect());
 };
