@@ -1567,6 +1567,78 @@ main = do
 
   log "all continuous LOD properties hold."
 
+  -- ───── Builder atom visuals: atomicRadius / symbolOf / bondSegments ──
+  -- RED: these three pure helpers do NOT exist yet.
+  --   * Atom.atomicRadius :: Int -> Number — per-element relative atom size,
+  --     positive and element-varying (Hydrogen smallest), clamp-safe (Z<1→1,
+  --     Z>36→36).
+  --   * Atom.symbolOf :: Int -> String — clamp-safe element symbol lookup.
+  --   * Builder.bondSegments :: BuilderState -> Array { a :: V3, b :: V3 } —
+  --     one segment per bond, endpoints being the two bonded atom centres.
+  -- They fail to compile (unknown value / not exported) until implemented.
+  log "Builder atom visuals (atomicRadius / symbolOf / bondSegments) properties:"
+
+  -- atomicRadius: positive for several Z.
+  check "atomicRadius 1 > 0" $ Atom.atomicRadius 1 > 0.0
+  check "atomicRadius 6 > 0" $ Atom.atomicRadius 6 > 0.0
+  check "atomicRadius 8 > 0" $ Atom.atomicRadius 8 > 0.0
+  check "atomicRadius 36 > 0" $ Atom.atomicRadius 36 > 0.0
+
+  -- atomicRadius: element-varying, Hydrogen is the smallest (H < C, H < O).
+  check "atomicRadius: Hydrogen < Carbon (H < C)" $
+    Atom.atomicRadius 1 < Atom.atomicRadius 6
+  check "atomicRadius: Hydrogen < Oxygen (H < O)" $
+    Atom.atomicRadius 1 < Atom.atomicRadius 8
+
+  -- atomicRadius: clamp-safe (Z<1 clamps to 1, Z>36 clamps to 36).
+  check "atomicRadius: Z 0 clamps to Z 1" $
+    Atom.atomicRadius 0 == Atom.atomicRadius 1
+  check "atomicRadius: Z 999 clamps to Z 36" $
+    Atom.atomicRadius 999 == Atom.atomicRadius 36
+
+  -- symbolOf: element symbol lookup.
+  check "symbolOf 1 == H" $ Atom.symbolOf 1 == "H"
+  check "symbolOf 6 == C" $ Atom.symbolOf 6 == "C"
+  check "symbolOf 8 == O" $ Atom.symbolOf 8 == "O"
+
+  -- symbolOf: clamp-safe (never crashes at the edges).
+  check "symbolOf: Z 0 clamps to Z 1" $ Atom.symbolOf 0 == Atom.symbolOf 1
+  check "symbolOf: Z 999 clamps to Z 36" $ Atom.symbolOf 999 == Atom.symbolOf 36
+
+  -- bondSegments: one segment per bond, endpoints = the bonded atoms' centres.
+  let
+    segNear = B.bondThreshold * 0.5
+    segP0 = { x: 0.0, y: 0.0, z: 0.0 }
+    segP1 = { x: segNear, y: 0.0, z: 0.0 }
+    -- Two H within bondThreshold ⇒ exactly one bond (same shape as the twoH
+    -- fixture used by the existing Builder tests).
+    segTwoH = B.addAtom 1 segP1 (B.addAtom 1 segP0 B.emptyBuilder)
+    segs = B.bondSegments segTwoH
+    -- Two H far apart ⇒ no bond ⇒ no segments.
+    segFar = { x: B.breakThreshold * 2.0, y: 0.0, z: 0.0 }
+    segNoBond = B.addAtom 1 segFar (B.addAtom 1 segP0 B.emptyBuilder)
+    -- The two atom centres of the bonded fixture.
+    segCentre0 = (fromMaybe { id: -1, z: 0, pos: { x: 0.0, y: 0.0, z: 0.0 } } (index segTwoH.atoms 0)).pos
+    segCentre1 = (fromMaybe { id: -1, z: 0, pos: { x: 0.0, y: 0.0, z: 0.0 } } (index segTwoH.atoms 1)).pos
+    vEq u v = approxEq u.x v.x && approxEq u.y v.y && approxEq u.z v.z
+    -- Order-independent: {seg.a, seg.b} equals {centre0, centre1}.
+    segMatches s =
+      (vEq s.a segCentre0 && vEq s.b segCentre1)
+        || (vEq s.a segCentre1 && vEq s.b segCentre0)
+
+  check "bondSegments: one segment per bond (length == bonds)" $
+    length segs == length segTwoH.bonds
+  check "bondSegments: bonded fixture has ≥1 bond" $
+    length segTwoH.bonds >= 1
+  check "bondSegments: the single segment's endpoints are the two atom centres" $
+    length segs == 1 && all segMatches segs
+  check "bondSegments: empty builder ⇒ no segments" $
+    length (B.bondSegments B.emptyBuilder) == 0
+  check "bondSegments: two atoms with no bond ⇒ no segments" $
+    length (B.bondSegments segNoBond) == 0
+
+  log "all Builder atom visuals properties hold."
+
 -- Fold applyZoomStep repeatedly with a fixed wheel delta, starting from `start`.
 -- Used to assert repeated stepping stays clamped within [minZoom, maxZoom].
 foldZoom :: Number -> Number -> Array Int -> Number

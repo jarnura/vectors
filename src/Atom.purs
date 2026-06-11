@@ -9,6 +9,8 @@ module Atom
   , Subshell
   , elementOf
   , elementName
+  , symbolOf
+  , atomicRadius
   , electronShells
   , subshellCap
   , fillSubshells
@@ -204,6 +206,61 @@ elementOf raw =
     sym = fromMaybe "?" (symbolTable !! (z - 1))
   in
     { z, symbol: sym, protons: z, neutrons: n, electrons: z }
+
+-- Element symbol for an atomic number (clamped to the supported table). A thin
+-- clamp-safe wrapper over `elementOf`, handy where only the symbol is needed.
+symbolOf :: Int -> String
+symbolOf z = (elementOf z).symbol
+
+-- Single covalent radii (pm) for Z = 1..36 (H..Kr), index Z−1. Source: the
+-- standard Cordero et al. covalent-radius set. Used only as a relative render
+-- scale, not for any physics.
+covalentRadii :: Array Number
+covalentRadii =
+  [ 31.0
+  , 28.0
+  , 128.0
+  , 96.0
+  , 84.0
+  , 76.0
+  , 71.0
+  , 66.0
+  , 57.0
+  , 58.0 -- H..Ne
+  , 166.0
+  , 141.0
+  , 121.0
+  , 111.0
+  , 107.0
+  , 105.0
+  , 102.0
+  , 106.0
+  , 203.0
+  , 176.0 -- Na..Ca
+  , 170.0
+  , 160.0
+  , 153.0
+  , 139.0
+  , 139.0
+  , 132.0
+  , 126.0
+  , 124.0
+  , 132.0
+  , 122.0 -- Sc..Zn
+  , 122.0
+  , 120.0
+  , 119.0
+  , 120.0
+  , 120.0
+  , 116.0 -- Ga..Kr
+  ]
+
+-- Relative atom render size for an atomic number (clamp-safe, strictly positive,
+-- element-varying). The single covalent radius (pm) is normalised against
+-- Carbon's (76 pm) so Carbon ≈ 1.0, Hydrogen the smallest (31/76 ≈ 0.41) and the
+-- alkali metals the largest (K ≈ 2.7). Used to scale each rendered nucleus.
+atomicRadius :: Int -> Number
+atomicRadius z = fromMaybe 1.0 (covalentRadii !! (clampZ z - 1)) / 76.0
 
 -- ───── Sub-shell (orbital) electron model, Madelung/Aufbau filling ───
 

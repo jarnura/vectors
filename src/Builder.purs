@@ -20,6 +20,7 @@ module Builder
   , breakThreshold
   , recomputeBonds
   , bondMidpoints
+  , bondSegments
   , degreeOf
   , loneCountOf
   , valenceShellOf
@@ -211,6 +212,17 @@ bondMidpoints st = foldl collect [] st.bonds
           , y: (a.pos.y + b.pos.y) / 2.0
           , z: (a.pos.z + b.pos.z) / 2.0
           }
+      _, _ -> acc
+
+-- Endpoint pairs (in world units) for each bond: the two bonded atoms' centres.
+-- One segment per bond whose BOTH endpoints resolve; bonds with a missing
+-- endpoint are dropped. Used by the renderer to draw a bond line/stick.
+bondSegments :: BuilderState -> Array { a :: V3, b :: V3 }
+bondSegments st = foldl collect [] st.bonds
+  where
+  collect acc bd =
+    case atomById st bd.a, atomById st bd.b of
+      Just a, Just b -> snoc acc { a: a.pos, b: b.pos }
       _, _ -> acc
 
 -- ───── Lone / bonding electrons (electron conservation) ──────────────
