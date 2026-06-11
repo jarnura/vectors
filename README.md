@@ -59,6 +59,8 @@ four scenes, toggled by an on-screen switch:
   from the left (and back out) via anime.js.
 - **Mouse wheel** (all scenes) — zoom the camera: scroll out to pull back (e.g. to
   see many molecules at once), scroll in for detail.
+- **Zoom + / − buttons** (all scenes, in the controls panel) — the same camera
+  zoom from on-screen buttons: **+** zooms in, **−** zooms out (clamped).
 - **Arrow keys / mouse drag** — rotate the cube (Cube POC).
 - **Shear input + Apply** — shear the main cube by the entered value
   (`x' = x + k·y`); repeated clicks compound.
