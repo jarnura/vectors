@@ -88,6 +88,27 @@
       #shear-value {
         width: 64px;
       }
+      #atom-labels {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        pointer-events: none;
+      }
+      .atom-label {
+        position: absolute;
+        left: 0;
+        top: 0;
+        /* transform (translate to the atom + centre offset) is set inline per
+           frame by Labels.js; this baseline keeps the label anchored at 0,0. */
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+        color: #f2f6ff;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 6px rgba(0, 0, 0, 0.6);
+        pointer-events: none;
+        user-select: none;
+        white-space: nowrap;
+      }
       #scene-title {
         position: absolute;
         top: 16px;
@@ -188,6 +209,7 @@
   </head>
   <body>
     <canvas id="canvas"></canvas>
+    <div id="atom-labels"></div>
     <div id="scene-title">Cube POC</div>
     <button id="panel-toggle" type="button" aria-label="Toggle controls">☰</button>
     <div id="atom-label">Carbon</div>

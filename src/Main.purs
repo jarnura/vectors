@@ -33,6 +33,7 @@ import Builder as Builder
 import BuilderApi (installBuilderApi, installBuilderControls)
 import Camera as Camera
 import Controls as Controls
+import Labels as Labels
 import Layer as Layer
 import Meshes as Meshes
 import Molecule as Molecule
@@ -654,6 +655,9 @@ main = do
               Ref.write { w, h, zoom: s.zoom } sizeRef
               updateViewport renderer canvas s.zoom
             renderFrame s
+            -- Sync the per-atom symbol overlay labels every frame so they follow
+            -- dragged/zoomed atoms in Builder, and clear when leaving the scene.
+            syncAtomLabels canvas s
         }
 
 -- A single small star sphere, reused (with different model matrices) for every
@@ -845,6 +849,49 @@ builderBondLinePlace d start end =
 builderWorldPos :: Atom.V3 -> Atom.V3
 builderWorldPos p =
   { x: p.x * builderScale, y: p.y * builderScale, z: p.z * builderScale }
+
+-- Clamp a number into [0, 1] (label opacity is 1 − detail, kept in range).
+clamp01 :: Number -> Number
+clamp01 n
+  | n < 0.0 = 0.0
+  | n > 1.0 = 1.0
+  | otherwise = n
+
+-- Sync the per-atom atomic-SYMBOL overlay labels for the live State. In the
+-- Builder scene each placed atom is projected to backing-store pixels with the
+-- EXACT projection the renderer drew with (builderWorldPos at the live zoom, so a
+-- label sits on its ball), then mapped to CSS pixels (× client/backing ratio) and
+-- handed to Labels.syncAtomLabels (one keyed div per atom id, text = element
+-- symbol, opacity = 1 − detail so labels read in the zoomed-OUT ball layer and
+-- fade as the sub-atomic detail blooms in). Off Builder the labels are cleared.
+-- DOM only via the Labels FFI — never WebGL.
+syncAtomLabels :: CanvasElement -> State -> Effect Unit
+syncAtomLabels canvas s
+  | s.scene == Builder = do
+      w <- getCanvasWidth canvas
+      h <- getCanvasHeight canvas
+      client <- Labels.getCanvasClientSize canvas
+      let
+        proj = Camera.projection s.zoom w h
+        sx = if w > 0.0 then client.w / w else 1.0
+        sy = if h > 0.0 then client.h / h else 1.0
+        opacity = clamp01 (1.0 - s.detail)
+        items =
+          map
+            ( \a ->
+                let
+                  scr = Builder.projectToScreen proj { w, h } (builderWorldPos a.pos)
+                in
+                  { id: a.id
+                  , x: scr.x * sx
+                  , y: scr.y * sy
+                  , text: Atom.symbolOf a.z
+                  , opacity
+                  }
+            )
+            s.builder.atoms
+      Labels.syncAtomLabels items
+  | otherwise = Labels.clearAtomLabels
 
 -- Build the LOD electron entities for a set of bloom GROUPS (each a bloom centre
 -- + the electron positions that bloom out of it). Every electron's model matrix
