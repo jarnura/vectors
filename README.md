@@ -2,7 +2,7 @@
 
 A small **PureScript + WebGL2** 3D graphics demo — a vertical-sliced
 **"learn matter"** platform (atoms → chemistry → properties of matter) — with
-five scenes, toggled by an on-screen switch:
+four scenes, toggled by an on-screen switch:
 
 - **Cube POC** — a solid-lit cube + orbiting satellite inside a simple world
   (green ground, wireframe grid, sky-blue horizon).
@@ -34,20 +34,17 @@ five scenes, toggled by an on-screen switch:
   **amber**, vs its **core** inner-shell electrons in **blue**; a **"Valence only"
   toggle** hides the blue core electrons, leaving just the amber valence + bonds.
   The controls live in a **left drawer** opened by a **panel-toggle icon** (below
-  the scene title) that slides the glassy panel in/out via anime.js.
-- **Scale** — a **zoom-driven ladder of scale layers** ("powers of ten"), today
-  two: a **Sub-atomic** layer (a focus atom rendered atomos-style — nucleus +
-  per-shell rings + animated electrons; Hydrogen) and an **Atomic** layer (the
-  focus molecule as whole atom-balls + bonds, not nucleon clusters; H₂). Zooming
-  past a threshold **swaps the layer and resets the zoom** to a mid value (each
-  layer with its own fresh range); reusing the existing camera zoom input. A
-  **`#scale-layer` label** (anime.js text) announces the active layer. The ladder
-  is extensible — a future layer is one constructor away.
+  the scene title) that slides the glassy panel in/out via anime.js. **Zooming
+  drives a smooth level-of-detail** on each atom: zoom **out** and each atom
+  collapses to a single element-coloured ball; zoom **in** and it blooms into its
+  real nucleus + electrons. The in-between is a continuous, frame-eased cross-fade
+  (even the +/− zoom buttons animate smoothly — no abrupt swap, no zoom reset),
+  reusing the existing camera zoom; bonds stay visible and "Valence only" still
+  applies.
 
 ## Controls
 
-- **Switch scene** (top-left) — cycle Cube POC → atomos → Molecule → Builder →
-  Scale.
+- **Switch scene** (top-left) — cycle Cube POC → atomos → Molecule → Builder.
 - **Element Z** (atomos) — choose the atom (Z = 1..36: H … Kr); nucleus and
   sub-shell electron rings update live.
 - **2D checkbox** (atomos) — flatten the atom into a 2D Bohr diagram (concentric
@@ -73,10 +70,9 @@ five scenes, toggled by an on-screen switch:
   see many molecules at once), scroll in for detail.
 - **Zoom + / − buttons** (all scenes, in the controls panel) — the same camera
   zoom from on-screen buttons: **+** zooms in, **−** zooms out (clamped).
-- **Zoom across scale layers** (Scale) — the same camera zoom crosses scale
-  layers: zoom **out** past a threshold steps up (Sub-atomic → Atomic), zoom
-  **in** past a threshold steps down, resetting the zoom to mid each crossing; at
-  the top/bottom layer a further zoom just clamps.
+- **Zoom level-of-detail** (Builder) — the same camera zoom smoothly fades each
+  atom between a single element-coloured ball (zoomed out) and its full nucleus +
+  electrons (zoomed in), eased per frame.
 - **Arrow keys / mouse drag** — rotate the cube (Cube POC).
 - **Shear input + Apply** — shear the main cube by the entered value
   (`x' = x + k·y`); repeated clicks compound.
