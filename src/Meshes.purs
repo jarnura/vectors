@@ -9,6 +9,7 @@ module Meshes
   , gridFloor
   , orbitRing
   , orbitRingFlat
+  , unitBeam
   , sphere
   ) where
 
@@ -424,6 +425,51 @@ orbitRingFlat segments r =
       [ r * cos theta, r * sin theta, 0.0 ]
   segment k = [ k, mod (k + 1) segments ]
 
+-- ───── Unit bond beam (builder: bond lines) ───────────────────────────
+
+-- Half-width of the bond beam in its local X/Z (the beam runs along +Y). Small
+-- enough to read as a thin connecting line, but a real (non-zero) screen width so
+-- the bond reliably lights pixels along its length (a true 1-pixel GL_LINES
+-- segment is fragile to sub-pixel sampling at the midpoint). Widened so the line
+-- stays comfortably visible at deep zoom-out, where the whole builderScale layout
+-- collapses toward the screen centre and a thinner beam would sub-pixel away.
+bondBeamHalfWidth :: Number
+bondBeamHalfWidth = 14.0
+
+-- A thin SOLID quad (flat strip) in the local XY plane: width `bondBeamHalfWidth`
+-- in local X, length 1 in local Y, lying at z = 0 and facing +Z. The renderer
+-- maps it into world space via a model matrix whose translation column = start,
+-- Y-basis column = (end - start) (the bond direction), X-basis column = the unit
+-- screen-plane perpendicular to the bond (so the strip's width survives, in the
+-- camera-facing plane), and Z-basis column = 0 (flat). Two triangles, wound CCW
+-- seen from +Z so the camera-facing front survives back-face culling.
+unitBeam :: SolidSpec
+unitBeam =
+  let
+    w = bondBeamHalfWidth
+  in
+    { vertices:
+        [ -w
+        , 0.0
+        , 0.0 -- 0: base-left
+        , w
+        , 0.0
+        , 0.0 -- 1: base-right
+        , w
+        , 1.0
+        , 0.0 -- 2: tip-right
+        , -w
+        , 1.0
+        , 0.0 -- 3: tip-left
+        ]
+    , normals:
+        [ 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 ]
+    -- Double-sided (both windings) so the strip survives back-face culling
+    -- regardless of which way the camera ends up facing it.
+    , indices: [ 0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2 ]
+    , color: bondWhite
+    }
+
 -- ───── UV sphere (atomos: protons/neutrons/electrons/stars) ───────────
 
 -- A solid UV sphere of `latSeg` latitude bands × `longSeg` longitude bands and
@@ -505,3 +551,8 @@ orbitBlue = { r: 0.30, g: 0.45, b: 0.70, a: 1.0 }
 -- pure black.
 indigo :: Color
 indigo = { r: 0.20, g: 0.30, b: 0.85, a: 1.0 }
+
+-- Bright near-white for the builder bond line, so the connecting line reads
+-- clearly against near-black space and lights pixels at the bond midpoint.
+bondWhite :: Color
+bondWhite = { r: 0.85, g: 0.88, b: 0.95, a: 1.0 }

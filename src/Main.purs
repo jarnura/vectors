@@ -10,7 +10,7 @@ import Prelude
 import Data.Array (concat, concatMap, length, take, zipWith)
 import Data.Foldable (for_, minimumBy)
 import Data.Int (toNumber)
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Number (cos, pi, sin, sqrt)
 import Data.Traversable (traverse)
 import Effect (Effect)
@@ -370,6 +370,13 @@ main = do
       -- per atom/frame (scaled by 1−detail about each atom centre), so the ball is
       -- full size when zoomed out and vanishes as the sub-atomic detail blooms in.
       builderBallMesh <- GL.createSolidMesh renderer builderBallSphere
+      -- Builder atomic-layer BOND LINE mesh: ONE thin unit beam along +Y
+      -- (0,0,0)→(0,1,0) with a small baked half-width, reused for every bond.
+      -- Only its model matrix varies per bond/frame (stretched + oriented between
+      -- the two bonded atom centres), so there is no per-frame GL allocation. A
+      -- thin solid beam (not a 1px GL_LINES segment) so the bond reliably lights
+      -- pixels along its whole length, including the midpoint.
+      bondLineMesh <- GL.createSolidMesh renderer Meshes.unitBeam
       let
         cubeEntities :: Array Entity
         cubeEntities =
@@ -507,15 +514,36 @@ main = do
         -- centre, scaled by (1 − detail) so it is full size when zoomed out
         -- (detail→0) and vanishes as the sub-atomic detail blooms in (detail→1).
         -- The cross-fade complement of builderAtomEntities / the electron groups.
+        -- Placed at builderWorldPos (builderScale) — the SAME single world
+        -- coordinate system as the nucleus/electrons and the pointer pick/drag, so
+        -- the ball position never desyncs from the pick projection.
         builderAtomBallEntities :: State -> Array Entity
         builderAtomBallEntities s =
           map
             ( \a ->
                 { mesh: Solid builderBallMesh
-                , modelMatrix: \st -> builderBallPlace st.detail a.pos
+                , modelMatrix: \st -> builderBallPlace st.detail (Atom.atomicRadius a.z) a.pos
                 }
             )
             s.builder.atoms
+
+        -- Atomic-layer BOND LINES: one bright unit-segment wire per bond,
+        -- stretched between the two bonded atoms' scaled world positions. The
+        -- segment fades out as detail rises (multiplying its length by
+        -- 1−detail) so it shows in the zoomed-OUT ball layer and vanishes as
+        -- the sub-atomic detail blooms in. Mesh built ONCE (bondLineMesh).
+        builderBondLineEntities :: State -> Array Entity
+        builderBondLineEntities s =
+          map
+            ( \seg ->
+                { mesh: Solid bondLineMesh
+                , modelMatrix: \st ->
+                    builderBondLinePlace st.detail
+                      (builderWorldPos seg.a)
+                      (builderWorldPos seg.b)
+                }
+            )
+            (Builder.bondSegments s.builder)
 
         -- CORE (inner-shell) lone electrons: one blue sphere per core lone
         -- electron, on the inner ring around each atom's centre
@@ -548,8 +576,8 @@ main = do
           Atomos -> starEntities <> ringEntities s <> nucleusEntities s <> electronEntities s
           Molecule -> starEntities <> moleculeNucleusEntities s <> moleculeElectronEntities s
           Builder ->
-            starEntities
-              <> builderAtomBallEntities s
+            builderAtomBallEntities s
+              <> builderBondLineEntities s
               <> builderAtomEntities s
               <> (if s.valenceOnly then [] else builderLoneElectronEntities s)
               <> builderValenceElectronEntities s
@@ -659,7 +687,7 @@ builderNeutronSphere = (Meshes.sphere 12 12 builderNucleonRadius) { color = { r:
 -- ball reads as a solid atom at the same on-screen footprint as the detailed
 -- nucleus cluster it replaces.
 builderBallRadius :: Number
-builderBallRadius = Atom.nucleusRadius * 0.9
+builderBallRadius = Atom.nucleusRadius * 3.0
 
 -- The Builder atom-ball sphere: a single solid sphere reused for every placed
 -- atom in the zoomed-out layer. A muted slate so it reads as a neutral atom and
@@ -753,13 +781,64 @@ builderDetailPlace d center full =
     M.multiply (builderPlace pos) (M.scale s s s)
 
 -- LOD model matrix for the zoomed-OUT atom ball: full size at detail 0, shrinking
--- to nothing as detail (d) rises to 1, scaled about the (scaled) atom centre.
-builderBallPlace :: Number -> Atom.V3 -> Matrix Number
-builderBallPlace d center =
+-- to nothing as detail (d) rises to 1, scaled about the (scaled) atom centre. The
+-- per-element atomic-radius factor (rad) scales the ball footprint so Hydrogen
+-- (rad ≈ 0.41) reads smaller than Carbon/Oxygen (rad ≈ 1.0).
+builderBallPlace :: Number -> Number -> Atom.V3 -> Matrix Number
+builderBallPlace d rad center =
   let
-    s = max builderDetailFloor (1.0 - d)
+    s = rad * max builderDetailFloor (1.0 - d)
   in
     M.multiply (builderPlace center) (M.scale s s s)
+
+-- World-space model matrix that maps the unit bond beam (along +Y, (0,0,0)→
+-- (0,1,0)) so its base lands at `start` and its tip at `end`, with the beam
+-- LENGTH faded by (1−detail) so the bond line shows in the zoomed-OUT ball layer
+-- and shrinks to nothing as detail→1. Built as a raw 4×4 column-vector matrix:
+-- translation column = start, Y-basis column = (end − start)·(1−detail), and
+-- X/Z-basis columns = the unit axes (so the beam's baked half-width survives as
+-- its screen width). v=(0,0,0)→start; v=(0,1,0)→start+(end−start)·f.
+builderBondLinePlace :: Number -> Atom.V3 -> Atom.V3 -> Matrix Number
+builderBondLinePlace d start end =
+  let
+    f = 1.0 - d
+    dx = end.x - start.x
+    dy = end.y - start.y
+    dz = end.z - start.z
+    yx = dx * f
+    yy = dy * f
+    yz = dz * f
+    -- Unit screen-plane (XY) perpendicular to the bond, so the flat strip's width
+    -- spans the camera-facing plane and is never edge-on. For a bond direction
+    -- (dx,dy) the in-plane perpendicular is (−dy, dx); normalise it (fall back to
+    -- +X for a degenerate / zero-length bond).
+    plen = sqrt (dx * dx + dy * dy)
+    px = if plen > 0.0 then negate dy / plen else 1.0
+    py = if plen > 0.0 then dx / plen else 0.0
+  in
+    -- Row-major entries: each row i = [col0 col1 col2 col3]. Columns:
+    -- col0 (X-basis)=(px,py,0) unit perpendicular, col1 (Y-basis)=(end−start)·f,
+    -- col2 (Z-basis)=0 (flat), col3 (translation)=start; bottom row = [0,0,0,1].
+    fromMaybe M.identity
+      ( M.fromArray 4 4
+          [ px
+          , yx
+          , 0.0
+          , start.x
+          , py
+          , yy
+          , 0.0
+          , start.y
+          , 0.0
+          , yz
+          , 0.0
+          , start.z
+          , 0.0
+          , 0.0
+          , 0.0
+          , 1.0
+          ]
+      )
 
 -- The world-space point the renderer projects for a builder atom: its model-pos
 -- scaled about the origin by builderScale (matching builderPlace's translation).
