@@ -19,6 +19,7 @@ import Atom as Atom
 import Chem (valence)
 import Builder as B
 import Camera as Cam
+import Layer as Layer
 import Molecule (bondLength, moleculeOf, molecules, moleculeNucleons, sharedElectronPositions)
 import Palette (shellColor, subshellColor)
 import Meshes (groundPlane, gridFloor, orbitRing, orbitRingFlat, sphere)
@@ -291,12 +292,13 @@ main = do
   -- ───── Scene switch + starfield (atomos M2) ─────────────────────────
   log "scene + starfield properties:"
 
-  -- The on-screen switch cycles CubePoc → Atomos → Molecule → Builder → CubePoc.
-  check "nextScene cycles CubePoc -> Atomos -> Molecule -> Builder -> CubePoc" $
+  -- The on-screen switch cycles CubePoc → Atomos → Molecule → Builder → Scale → CubePoc.
+  check "nextScene cycles CubePoc -> Atomos -> Molecule -> Builder -> Scale -> CubePoc" $
     nextScene CubePoc == Atomos
       && nextScene Atomos == Molecule
       && nextScene Molecule == Builder
-      && nextScene Builder == CubePoc
+      && nextScene Builder == Scale
+      && nextScene Scale == CubePoc
 
   -- The starfield is a non-empty, deterministic set of points.
   check "starfield has stars" $ length starPositions > 0
@@ -722,10 +724,10 @@ main = do
   -- cases.
   log "builder scene wiring properties:"
 
-  -- The switch is now a 4-cycle through every scene; Molecule → Builder (not
-  -- straight back to CubePoc), and Builder closes the loop to CubePoc.
+  -- The switch passes Molecule → Builder (not straight back to CubePoc); Builder
+  -- now steps on to the Scale scene (the 5-cycle's final rung closes to CubePoc).
   check "nextScene Molecule = Builder" $ nextScene Molecule == Builder
-  check "nextScene Builder = CubePoc" $ nextScene Builder == CubePoc
+  check "nextScene Builder = Scale" $ nextScene Builder == Scale
 
   -- The builder scene has a non-empty banner title (the implementer matches
   -- this exact string in Scene.sceneTitle); lowercase like 'atomos'/'molecule'.
@@ -1496,6 +1498,87 @@ main = do
     all (\p -> approxEq (xyDist p) (shellRadius 1)) cFlat2DShGroup1
 
   log "all atom shell-collapsed position properties hold."
+
+  -- ───── Scale-layer zoom: Layer ladder + Scene.Scale (scale-layer-zoom M1) ─
+  -- RED: src/Layer.purs does not exist yet, and Scene.purs has no `Scale`
+  -- constructor. These tests will fail to compile until the implementer adds:
+  --   * a `Layer` module exporting `ScaleLayer(SubAtomic, Atomic)` with a derived
+  --     Eq, the ladder `layerUp`/`layerDown :: ScaleLayer -> Maybe ScaleLayer`
+  --     (SubAtomic is the BOTTOM, Atomic the TOP), `layerName :: ScaleLayer ->
+  --     String`, the zoom-crossing thresholds `zoomOutThreshold`/`zoomInThreshold`
+  --     + `layerResetZoom`, and `applyLayerZoom :: ScaleLayer -> Number ->
+  --     { layer :: ScaleLayer, zoom :: Number }`.
+  --   * a `Scale` scene constructor wired into Scene.nextScene/sceneTitle, making
+  --     the on-screen switch a 5-cycle CubePoc → Atomos → Molecule → Builder →
+  --     Scale → CubePoc.
+  log "scale-layer zoom (Layer ladder + Scene.Scale) properties:"
+
+  -- Ladder bounds: SubAtomic is the BOTTOM (no layerDown), Atomic the TOP
+  -- (no layerUp). Stepping up from SubAtomic reaches Atomic and vice-versa.
+  check "layerUp SubAtomic == Just Atomic" $
+    Layer.layerUp Layer.SubAtomic == Just Layer.Atomic
+  check "layerUp Atomic == Nothing (top of ladder)" $
+    Layer.layerUp Layer.Atomic == Nothing
+  check "layerDown Atomic == Just SubAtomic" $
+    Layer.layerDown Layer.Atomic == Just Layer.SubAtomic
+  check "layerDown SubAtomic == Nothing (bottom of ladder)" $
+    Layer.layerDown Layer.SubAtomic == Nothing
+
+  -- applyLayerZoom crossings: zooming OUT past zoomOutThreshold steps UP a layer
+  -- (and resets zoom to layerResetZoom); zooming IN past zoomInThreshold steps
+  -- DOWN a layer (also resetting to layerResetZoom). Mid-range zoom is unchanged,
+  -- and a crossing at the ladder edge (no further layer) leaves both untouched.
+  let
+    upFromSub = Layer.applyLayerZoom Layer.SubAtomic 0.25
+    downFromAtomic = Layer.applyLayerZoom Layer.Atomic 3.5
+    midSub = Layer.applyLayerZoom Layer.SubAtomic 1.0
+    midAtomic = Layer.applyLayerZoom Layer.Atomic 1.0
+    topStays = Layer.applyLayerZoom Layer.Atomic 0.25
+    bottomStays = Layer.applyLayerZoom Layer.SubAtomic 3.5
+
+  check "applyLayerZoom SubAtomic 0.25 ⇒ steps UP to Atomic, zoom reset" $
+    upFromSub.layer == Layer.Atomic && approxEq upFromSub.zoom Layer.layerResetZoom
+  check "applyLayerZoom Atomic 3.5 ⇒ steps DOWN to SubAtomic, zoom reset" $
+    downFromAtomic.layer == Layer.SubAtomic && approxEq downFromAtomic.zoom Layer.layerResetZoom
+  check "applyLayerZoom SubAtomic 1.0 ⇒ unchanged (mid range)" $
+    midSub.layer == Layer.SubAtomic && approxEq midSub.zoom 1.0
+  check "applyLayerZoom Atomic 1.0 ⇒ unchanged (mid range)" $
+    midAtomic.layer == Layer.Atomic && approxEq midAtomic.zoom 1.0
+  check "applyLayerZoom Atomic 0.25 ⇒ TOP layer stays, zoom unchanged" $
+    topStays.layer == Layer.Atomic && approxEq topStays.zoom 0.25
+  check "applyLayerZoom SubAtomic 3.5 ⇒ BOTTOM layer stays, zoom unchanged" $
+    bottomStays.layer == Layer.SubAtomic && approxEq bottomStays.zoom 3.5
+
+  -- Threshold invariant: the crossing thresholds sit strictly INSIDE the camera
+  -- zoom bounds and bracket the reset zoom, so a layer change always lands back
+  -- inside [zoomOutThreshold, zoomInThreshold] with headroom to either edge:
+  --   minZoom < zoomOutThreshold < layerResetZoom < zoomInThreshold < maxZoom.
+  check "threshold invariant: minZoom < zoomOutThreshold" $
+    Cam.minZoom < Layer.zoomOutThreshold
+  check "threshold invariant: zoomOutThreshold < layerResetZoom" $
+    Layer.zoomOutThreshold < Layer.layerResetZoom
+  check "threshold invariant: layerResetZoom < zoomInThreshold" $
+    Layer.layerResetZoom < Layer.zoomInThreshold
+  check "threshold invariant: zoomInThreshold < maxZoom" $
+    Layer.zoomInThreshold < Cam.maxZoom
+
+  -- Scene.Scale joins the switch as a 5th scene: the toggle is now a 5-cycle
+  -- CubePoc → Atomos → Molecule → Builder → Scale → CubePoc.
+  check "nextScene is a 5-cycle returning to CubePoc" $
+    nextScene (nextScene (nextScene (nextScene (nextScene CubePoc)))) == CubePoc
+  check "nextScene reaches Scale after Builder (4 steps from CubePoc)" $
+    nextScene (nextScene (nextScene (nextScene CubePoc))) == Scale
+  check "nextScene Scale closes the loop to CubePoc" $
+    nextScene Scale == CubePoc
+
+  -- The Scale scene has a non-empty, lowercase banner title (matches the exact
+  -- string the implementer adds to Scene.sceneTitle).
+  check "sceneTitle Scale is non-empty" $
+    sceneTitle Scale /= ""
+  check "sceneTitle Scale == \"scale\"" $
+    sceneTitle Scale == "scale"
+
+  log "all scale-layer zoom properties hold."
 
 -- Fold applyZoomStep repeatedly with a fixed wheel delta, starting from `start`.
 -- Used to assert repeated stepping stays clamped within [minZoom, maxZoom].

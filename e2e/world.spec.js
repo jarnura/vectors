@@ -97,10 +97,10 @@ test('atomos: scene switch flips backdrop sky-blue → near-black', async ({ pag
   const spaceAfter = await readPixel(page, 0.5, 0.04);
   expect(spaceAfter[0] + spaceAfter[1] + spaceAfter[2]).toBeLessThan(120); // dark
 
-  // The switch is now a 4-cycle (CubePoc → Atomos → Molecule → Builder →
-  // CubePoc), so cycling fully around returns to the cube POC sky. Both Molecule
-  // and Builder share the dark deep-space backdrop with atomos, so the next two
-  // clicks keep it dark.
+  // The switch is now a 5-cycle (CubePoc → Atomos → Molecule → Builder → Scale →
+  // CubePoc), so cycling fully around returns to the cube POC sky. Molecule,
+  // Builder, and Scale all share the dark deep-space backdrop with atomos, so the
+  // next three clicks keep it dark.
   await page.click('#scene-toggle'); // → molecule (still dark space backdrop)
   await page.waitForTimeout(300);
   const moleculeBackdrop = await readPixel(page, 0.5, 0.04);
@@ -110,6 +110,11 @@ test('atomos: scene switch flips backdrop sky-blue → near-black', async ({ pag
   await page.waitForTimeout(300);
   const builderBackdrop = await readPixel(page, 0.5, 0.04);
   expect(builderBackdrop[0] + builderBackdrop[1] + builderBackdrop[2]).toBeLessThan(120);
+
+  await page.click('#scene-toggle'); // → scale (still dark space backdrop)
+  await page.waitForTimeout(300);
+  const scaleBackdrop = await readPixel(page, 0.5, 0.04);
+  expect(scaleBackdrop[0] + scaleBackdrop[1] + scaleBackdrop[2]).toBeLessThan(120);
 
   await page.click('#scene-toggle'); // → back to cube POC sky
   await page.waitForTimeout(300);
@@ -339,6 +344,9 @@ test('overlay: scene title updates on scene switch', async ({ page }) => {
 
   await page.click('#scene-toggle'); // → builder (fourth scene)
   await expect(title).toHaveText('builder', { timeout: 4000 });
+
+  await page.click('#scene-toggle'); // → scale (fifth scene)
+  await expect(title).toHaveText('scale', { timeout: 4000 });
 
   await page.click('#scene-toggle'); // → back to cube POC
   await expect(title).toHaveText('Cube POC', { timeout: 4000 });

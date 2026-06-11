@@ -173,6 +173,8 @@ clearColorFor CubePoc = skyColor
 clearColorFor Atomos = spaceColor
 clearColorFor Molecule = spaceColor
 clearColorFor Builder = spaceColor
+-- M1 placeholder: reuse the deep-space backdrop until M2 builds the Scale scene.
+clearColorFor Scale = spaceColor
 
 -- Animate the HTML overlay label only when the scene or element changes (not
 -- every frame). The label shows the element name and is visible only in atomos.
@@ -533,6 +535,9 @@ main = do
               <> (if s.valenceOnly then [] else builderLoneElectronEntities s)
               <> builderValenceElectronEntities s
               <> builderBondElectronEntities s
+          -- M1 placeholder: reuse the starfield backdrop until M2 builds the
+          -- Scale scene's own entities.
+          Scale -> starEntities
       updateViewport renderer canvas initialState.zoom
       w0 <- getCanvasWidth canvas
       h0 <- getCanvasHeight canvas
