@@ -7,10 +7,10 @@ module Main
 
 import Prelude
 
-import Data.Array (concat, concatMap, length, range, take, zipWith, (!!))
+import Data.Array (concat, concatMap, length, take, zipWith)
 import Data.Foldable (for_, minimumBy)
 import Data.Int (toNumber)
-import Data.Maybe (Maybe(..), fromMaybe, maybe)
+import Data.Maybe (Maybe(..))
 import Data.Number (cos, pi, sin, sqrt)
 import Data.Traversable (traverse)
 import Effect (Effect)
@@ -29,8 +29,6 @@ import Math.Matrix (Matrix)
 import Math.Matrix as M
 import Atom (Nucleon(..))
 import Atom as Atom
-import Layer (ScaleLayer(..))
-import Layer as Layer
 import Builder as Builder
 import BuilderApi (installBuilderApi, installBuilderControls)
 import Camera as Camera
@@ -57,7 +55,6 @@ type State =
   , bondProgress :: Number
   , zoom :: Number
   , builder :: Builder.BuilderState
-  , layer :: ScaleLayer
   }
 
 -- A renderable mesh is either a solid lit mesh or a wireframe mesh; the draw
@@ -111,8 +108,6 @@ initialState =
   -- multiply this in/out, clamped to Camera.min/maxZoom.
   , zoom: 1.0
   , builder: Builder.emptyBuilder
-  -- The Scale scene starts on the bottom (sub-atomic) rung of the scale ladder.
-  , layer: SubAtomic
   }
 
 step :: Input -> State -> State
@@ -127,7 +122,6 @@ step input =
     >>> applyKey input.lastKey
     >>> applyMouse input.mouse
     >>> applyZoom input.zoomDelta
-    >>> applyLayer
     >>> tickFrame
   where
   tickFrame s = s { frame = s.frame + 1.0 }
@@ -136,18 +130,6 @@ step input =
 applyZoom :: Maybe Number -> State -> State
 applyZoom Nothing s = s
 applyZoom (Just d) s = s { zoom = Camera.applyZoomStep s.zoom d }
-
--- Scale-scene scale ladder: when fully zoomed OUT/IN, cross a scale layer and
--- reset the zoom to a neutral mid value (Layer.applyLayerZoom). Scene-gated to
--- the Scale scene so every other scene is byte-identical to before.
-applyLayer :: State -> State
-applyLayer s
-  | s.scene == Scale =
-      let
-        r = Layer.applyLayerZoom s.layer s.zoom
-      in
-        s { layer = r.layer, zoom = r.zoom }
-  | otherwise = s
 
 -- Flip between the cube POC and atomos when the scene switch is clicked.
 applyToggle :: Boolean -> State -> State
@@ -191,31 +173,22 @@ clearColorFor CubePoc = skyColor
 clearColorFor Atomos = spaceColor
 clearColorFor Molecule = spaceColor
 clearColorFor Builder = spaceColor
--- M1 placeholder: reuse the deep-space backdrop until M2 builds the Scale scene.
-clearColorFor Scale = spaceColor
 
 -- Animate the HTML overlay label only when the scene or element changes (not
 -- every frame). The label shows the element name and is visible only in atomos.
 updateOverlay
-  :: Ref.Ref { scene :: Scene, element :: Int, layer :: ScaleLayer } -> State -> Effect Unit
+  :: Ref.Ref { scene :: Scene, element :: Int } -> State -> Effect Unit
 updateOverlay ref s = do
   prev <- Ref.read ref
   let
     sceneChanged = prev.scene /= s.scene
     elementChanged = prev.element /= s.element
-    layerChanged = prev.layer /= s.layer
     inAtomos = s.scene == Atomos
     inMolecule = s.scene == Molecule
-    inScale = s.scene == Scale
   when sceneChanged do
     Text.scrambleInto "scene-title" (sceneTitle s.scene)
     Text.setVisible "atom-label" inAtomos
     Text.setVisible "orbital-info" inAtomos
-    -- The scale-layer banner is Scale-scene only: name the active scale layer
-    -- and show it solely in the Scale scene (hidden everywhere else).
-    Text.setVisible "scale-layer" inScale
-    when inScale do
-      Text.scrambleInto "scale-layer" (Layer.layerName s.layer)
     -- The data-driven molecule properties panel is molecule-scene only. Render
     -- its rows from Molecule.properties (one row per property) and show it on
     -- entering the scene; hide it elsewhere. Built once per scene change.
@@ -228,12 +201,8 @@ updateOverlay ref s = do
   when (elementChanged && inAtomos) do
     Text.scrambleInto "atom-label" (Atom.elementName s.element)
     Text.scrambleInto "orbital-info" (Atom.configString s.element)
-  -- A scale-layer crossing (while already in the Scale scene) re-scrambles the
-  -- banner to the new layer name.
-  when (layerChanged && inScale && not sceneChanged) do
-    Text.scrambleInto "scale-layer" (Layer.layerName s.layer)
-  when (sceneChanged || elementChanged || layerChanged) do
-    Ref.write { scene: s.scene, element: s.element, layer: s.layer } ref
+  when (sceneChanged || elementChanged) do
+    Ref.write { scene: s.scene, element: s.element } ref
 
 -- Apply a shear (by the button's input value) to the main cube's transform.
 applyShear :: Maybe Number -> State -> State
@@ -382,28 +351,6 @@ main = do
       -- electrons clearly orbiting outside it.
       builderProtonMesh <- GL.createSolidMesh renderer builderProtonSphere
       builderNeutronMesh <- GL.createSolidMesh renderer builderNeutronSphere
-      -- Scale scene (sub-atomic layer): one thin orbital ring per occupied
-      -- principal shell of the focus atom, coloured by shell — built ONCE for the
-      -- fixed focus element (does not depend on s.element). A smaller atom would
-      -- use a prefix, but the focus element is fixed so the full set is used.
-      scaleRingMeshes <- traverse
-        ( \sh -> GL.createWireframeMesh renderer
-            ( (Meshes.orbitRing ringSegments sh.radius (Atom.subshellInclination sh.n 0))
-                { color = shellColor sh.n }
-            )
-        )
-        (Atom.shellRings scaleFocusElement)
-      -- Discrete electrons of the focus atom, one coloured sphere per shell.
-      scaleElectronMeshes <- traverse
-        (\sh -> GL.createSolidMesh renderer (electronSphere (shellColor sh.n)))
-        (Atom.shellRings scaleFocusElement)
-      -- Scale scene (atomic layer): one atom-ball sphere per atom of the focus
-      -- molecule, coloured per element; plus a small marker sphere reused along
-      -- each bond. Built ONCE.
-      scaleAtomMeshes <- traverse
-        (\atom -> GL.createSolidMesh renderer (scaleAtomBallSphere atom.element))
-        scaleMolecule.atoms
-      scaleBondMesh <- GL.createSolidMesh renderer scaleBondSphere
       let
         cubeEntities :: Array Entity
         cubeEntities =
@@ -575,71 +522,6 @@ main = do
             )
             (Builder.bondElectronPositions s.builder s.frame)
 
-        -- Scale scene · SUB-ATOMIC layer: ONE focus atom rendered atomos-style —
-        -- its nucleon cluster, one orbital ring per occupied shell, and discrete
-        -- electrons advancing with the frame. The focus element is fixed
-        -- (scaleFocusElement), so this does not read s.element. Meshes are
-        -- pre-built (protonMesh / neutronMesh / scaleRingMeshes /
-        -- scaleElectronMeshes); only model matrices vary per frame.
-        scaleNucleusEntities :: Array Entity
-        scaleNucleusEntities =
-          map
-            ( \n ->
-                { mesh: Solid (if n.kind == Proton then protonMesh else neutronMesh)
-                , modelMatrix: \_ -> M.translate n.pos.x n.pos.y n.pos.z
-                }
-            )
-            (Atom.nucleons scaleFocusElement)
-
-        scaleRingEntities :: Array Entity
-        scaleRingEntities =
-          map (\m -> { mesh: Wire m, modelMatrix: \_ -> M.identity }) scaleRingMeshes
-
-        scaleElectronEntities :: State -> Array Entity
-        scaleElectronEntities s =
-          concat
-            ( zipWith
-                ( \mesh group ->
-                    map (\p -> { mesh: Solid mesh, modelMatrix: \_ -> M.translate p.x p.y p.z }) group
-                )
-                scaleElectronMeshes
-                (Atom.electronPositionsByShell scaleFocusElement s.frame)
-            )
-
-        -- Scale scene · ATOMIC layer: the focus molecule as whole atom-BALLS (one
-        -- coloured sphere per atom at its scaled centre) plus a few small marker
-        -- spheres along each bond — clearly a molecule of balls, NOT nucleon
-        -- clusters. Atom meshes are zipped with the molecule's atoms (built once);
-        -- the bond marker mesh is reused along every bond.
-        scaleAtomBallEntities :: Array Entity
-        scaleAtomBallEntities =
-          zipWith
-            ( \mesh atom ->
-                { mesh: Solid mesh
-                , modelMatrix: \_ -> scalePlace atom.center
-                }
-            )
-            scaleAtomMeshes
-            scaleMolecule.atoms
-
-        scaleBondEntities :: Array Entity
-        scaleBondEntities =
-          map
-            (\p -> { mesh: Solid scaleBondMesh, modelMatrix: \_ -> scalePlace p })
-            (scaleBondMarkers scaleMolecule)
-
-        scaleEntities :: State -> Array Entity
-        scaleEntities s = case s.layer of
-          SubAtomic ->
-            starEntities
-              <> scaleRingEntities
-              <> scaleNucleusEntities
-              <> scaleElectronEntities s
-          Atomic ->
-            starEntities
-              <> scaleAtomBallEntities
-              <> scaleBondEntities
-
         entitiesFor :: State -> Array Entity
         entitiesFor s = case s.scene of
           CubePoc -> cubeEntities
@@ -651,7 +533,6 @@ main = do
               <> (if s.valenceOnly then [] else builderLoneElectronEntities s)
               <> builderValenceElectronEntities s
               <> builderBondElectronEntities s
-          Scale -> scaleEntities s
       updateViewport renderer canvas initialState.zoom
       w0 <- getCanvasWidth canvas
       h0 <- getCanvasHeight canvas
@@ -659,7 +540,6 @@ main = do
       overlayRef <- Ref.new
         { scene: initialState.scene
         , element: initialState.element
-        , layer: initialState.layer
         }
       -- Holds the most recent rendered State, so a builder mutation arriving
       -- off-loop (via window.__builder / the Add/Clear buttons) can re-render the
@@ -723,92 +603,6 @@ main = do
               updateViewport renderer canvas s.zoom
             renderFrame s
         }
-
--- ───── Scale scene constants ──────────────────────────────────────────────
-
--- The focus molecule of the Scale scene's ATOMIC layer: the first registry
--- entry (H₂ today; the registry grows toward water/H₂O later).
-scaleMolecule :: Molecule.Molecule
-scaleMolecule = Molecule.moleculeOf 0
-
--- The focus ATOM of the Scale scene's SUB-ATOMIC layer: the focus molecule's
--- first atom's element (so the two layers depict the same matter at two
--- scales). Fixed — the Scale scene never reads s.element.
-scaleFocusElement :: Atom.Element
-scaleFocusElement =
-  Atom.elementOf (maybe 1 _.element (scaleMolecule.atoms !! 0))
-
--- Atom-ball radius for the atomic-layer molecule: a clearly visible solid ball
--- at each atom centre (bigger than a nucleon so the molecule reads as balls).
-scaleAtomBallRadius :: Number
-scaleAtomBallRadius = Atom.nucleonRadius * 1.8
-
--- An atom-ball sphere coloured per element (reusing the shell palette: the
--- element's outermost-shell colour gives each element a distinct, visible hue).
-scaleAtomBallSphere :: Int -> Meshes.SolidSpec
-scaleAtomBallSphere z =
-  (Meshes.sphere 16 16 scaleAtomBallRadius) { color = scaleElementColor z }
-
--- Per-element colour for the atomic-layer balls: the colour of the element's
--- outermost occupied principal shell, so each element reads with a distinct hue
--- against deep space (reuses Palette.shellColor — no new colour source).
-scaleElementColor :: Int -> GL.Color
-scaleElementColor z = case Atom.shellRings (Atom.elementOf z) of
-  [] -> shellColor 1
-  rings -> shellColor (outermostShell rings)
-  where
-  outermostShell rings = case lastOf rings of
-    Just r -> r.n
-    Nothing -> 1
-  lastOf rings = rings !! (length rings - 1)
-
--- Small marker sphere drawn along each bond of the atomic-layer molecule.
-scaleBondSphere :: Meshes.SolidSpec
-scaleBondSphere =
-  (Meshes.sphere 10 10 (Atom.nucleonRadius * 0.5))
-    { color = { r: 0.80, g: 0.82, b: 0.88, a: 1.0 } }
-
--- Number of marker spheres drawn along each bond (between, not over, the atoms).
-scaleBondMarkerCount :: Int
-scaleBondMarkerCount = 3
-
--- Marker positions along every bond of a molecule: a few points evenly spaced
--- between the two bonded atom centres, so each bond reads as a short string of
--- small spheres. Positions are in scene (model) units; scalePlace scales them.
-scaleBondMarkers :: Molecule.Molecule -> Array Atom.V3
-scaleBondMarkers mol = concatMap markersOf mol.bonds
-  where
-  centerAt i =
-    (fromMaybe { element: 0, center: { x: 0.0, y: 0.0, z: 0.0 } } (mol.atoms !! i)).center
-  markersOf bond =
-    let
-      ca = centerAt bond.a
-      cb = centerAt bond.b
-    in
-      map
-        ( \k ->
-            let
-              t = toNumber k / toNumber (scaleBondMarkerCount + 1)
-            in
-              { x: ca.x + (cb.x - ca.x) * t
-              , y: ca.y + (cb.y - ca.y) * t
-              , z: ca.z + (cb.z - ca.z) * t
-              }
-        )
-        (range 1 scaleBondMarkerCount)
-
--- The atomic-layer molecule is scaled up about the origin (like moleculeScale)
--- so its atom balls spread clearly across the view.
-scaleMoleculeScale :: Number
-scaleMoleculeScale = 2.4
-
--- Place a scale-scene molecule particle: scale its position about the origin.
-scalePlace :: Atom.V3 -> Matrix Number
-scalePlace p =
-  M.translate
-    (p.x * scaleMoleculeScale)
-    (p.y * scaleMoleculeScale)
-    (p.z * scaleMoleculeScale)
 
 -- A single small star sphere, reused (with different model matrices) for every
 -- point in the starfield.

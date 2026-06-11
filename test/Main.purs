@@ -292,13 +292,12 @@ main = do
   -- ───── Scene switch + starfield (atomos M2) ─────────────────────────
   log "scene + starfield properties:"
 
-  -- The on-screen switch cycles CubePoc → Atomos → Molecule → Builder → Scale → CubePoc.
-  check "nextScene cycles CubePoc -> Atomos -> Molecule -> Builder -> Scale -> CubePoc" $
+  -- The on-screen switch cycles CubePoc → Atomos → Molecule → Builder → CubePoc.
+  check "nextScene cycles CubePoc -> Atomos -> Molecule -> Builder -> CubePoc" $
     nextScene CubePoc == Atomos
       && nextScene Atomos == Molecule
       && nextScene Molecule == Builder
-      && nextScene Builder == Scale
-      && nextScene Scale == CubePoc
+      && nextScene Builder == CubePoc
 
   -- The starfield is a non-empty, deterministic set of points.
   check "starfield has stars" $ length starPositions > 0
@@ -719,15 +718,13 @@ main = do
 
   -- ───── Builder scene wiring (molecule-builder M2) ───────────────────
   -- The builder scene joins the on-screen switch as a fourth scene, so the
-  -- toggle now cycles CubePoc → Atomos → Molecule → Builder → CubePoc. RED
-  -- until Scene.purs adds the `Builder` constructor + nextScene/sceneTitle
-  -- cases.
+  -- toggle now cycles CubePoc → Atomos → Molecule → Builder → CubePoc.
   log "builder scene wiring properties:"
 
-  -- The switch passes Molecule → Builder (not straight back to CubePoc); Builder
-  -- now steps on to the Scale scene (the 5-cycle's final rung closes to CubePoc).
+  -- The switch passes Molecule → Builder, and Builder closes the 4-cycle back
+  -- to CubePoc.
   check "nextScene Molecule = Builder" $ nextScene Molecule == Builder
-  check "nextScene Builder = Scale" $ nextScene Builder == Scale
+  check "nextScene Builder = CubePoc" $ nextScene Builder == CubePoc
 
   -- The builder scene has a non-empty banner title (the implementer matches
   -- this exact string in Scene.sceneTitle); lowercase like 'atomos'/'molecule'.
@@ -1499,86 +1496,76 @@ main = do
 
   log "all atom shell-collapsed position properties hold."
 
-  -- ───── Scale-layer zoom: Layer ladder + Scene.Scale (scale-layer-zoom M1) ─
-  -- RED: src/Layer.purs does not exist yet, and Scene.purs has no `Scale`
-  -- constructor. These tests will fail to compile until the implementer adds:
-  --   * a `Layer` module exporting `ScaleLayer(SubAtomic, Atomic)` with a derived
-  --     Eq, the ladder `layerUp`/`layerDown :: ScaleLayer -> Maybe ScaleLayer`
-  --     (SubAtomic is the BOTTOM, Atomic the TOP), `layerName :: ScaleLayer ->
-  --     String`, the zoom-crossing thresholds `zoomOutThreshold`/`zoomInThreshold`
-  --     + `layerResetZoom`, and `applyLayerZoom :: ScaleLayer -> Number ->
-  --     { layer :: ScaleLayer, zoom :: Number }`.
-  --   * a `Scale` scene constructor wired into Scene.nextScene/sceneTitle, making
-  --     the on-screen switch a 5-cycle CubePoc → Atomos → Molecule → Builder →
-  --     Scale → CubePoc.
-  log "scale-layer zoom (Layer ladder + Scene.Scale) properties:"
+  -- ───── Continuous level-of-detail (Layer smoothstep/layerBlend/easeDetail) ─
+  -- RED: src/Layer.purs is being replaced — the discrete scale-ladder API
+  -- (ScaleLayer/layerUp/layerDown/applyLayerZoom/…) gives way to a CONTINUOUS
+  -- LOD model. These tests reference functions that DO NOT EXIST YET, so they
+  -- fail to compile (unknown value / not exported) until the implementer adds:
+  --   * `smoothstep :: Number -> Number -> Number -> Number` — a clamped Hermite
+  --     interpolation (edge0 edge1 x), 0 below edge0, 1 above edge1, smooth in
+  --     between (the classic 3t²−2t³).
+  --   * detail-band constants `detailLo` / `detailHi :: Number`, bracketing the
+  --     zoom range where the ball→detailed crossfade happens, strictly inside the
+  --     camera bounds: Camera.minZoom < detailLo < detailHi <= 1.0.
+  --   * `layerBlend :: Number -> Number` — maps a zoom factor to a detail level
+  --     in [0,1] (0 = zoomed-out "balls", 1 = full detail), monotonic
+  --     non-decreasing, saturating at both ends of the camera zoom range.
+  --   * `easeDetail :: Number -> Number -> Number` — one frame of exponential
+  --     smoothing of a current detail value toward a target, a contraction that
+  --     converges to the target (fixed point at equality, stays in range).
+  log "continuous LOD (Layer smoothstep/layerBlend/easeDetail) properties:"
 
-  -- Ladder bounds: SubAtomic is the BOTTOM (no layerDown), Atomic the TOP
-  -- (no layerUp). Stepping up from SubAtomic reaches Atomic and vice-versa.
-  check "layerUp SubAtomic == Just Atomic" $
-    Layer.layerUp Layer.SubAtomic == Just Layer.Atomic
-  check "layerUp Atomic == Nothing (top of ladder)" $
-    Layer.layerUp Layer.Atomic == Nothing
-  check "layerDown Atomic == Just SubAtomic" $
-    Layer.layerDown Layer.Atomic == Just Layer.SubAtomic
-  check "layerDown SubAtomic == Nothing (bottom of ladder)" $
-    Layer.layerDown Layer.SubAtomic == Nothing
+  -- smoothstep: clamped Hermite. Below edge0 → 0, above edge1 → 1, symmetric
+  -- midpoint → 0.5, and strictly increasing through the band.
+  check "smoothstep below edge0 == 0.0" $
+    Layer.smoothstep 0.4 0.85 0.3 == 0.0
+  check "smoothstep above edge1 == 1.0" $
+    Layer.smoothstep 0.4 0.85 0.9 == 1.0
+  check "smoothstep midpoint of [0,1] == 0.5" $
+    approxEq (Layer.smoothstep 0.0 1.0 0.5) 0.5
+  check "smoothstep is monotonic increasing (0.25 < 0.75)" $
+    Layer.smoothstep 0.0 1.0 0.25 < Layer.smoothstep 0.0 1.0 0.75
 
-  -- applyLayerZoom crossings: zooming OUT past zoomOutThreshold steps UP a layer
-  -- (and resets zoom to layerResetZoom); zooming IN past zoomInThreshold steps
-  -- DOWN a layer (also resetting to layerResetZoom). Mid-range zoom is unchanged,
-  -- and a crossing at the ladder edge (no further layer) leaves both untouched.
+  -- Detail-band invariant: the crossfade band sits strictly inside the camera
+  -- zoom bounds and is ordered, terminating at or before the Builder default
+  -- zoom (1.0):  Camera.minZoom < detailLo < detailHi <= 1.0.
+  check "detail band invariant: minZoom < detailLo" $
+    Cam.minZoom < Layer.detailLo
+  check "detail band invariant: detailLo < detailHi" $
+    Layer.detailLo < Layer.detailHi
+  check "detail band invariant: detailHi <= 1.0" $
+    Layer.detailHi <= 1.0
+
+  -- layerBlend: zoom → detail in [0,1]. Fully zoomed OUT (minZoom) → 0 (balls),
+  -- the Builder default zoom (1.0) and fully zoomed IN (maxZoom) → 1 (full
+  -- detail), monotonic non-decreasing on samples.
+  check "layerBlend at minZoom == 0.0 (zoomed out -> balls)" $
+    approxEq (Layer.layerBlend Cam.minZoom) 0.0
+  check "layerBlend at 1.0 == 1.0 (Builder default -> full detail)" $
+    approxEq (Layer.layerBlend 1.0) 1.0
+  check "layerBlend at maxZoom == 1.0 (fully zoomed in)" $
+    approxEq (Layer.layerBlend Cam.maxZoom) 1.0
+  check "layerBlend monotonic non-decreasing (0.5 <= 1.0)" $
+    Layer.layerBlend 0.5 <= Layer.layerBlend 1.0
+  check "layerBlend monotonic non-decreasing (minZoom <= 0.6)" $
+    Layer.layerBlend Cam.minZoom <= Layer.layerBlend 0.6
+
+  -- easeDetail: one frame of smoothing current → target. Fixed point at
+  -- equality, moves strictly toward the target without overshoot, stays in range,
+  -- and iterating it converges to the target.
   let
-    upFromSub = Layer.applyLayerZoom Layer.SubAtomic 0.25
-    downFromAtomic = Layer.applyLayerZoom Layer.Atomic 3.5
-    midSub = Layer.applyLayerZoom Layer.SubAtomic 1.0
-    midAtomic = Layer.applyLayerZoom Layer.Atomic 1.0
-    topStays = Layer.applyLayerZoom Layer.Atomic 0.25
-    bottomStays = Layer.applyLayerZoom Layer.SubAtomic 3.5
+    easedConverged = foldl (\c _ -> Layer.easeDetail c 1.0) 0.0 (range 1 60)
 
-  check "applyLayerZoom SubAtomic 0.25 ⇒ steps UP to Atomic, zoom reset" $
-    upFromSub.layer == Layer.Atomic && approxEq upFromSub.zoom Layer.layerResetZoom
-  check "applyLayerZoom Atomic 3.5 ⇒ steps DOWN to SubAtomic, zoom reset" $
-    downFromAtomic.layer == Layer.SubAtomic && approxEq downFromAtomic.zoom Layer.layerResetZoom
-  check "applyLayerZoom SubAtomic 1.0 ⇒ unchanged (mid range)" $
-    midSub.layer == Layer.SubAtomic && approxEq midSub.zoom 1.0
-  check "applyLayerZoom Atomic 1.0 ⇒ unchanged (mid range)" $
-    midAtomic.layer == Layer.Atomic && approxEq midAtomic.zoom 1.0
-  check "applyLayerZoom Atomic 0.25 ⇒ TOP layer stays, zoom unchanged" $
-    topStays.layer == Layer.Atomic && approxEq topStays.zoom 0.25
-  check "applyLayerZoom SubAtomic 3.5 ⇒ BOTTOM layer stays, zoom unchanged" $
-    bottomStays.layer == Layer.SubAtomic && approxEq bottomStays.zoom 3.5
+  check "easeDetail fixed point: easeDetail 1.0 1.0 == 1.0" $
+    approxEq (Layer.easeDetail 1.0 1.0) 1.0
+  check "easeDetail moves toward target (0.0 -> 1.0 lands strictly between)" $
+    Layer.easeDetail 0.0 1.0 > 0.0 && Layer.easeDetail 0.0 1.0 < 1.0
+  check "easeDetail stays in range (no overshoot either direction)" $
+    Layer.easeDetail 0.0 1.0 <= 1.0 && Layer.easeDetail 1.0 0.0 >= 0.0
+  check "easeDetail converges to target after ~60 frames (within 1e-3)" $
+    abs (easedConverged - 1.0) < 1.0e-3
 
-  -- Threshold invariant: the crossing thresholds sit strictly INSIDE the camera
-  -- zoom bounds and bracket the reset zoom, so a layer change always lands back
-  -- inside [zoomOutThreshold, zoomInThreshold] with headroom to either edge:
-  --   minZoom < zoomOutThreshold < layerResetZoom < zoomInThreshold < maxZoom.
-  check "threshold invariant: minZoom < zoomOutThreshold" $
-    Cam.minZoom < Layer.zoomOutThreshold
-  check "threshold invariant: zoomOutThreshold < layerResetZoom" $
-    Layer.zoomOutThreshold < Layer.layerResetZoom
-  check "threshold invariant: layerResetZoom < zoomInThreshold" $
-    Layer.layerResetZoom < Layer.zoomInThreshold
-  check "threshold invariant: zoomInThreshold < maxZoom" $
-    Layer.zoomInThreshold < Cam.maxZoom
-
-  -- Scene.Scale joins the switch as a 5th scene: the toggle is now a 5-cycle
-  -- CubePoc → Atomos → Molecule → Builder → Scale → CubePoc.
-  check "nextScene is a 5-cycle returning to CubePoc" $
-    nextScene (nextScene (nextScene (nextScene (nextScene CubePoc)))) == CubePoc
-  check "nextScene reaches Scale after Builder (4 steps from CubePoc)" $
-    nextScene (nextScene (nextScene (nextScene CubePoc))) == Scale
-  check "nextScene Scale closes the loop to CubePoc" $
-    nextScene Scale == CubePoc
-
-  -- The Scale scene has a non-empty, lowercase banner title (matches the exact
-  -- string the implementer adds to Scene.sceneTitle).
-  check "sceneTitle Scale is non-empty" $
-    sceneTitle Scale /= ""
-  check "sceneTitle Scale == \"scale\"" $
-    sceneTitle Scale == "scale"
-
-  log "all scale-layer zoom properties hold."
+  log "all continuous LOD properties hold."
 
 -- Fold applyZoomStep repeatedly with a fixed wheel delta, starting from `start`.
 -- Used to assert repeated stepping stays clamped within [minZoom, maxZoom].

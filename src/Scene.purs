@@ -1,6 +1,6 @@
--- The app has two scenes: the original cube POC and the atomos atom
--- visualizer. An on-screen switch toggles between them; each scene supplies
--- its own backdrop (clear color) and entities.
+-- The app has four scenes: the original cube POC, the atomos atom visualizer,
+-- the molecule scene, and the builder sandbox. An on-screen switch cycles
+-- between them; each scene supplies its own backdrop (clear color) and entities.
 module Scene
   ( Scene(..)
   , nextScene
@@ -17,17 +17,15 @@ data Scene
   | Atomos
   | Molecule
   | Builder
-  | Scale
 
 derive instance eqScene :: Eq Scene
 
--- Cycle to the next scene: CubePoc → Atomos → Molecule → Builder → Scale → CubePoc.
+-- Cycle to the next scene: CubePoc → Atomos → Molecule → Builder → CubePoc.
 nextScene :: Scene -> Scene
 nextScene CubePoc = Atomos
 nextScene Atomos = Molecule
 nextScene Molecule = Builder
-nextScene Builder = Scale
-nextScene Scale = CubePoc
+nextScene Builder = CubePoc
 
 -- Human-readable scene name, used by the overlay title banner.
 sceneTitle :: Scene -> String
@@ -35,7 +33,6 @@ sceneTitle CubePoc = "Cube POC"
 sceneTitle Atomos = "atomos"
 sceneTitle Molecule = "molecule"
 sceneTitle Builder = "builder"
-sceneTitle Scale = "scale"
 
 -- Near-black "deep space" backdrop for the atomos scene.
 spaceColor :: Color
