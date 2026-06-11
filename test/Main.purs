@@ -1218,6 +1218,22 @@ main = do
   check "projection minZoom: origin stays behind the near plane (ndc z ≥ -1)" $
     originNdcZ >= -1.0
 
+  -- Control-panel zoom buttons: the #zoom-in / #zoom-out buttons reuse the
+  -- existing applyZoomStep by pushing a FIXED synthetic wheel delta,
+  -- Cam.buttonZoomDelta. RED until Camera.purs exports that positive constant.
+  -- + zooms IN (push −buttonZoomDelta), − zooms OUT (push +buttonZoomDelta);
+  -- both clamp at the bounds, exactly like the wheel.
+  check "buttonZoomDelta is a positive magnitude" $
+    Cam.buttonZoomDelta > 0.0
+  check "zoom-in button (−Δ) increases zoom" $
+    Cam.applyZoomStep 1.0 (negate Cam.buttonZoomDelta) > 1.0
+  check "zoom-out button (+Δ) decreases zoom" $
+    Cam.applyZoomStep 1.0 Cam.buttonZoomDelta < 1.0
+  check "zoom-in button clamps at maxZoom" $
+    Cam.applyZoomStep Cam.maxZoom (negate Cam.buttonZoomDelta) <= Cam.maxZoom
+  check "zoom-out button clamps at minZoom" $
+    Cam.applyZoomStep Cam.minZoom Cam.buttonZoomDelta >= Cam.minZoom
+
   log "all camera zoom projection properties hold."
 
   -- ───── Builder valence-only toggle (valence-only M2) ────────────────

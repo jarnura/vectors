@@ -17,6 +17,7 @@ module Camera
   , projection
   , clampZoom
   , applyZoomStep
+  , buttonZoomDelta
   ) where
 
 import Prelude
@@ -52,6 +53,15 @@ maxZoom = 5.0
 -- positive: a typical wheel notch (~±100) changes zoom by exp(±0.15) ≈ ±16%.
 zoomSensitivity :: Number
 zoomSensitivity = 0.0015
+
+-- | A fixed positive synthetic wheel-delta magnitude per on-screen zoom-button
+-- | click. The #zoom-in / #zoom-out buttons reuse `applyZoomStep` by pushing
+-- | ∓`buttonZoomDelta` as a synthetic wheel delta, mirroring the mouse wheel.
+-- | One click ≈ exp(zoomSensitivity * 120) = exp(0.18) ≈ 1.197, i.e. ~+19.7%
+-- | zoom-in / ~−16.5% zoom-out — the same order as one wheel notch (~100).
+-- | Pure; no Effect.
+buttonZoomDelta :: Number
+buttonZoomDelta = 120.0
 
 -- | The perspective×camera projection at a given zoom and canvas size. At
 -- | zoom 1.0 the camera translation is `-cameraDistance` (byte-identical to the

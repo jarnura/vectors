@@ -113,6 +113,17 @@ export const installWheelListener = (cb) => () => {
   );
 };
 
+// On-screen zoom buttons: #zoom-in fires cb(-delta) (zoom IN) and #zoom-out
+// fires cb(+delta) (zoom OUT), reusing the same zoom channel as the wheel. The
+// magnitude is passed from PureScript (Camera.buttonZoomDelta) — no literal
+// here. Null-guarded like the other control wirings.
+export const installZoomButtons = (delta) => (cb) => () => {
+  const zin = document.getElementById("zoom-in");
+  const zout = document.getElementById("zoom-out");
+  if (zin) zin.addEventListener("click", () => cb(-delta)());
+  if (zout) zout.addEventListener("click", () => cb(delta)());
+};
+
 export const requestAnimationFrame = (effect) => () => {
   window.requestAnimationFrame(() => effect());
 };

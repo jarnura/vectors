@@ -6,12 +6,14 @@ module FRP.Loop
   , installClearButton
   , installCanvasPointer
   , installWheelListener
+  , installZoomButtons
   , installValenceOnlyToggle
   , installSubshellViewToggle
   ) where
 
 import Prelude
 
+import Camera as Camera
 import Controls (installBondButton, runBondAnimation)
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
@@ -102,6 +104,13 @@ foreign import installCanvasPointer
 foreign import installWheelListener
   :: (Number -> Effect Unit) -> Effect Unit
 
+-- Wires the on-screen zoom buttons (#zoom-in / #zoom-out): the first argument is
+-- the per-click delta magnitude. #zoom-in fires cb(−mag) for zoom IN, #zoom-out
+-- fires cb(+mag) for zoom OUT — synthetic wheel deltas that reuse the same zoom
+-- channel as the mouse wheel. DOM-only input plumbing — never touches WebGL.
+foreign import installZoomButtons
+  :: Number -> (Number -> Effect Unit) -> Effect Unit
+
 foreign import requestAnimationFrame
   :: Effect Unit -> Effect Unit
 
@@ -134,6 +143,10 @@ runLoop spec = do
   -- Mouse wheel over the canvas: push the raw deltaY as a zoom step. The FFI
   -- preventDefault's the wheel so the page never scrolls.
   installWheelListener \d ->
+    Ref.modify_ (_ { zoomDelta = Just d }) inputRef
+  -- On-screen zoom buttons push a synthetic wheel delta into the SAME channel:
+  -- #zoom-in → −buttonZoomDelta (zoom in), #zoom-out → +buttonZoomDelta (out).
+  installZoomButtons Camera.buttonZoomDelta \d ->
     Ref.modify_ (_ { zoomDelta = Just d }) inputRef
   -- Bond control: clicking #bond-btn runs an anime.js value animation whose
   -- onUpdate pushes the current bond progress into the input ref (DOM-driven).
