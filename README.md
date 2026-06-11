@@ -53,6 +53,9 @@ four scenes, toggled by an on-screen switch:
   the sandbox, or Clear all atoms.
 - **Drag atoms** (Builder) — drag atoms in 3D with the mouse; atoms that come
   close auto-bond (valence-aware, with break hysteresis) into molecules.
+- **Move a molecule** (Builder) — **single-click + drag** moves the whole
+  connected molecule (all bonded atoms together); **double-click an atom then
+  drag** moves just that one atom.
 - **Valence only checkbox** (Builder) — hide the blue core (inner-shell)
   electrons, leaving only an atom's amber valence electrons and the bonding pairs.
 - **Panel toggle** (icon below the scene title) — slide the controls drawer in
