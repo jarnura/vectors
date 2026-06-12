@@ -1897,6 +1897,203 @@ main = do
 
   log "all M1 constraint model properties hold."
 
+  -- ───── M2: op-wiring (addAtom / moveAtom / moveMolecule invoke resolveOverlaps) ──
+  -- GREEN as of M2: addAtom / moveAtom / moveMolecule each run resolveOverlaps
+  -- (Pauli-exclusion separation) BEFORE recomputeBonds, with anchors of
+  -- pre-existing ids / [aid] / the moved component respectively. These tests
+  -- were RED (coincident pairs stayed coincident) until that wiring landed.
+  log "M2 op-wiring (resolveOverlaps in addAtom/moveAtom/moveMolecule) properties:"
+
+  let
+    -- Shared geometry tolerance for solver tests (1e-6).
+    m2GeoTol :: Number
+    m2GeoTol = 1.0e-6
+
+    -- Exact-position tolerance (1e-10): for positions that must be unchanged.
+    m2ExactTol :: Number
+    m2ExactTol = 1.0e-10
+
+    -- Euclidean distance between two V3 points (local helper).
+    m2Dist a b =
+      let
+        ddx = a.x - b.x
+        ddy = a.y - b.y
+        ddz = a.z - b.z
+      in
+        sqrt (ddx * ddx + ddy * ddy + ddz * ddz)
+
+    -- Retrieve a placed-atom position by id from a BuilderState.
+    m2PosById st aid_ = map _.pos (B.atomById st aid_)
+
+    -- ── (a) add-at-occupied ───────────────────────────────────────────────
+    -- Place C at the origin, then add H ON TOP of C (same pos). The OLD atom
+    -- (C, the anchor) must not move (1e-10). The new H is pushed so the pair
+    -- distance >= minSeparation C H - m2GeoTol.
+    aBaseC = B.addAtom 6 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
+    aCId = fromMaybe (-1) (map _.id (index aBaseC.atoms 0))
+    aOccupied = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } aBaseC
+    aNewHId = fromMaybe (-1) (map _.id (index aOccupied.atoms 1))
+    aCPosAfter = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (m2PosById aOccupied aCId)
+    aNewHPos = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (m2PosById aOccupied aNewHId)
+    aFloorCH = B.minSeparation 6 1
+
+    -- ── (b) addAtom far from everything ──────────────────────────────────
+    -- Add H at x=600, far from the C at origin. Must land EXACTLY at {600,0,0}.
+    bSt = B.addAtom 1 { x: 600.0, y: 0.0, z: 0.0 } aBaseC
+    bNewHId = fromMaybe (-1) (map _.id (index bSt.atoms 1))
+    bNewHPos = fromMaybe { x: -1.0, y: -1.0, z: -1.0 } (m2PosById bSt bNewHId)
+
+    -- ── (c) moveAtom collision ────────────────────────────────────────────
+    -- Two H far apart (1000 apart). Move H0 onto H1's exact position. H0 lands
+    -- EXACTLY at target (1e-10, because it is the anchor). H1 gets pushed to
+    -- >= minSeparation(1,1) - m2GeoTol.
+    cH0 = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
+    cH1 = B.addAtom 1 { x: 1000.0, y: 0.0, z: 0.0 } cH0
+    cH0Id = fromMaybe (-1) (map _.id (index cH1.atoms 0))
+    cH1Id = fromMaybe (-1) (map _.id (index cH1.atoms 1))
+    cH1OrigPos = fromMaybe { x: 1000.0, y: 0.0, z: 0.0 } (m2PosById cH1 cH1Id)
+    cMoved = B.moveAtom cH0Id cH1OrigPos cH1
+    cH0PosAfter = fromMaybe { x: -1.0, y: -1.0, z: -1.0 } (m2PosById cMoved cH0Id)
+    cH1PosAfter = fromMaybe { x: -1.0, y: -1.0, z: -1.0 } (m2PosById cMoved cH1Id)
+    cFloorHH = B.minSeparation 1 1
+
+    -- ── (d) moveAtom to a free spot ───────────────────────────────────────
+    -- Two H far apart. Move H0 to {600,0,0} (free, > floor from H1 at 1000).
+    -- H0 at target exactly (1e-10). H1 unmoved (1e-10).
+    dFreeTarget = { x: 600.0, y: 0.0, z: 0.0 }
+    dMoved = B.moveAtom cH0Id dFreeTarget cH1
+    dH0PosAfter = fromMaybe { x: -1.0, y: -1.0, z: -1.0 } (m2PosById dMoved cH0Id)
+    dH1PosAfter = fromMaybe { x: -1.0, y: -1.0, z: -1.0 } (m2PosById dMoved cH1Id)
+    dH1OrigPos = fromMaybe { x: 1000.0, y: 0.0, z: 0.0 } (m2PosById cH1 cH1Id)
+
+    -- ── (e) moveMolecule collision ─────────────────────────────────────────
+    -- Build a bonded H-H molecule: two H at distance 150 (< bondThreshold,
+    -- > floor). Place a lone C far enough away to not bond. Move the whole
+    -- H-H molecule so its anchor lands exactly on the C's position. The
+    -- anchor lands at the C exactly (1e-10). The internal pair distance
+    -- (within the H-H component) is preserved (1e-6, rigid). Every cross pair
+    -- (H × C) ends up >= their floor - m2GeoTol.
+    -- Use explicit resolveOverlaps to set up bonded H-H cleanly.
+    eMolBase = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
+    eMolH1Id = fromMaybe (-1) (map _.id (index eMolBase.atoms 0))
+    eMolWithH2 = B.addAtom 1 { x: 150.0, y: 0.0, z: 0.0 } eMolBase
+    eMolH2Id = fromMaybe (-1) (map _.id (index eMolWithH2.atoms 1))
+    eMolWithC = B.addAtom 6 { x: 2000.0, y: 0.0, z: 0.0 } eMolWithH2
+    eMolCId = fromMaybe (-1) (map _.id (index eMolWithC.atoms 2))
+    eMolCPos = fromMaybe { x: 2000.0, y: 0.0, z: 0.0 } (m2PosById eMolWithC eMolCId)
+    eMolInternalDistBefore = m2Dist
+      (fromMaybe { x: 0.0, y: 0.0, z: 0.0 } (m2PosById eMolWithC eMolH1Id))
+      (fromMaybe { x: 150.0, y: 0.0, z: 0.0 } (m2PosById eMolWithC eMolH2Id))
+    eMolMoved = B.moveMolecule eMolH1Id eMolCPos eMolWithC
+    eMolH1PosAfter = fromMaybe { x: -1.0, y: -1.0, z: -1.0 } (m2PosById eMolMoved eMolH1Id)
+    eMolH2PosAfter = fromMaybe { x: -1.0, y: -1.0, z: -1.0 } (m2PosById eMolMoved eMolH2Id)
+    eMolCPosAfter = fromMaybe { x: -1.0, y: -1.0, z: -1.0 } (m2PosById eMolMoved eMolCId)
+    eMolInternalDistAfter = m2Dist eMolH1PosAfter eMolH2PosAfter
+
+    -- ── (f) bonding through the floor ─────────────────────────────────────
+    -- Clear, addAtom H at origin, addAtom H at distance 50 (< floor ~130).
+    -- After addAtom wiring, constraint separates them to >= floor but < bondThreshold,
+    -- so exactly one bond forms and molecules has ONE 2-atom component.
+    fBase = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
+    fWith2 = B.addAtom 1 { x: 50.0, y: 0.0, z: 0.0 } fBase
+    fH0Id = fromMaybe (-1) (map _.id (index fWith2.atoms 0))
+    fH1Id = fromMaybe (-1) (map _.id (index fWith2.atoms 1))
+    fH0Pos = fromMaybe { x: 0.0, y: 0.0, z: 0.0 } (m2PosById fWith2 fH0Id)
+    fH1Pos = fromMaybe { x: 50.0, y: 0.0, z: 0.0 } (m2PosById fWith2 fH1Id)
+    fPairDist = m2Dist fH0Pos fH1Pos
+    fFloorHH = B.minSeparation 1 1
+    fComps = B.molecules fWith2
+
+    -- ── (g) determinism ──────────────────────────────────────────────────
+    -- Repeat scenario (a) twice independently. Final positions must be identical
+    -- (1e-10). Uses the same C-then-H-at-same-pos fixture.
+    gRun1 = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } (B.addAtom 6 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
+    gRun2 = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } (B.addAtom 6 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
+    gCId1 = fromMaybe (-1) (map _.id (index gRun1.atoms 0))
+    gHId1 = fromMaybe (-1) (map _.id (index gRun1.atoms 1))
+    gCId2 = fromMaybe (-1) (map _.id (index gRun2.atoms 0))
+    gHId2 = fromMaybe (-1) (map _.id (index gRun2.atoms 1))
+    gCPos1 = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (m2PosById gRun1 gCId1)
+    gHPos1 = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (m2PosById gRun1 gHId1)
+    gCPos2 = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (m2PosById gRun2 gCId2)
+    gHPos2 = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (m2PosById gRun2 gHId2)
+
+  -- (a) add-at-occupied: old atom (C) unchanged, new atom (H) pushed to >= floor
+  check "M2 add-at-occupied: existing C position unchanged (x, 1e-10)" $
+    abs (aCPosAfter.x - 0.0) < m2ExactTol
+  check "M2 add-at-occupied: existing C position unchanged (y, 1e-10)" $
+    abs (aCPosAfter.y - 0.0) < m2ExactTol
+  check "M2 add-at-occupied: existing C position unchanged (z, 1e-10)" $
+    abs (aCPosAfter.z - 0.0) < m2ExactTol
+  check "M2 add-at-occupied: new H pushed to >= minSeparation(C,H) - 1e-6" $
+    m2Dist aCPosAfter aNewHPos >= aFloorCH - m2GeoTol
+
+  -- (b) addAtom far: new atom lands EXACTLY at requested position (1e-10)
+  check "M2 addAtom far: new H lands exactly at x=600 (1e-10)" $
+    abs (bNewHPos.x - 600.0) < m2ExactTol
+  check "M2 addAtom far: new H lands exactly at y=0 (1e-10)" $
+    abs (bNewHPos.y - 0.0) < m2ExactTol
+  check "M2 addAtom far: new H lands exactly at z=0 (1e-10)" $
+    abs (bNewHPos.z - 0.0) < m2ExactTol
+
+  -- (c) moveAtom collision: moved atom (anchor) lands exactly at target, pushed atom >= floor
+  check "M2 moveAtom collision: moved H0 lands exactly at target x (1e-10)" $
+    abs (cH0PosAfter.x - cH1OrigPos.x) < m2ExactTol
+  check "M2 moveAtom collision: moved H0 lands exactly at target y (1e-10)" $
+    abs (cH0PosAfter.y - cH1OrigPos.y) < m2ExactTol
+  check "M2 moveAtom collision: moved H0 lands exactly at target z (1e-10)" $
+    abs (cH0PosAfter.z - cH1OrigPos.z) < m2ExactTol
+  check "M2 moveAtom collision: pushed H1 >= minSeparation(H,H) - 1e-6 from H0" $
+    m2Dist cH0PosAfter cH1PosAfter >= cFloorHH - m2GeoTol
+
+  -- (d) moveAtom free spot: moved atom exactly at target, other atom unmoved
+  check "M2 moveAtom free: H0 lands exactly at target x=600 (1e-10)" $
+    abs (dH0PosAfter.x - dFreeTarget.x) < m2ExactTol
+  check "M2 moveAtom free: H0 lands exactly at target y=0 (1e-10)" $
+    abs (dH0PosAfter.y - dFreeTarget.y) < m2ExactTol
+  check "M2 moveAtom free: H0 lands exactly at target z=0 (1e-10)" $
+    abs (dH0PosAfter.z - dFreeTarget.z) < m2ExactTol
+  check "M2 moveAtom free: H1 unmoved (x, 1e-10)" $
+    abs (dH1PosAfter.x - dH1OrigPos.x) < m2ExactTol
+  check "M2 moveAtom free: H1 unmoved (y, 1e-10)" $
+    abs (dH1PosAfter.y - dH1OrigPos.y) < m2ExactTol
+
+  -- (e) moveMolecule collision: anchor at target exactly, rigid internal distance, cross >= floor
+  check "M2 moveMolecule collision: anchor H1 lands exactly at C target x (1e-10)" $
+    abs (eMolH1PosAfter.x - eMolCPos.x) < m2ExactTol
+  check "M2 moveMolecule collision: anchor H1 lands exactly at C target y (1e-10)" $
+    abs (eMolH1PosAfter.y - eMolCPos.y) < m2ExactTol
+  check "M2 moveMolecule collision: anchor H1 lands exactly at C target z (1e-10)" $
+    abs (eMolH1PosAfter.z - eMolCPos.z) < m2ExactTol
+  check "M2 moveMolecule collision: internal H-H distance preserved after move (1e-6)" $
+    abs (eMolInternalDistAfter - eMolInternalDistBefore) < m2GeoTol
+  check "M2 moveMolecule collision: H1 x C >= minSeparation(H,C) - 1e-6" $
+    m2Dist eMolH1PosAfter eMolCPosAfter >= B.minSeparation 1 6 - m2GeoTol
+  check "M2 moveMolecule collision: H2 x C >= minSeparation(H,C) - 1e-6" $
+    m2Dist eMolH2PosAfter eMolCPosAfter >= B.minSeparation 1 6 - m2GeoTol
+
+  -- (f) bonding through the floor: sub-floor add → pair separates to >= floor AND bonds
+  check "M2 bonding through floor: pair distance >= floor - 1e-6 after addAtom" $
+    fPairDist >= fFloorHH - m2GeoTol
+  check "M2 bonding through floor: pair distance < bondThreshold (bond range)" $
+    fPairDist < B.bondThreshold
+  check "M2 bonding through floor: exactly one bond forms" $
+    length fWith2.bonds == 1
+  check "M2 bonding through floor: molecules has ONE 2-atom component" $
+    length fComps == 1 && all (\comp -> length comp == 2) fComps
+
+  -- (g) determinism: identical inputs → identical final positions (1e-10)
+  check "M2 determinism: run1 C pos.x == run2 C pos.x (1e-10)" $
+    abs (gCPos1.x - gCPos2.x) < m2ExactTol
+  check "M2 determinism: run1 C pos.y == run2 C pos.y (1e-10)" $
+    abs (gCPos1.y - gCPos2.y) < m2ExactTol
+  check "M2 determinism: run1 H pos.x == run2 H pos.x (1e-10)" $
+    abs (gHPos1.x - gHPos2.x) < m2ExactTol
+  check "M2 determinism: run1 H pos.y == run2 H pos.y (1e-10)" $
+    abs (gHPos1.y - gHPos2.y) < m2ExactTol
+
+  log "all M2 op-wiring properties hold."
+
 -- Fold applyZoomStep repeatedly with a fixed wheel delta, starting from `start`.
 -- Used to assert repeated stepping stays clamped within [minZoom, maxZoom].
 foldZoom :: Number -> Number -> Array Int -> Number

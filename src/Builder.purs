@@ -84,23 +84,36 @@ breakThreshold :: Number
 breakThreshold = 230.0
 
 -- Place a new atom of atomic number `z` at `pos`. It receives a fresh id from
--- nextId, is appended (prior atoms untouched), nextId is bumped, and bonds are
--- recomputed. Returns a new record.
+-- nextId, is appended, and nextId is bumped. Then the Pauli-exclusion
+-- separation constraint runs (`resolveOverlaps`) BEFORE bonds are recomputed:
+-- the anchors are the PRE-EXISTING atom ids, so the NEW atom yields (is pushed
+-- off any occupied spot) while every existing atom stays exactly put. Physics:
+-- filled shells never interpenetrate; the covalent shared pair remains the one
+-- allowed overlap (bonding still happens, just never below the contact floor).
+-- Returns a new record.
 addAtom :: Int -> V3 -> BuilderState -> BuilderState
 addAtom z pos st =
   recomputeBonds
-    st
-      { atoms = snoc st.atoms { id: st.nextId, z, pos }
-      , nextId = st.nextId + 1
-      }
+    ( resolveOverlaps (map _.id st.atoms)
+        st
+          { atoms = snoc st.atoms { id: st.nextId, z, pos }
+          , nextId = st.nextId + 1
+          }
+    )
 
 -- Move the atom with id `aid` to `pos` (immutably replacing only that atom's
--- position) and recompute bonds. Other atoms are untouched.
+-- position), then run the Pauli-exclusion separation constraint
+-- (`resolveOverlaps`) BEFORE recomputing bonds. The anchor is the dragged atom
+-- itself (`[aid]`): it lands EXACTLY at the requested target, and any atom now
+-- inside its contact floor is pushed away instead. Physics: filled shells never
+-- interpenetrate; the covalent shared pair remains the one allowed overlap.
 moveAtom :: Int -> V3 -> BuilderState -> BuilderState
 moveAtom aid pos st =
   recomputeBonds
-    st
-      { atoms = map (\a -> if a.id == aid then a { pos = pos } else a) st.atoms }
+    ( resolveOverlaps [ aid ]
+        st
+          { atoms = map (\a -> if a.id == aid then a { pos = pos } else a) st.atoms }
+    )
 
 -- The connected component (molecule) containing `aid`, as the sorted atom ids —
 -- reusing the SAME connected-component flood `molecules` uses, so there is one
@@ -112,9 +125,15 @@ componentOf st aid = fromMaybe [] (find (\comp -> elem aid comp) (molecules st))
 -- Move the WHOLE molecule of the anchor atom `aid` rigidly so the anchor lands
 -- at `pos`: the SAME delta (pos − anchor.pos) is applied to every atom in the
 -- anchor's connected component, preserving relative geometry (and therefore the
--- internal bonds), then bonds are recomputed. An absent anchor is identity. A
--- lone/singleton atom reduces to `moveAtom`. Single-click+drag uses this; a
--- double-click+drag uses `moveAtom` to move just the one atom.
+-- internal bonds). Then the Pauli-exclusion separation constraint runs
+-- (`resolveOverlaps`) BEFORE bonds are recomputed: the anchors are ALL the ids
+-- of the moved component (computed on the pre-shift state — the rigid shift
+-- does not change bonds, so the component is identical after it), so external
+-- atoms yield while the moved molecule stays rigid; intra-component pairs are
+-- both-anchor and skipped. Physics: filled shells never interpenetrate; the
+-- covalent shared pair remains the one allowed overlap. An absent anchor is
+-- identity. A lone/singleton atom reduces to `moveAtom`. Single-click+drag
+-- uses this; a double-click+drag uses `moveAtom` to move just the one atom.
 moveMolecule :: Int -> V3 -> BuilderState -> BuilderState
 moveMolecule aid pos st =
   case atomById st aid of
@@ -130,7 +149,7 @@ moveMolecule aid pos st =
             a { pos = { x: a.pos.x + dx, y: a.pos.y + dy, z: a.pos.z + dz } }
           else a
       in
-        recomputeBonds (st { atoms = map shift st.atoms })
+        recomputeBonds (resolveOverlaps comp (st { atoms = map shift st.atoms }))
 
 -- Reset to the empty world.
 clear :: BuilderState -> BuilderState
