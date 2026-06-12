@@ -44,45 +44,50 @@ with four **scenes**, toggled by an on-screen switch (`nextScene` 4-cycles):
   a **double-click on an atom then drag moves just that one atom** (`Builder.moveAtom`,
   detected by the native mouse click count, `event.detail ≥ 2`); a lone atom moves
   the same either way. The Builder background is **plain near-black space (no
-  starfield)** — only atomos and Molecule keep their starfields. When atoms come near each other they **auto-bond, valence-aware**
-  (H=1, C=4, N=3, O=2, … via `Chem.valence`) with **break hysteresis** (bonds form
-  under `bondThreshold`, break only past the wider `breakThreshold`). Connected atoms
-  become a **molecule** with a derived Hill-style Unicode formula (e.g. `H₂O`). Each
-  placed atom renders its **real per-element nucleus** (via `Atom.nucleons`, so e.g.
-  Carbon/Oxygen show a denser/larger nucleus than Hydrogen). Atoms also render at
-  **different sizes by element** — the atomic-layer ball is scaled by the pure
-  `Atom.atomicRadius` (normalised Cordero covalent radii: Hydrogen smallest,
-  Carbon/Oxygen larger) — and each atom shows its **atomic symbol** (H, C, O, …,
-  `Atom.symbolOf`) as an **HTML overlay label** (the `Labels` FFI, projected per
-  atom, fading with the ball). A covalent bond shows a
-  **shared electron pair** in the bond, while each atom carries only its **lone
-  electrons** (valence − bonded degree), so the total electron count is conserved
-  (`Σ valence`). Electrons are **colour-coded by role**: an atom's **valence**
-  electrons (its outermost shell plus the shared bonding pair) render in a distinct
-  **amber**, vs its **core** (inner-shell) electrons which stay **blue** — the
-  valence shell is taken from the element configuration (`Atom.electronShells`, last
-  shell), so e.g. Carbon (shells `[2,4]`) shows 2 blue core electrons on the inner
-  ring and 4 amber valence electrons on the outer ring. A **"Valence only"
-  toggle** (`#valence-only` checkbox) hides the core (inner-shell, blue)
-  electrons, leaving only the valence electrons (amber outer-shell lone + the
-  amber shared bonding pair) — Builder-only; other scenes unaffected. The
-  dynamic world lives in a pure model (`Builder`) behind a single shared `Ref`
-  source of truth (`BuilderApi`), also exposed as a `window.__builder` test API.
-  The controls live in a **left drawer**, opened by a `#panel-toggle` icon
-  (top-left, below the scene title) that slides the glassy panel in from the
-  left via anime.js on click and back out on a second click. **Zoom drives a
-  smooth level-of-detail (LOD)** on each placed atom: zoom **OUT** and each atom
-  collapses to a single **element-coloured ball**; zoom **IN** and it blooms into
-  its real nucleus (`Atom.nucleons`) + electrons. The in-between is a
-  **continuous, frame-eased cross-fade** — even the `#zoom-in`/`#zoom-out` button
-  steps animate smoothly (no abrupt swap, no zoom reset; drag/interaction
-  preserved). It **reuses the existing zoom input** (mouse wheel + zoom buttons →
-  `Input.zoomDelta`) — no new channel; the detail factor is a pure function of
-  zoom (`Layer.layerBlend`), eased per frame (`State.detail`). Bonds stay visible
-  in both layers: the **atomic (zoomed-out) layer** draws each bond as a
-  **connecting line** between atom-balls (a pre-built `Meshes.unitBeam` per
-  `Builder.bondSegments`, fading as you zoom into the sub-atomic layer), while the
-  **sub-atomic layer** keeps the **shared electron-pair** bond spheres. The
+  starfield)** — only atomos and Molecule keep their starfields. **Atoms obey a
+  Pauli-exclusion-inspired no-overlap constraint**: no two atom centres ever sit
+  closer than their per-element-pair contact floor (via pure `minSeparation`, derived
+  from summed `Atom.atomicRadius`), enforced by `Builder.resolveOverlaps` before
+  bonding; the constraint is anchor-aware (dragged atoms/molecules win, others yield)
+  and deterministic (idempotent on valid states, no drag jitter). The shared covalent
+  pair remains the one allowed overlap, so auto-bonding still works. When atoms come
+  near each other they **auto-bond, valence-aware** (H=1, C=4, N=3, O=2, … via
+  `Chem.valence`) with **break hysteresis** (bonds form under `bondThreshold`, break
+  only past the wider `breakThreshold`). Connected atoms become a **molecule** with a
+  derived Hill-style Unicode formula (e.g. `H₂O`). Each placed atom renders its
+  **real per-element nucleus** (via `Atom.nucleons`, so e.g. Carbon/Oxygen show a
+  denser/larger nucleus than Hydrogen). Atoms also render at **different sizes by
+  element** — the atomic-layer ball is scaled by the pure `Atom.atomicRadius`
+  (normalised Cordero covalent radii: Hydrogen smallest, Carbon/Oxygen larger) — and
+  each atom shows its **atomic symbol** (H, C, O, …, `Atom.symbolOf`) as an **HTML
+  overlay label** (the `Labels` FFI, projected per atom, fading with the ball). A
+  covalent bond shows a **shared electron pair** in the bond, while each atom carries
+  only its **lone electrons** (valence − bonded degree), so the total electron count
+  is conserved (`Σ valence`). Electrons are **colour-coded by role**: an atom's
+  **valence** electrons (its outermost shell plus the shared bonding pair) render in
+  a distinct **amber**, vs its **core** (inner-shell) electrons which stay **blue** —
+  the valence shell is taken from the element configuration (`Atom.electronShells`,
+  last shell), so e.g. Carbon (shells `[2,4]`) shows 2 blue core electrons on the
+  inner ring and 4 amber valence electrons on the outer ring. A **"Valence only"
+  toggle** (`#valence-only` checkbox) hides the core (inner-shell, blue) electrons,
+  leaving only the valence electrons (amber outer-shell lone + the amber shared
+  bonding pair) — Builder-only; other scenes unaffected. The dynamic world lives in
+  a pure model (`Builder`) behind a single shared `Ref` source of truth
+  (`BuilderApi`), also exposed as a `window.__builder` test API. The controls live
+  in a **left drawer**, opened by a `#panel-toggle` icon (top-left, below the scene
+  title) that slides the glassy panel in from the left via anime.js on click and
+  back out on a second click. **Zoom drives a smooth level-of-detail (LOD)** on each
+  placed atom: zoom **OUT** and each atom collapses to a single **element-coloured
+  ball**; zoom **IN** and it blooms into its real nucleus (`Atom.nucleons`) +
+  electrons. The in-between is a **continuous, frame-eased cross-fade** — even the
+  `#zoom-in`/`#zoom-out` button steps animate smoothly (no abrupt swap, no zoom
+  reset; drag/interaction preserved). It **reuses the existing zoom input** (mouse
+  wheel + zoom buttons → `Input.zoomDelta`) — no new channel; the detail factor is
+  a pure function of zoom (`Layer.layerBlend`), eased per frame (`State.detail`).
+  Bonds stay visible in both layers: the **atomic (zoomed-out) layer** draws each
+  bond as a **connecting line** between atom-balls (a pre-built `Meshes.unitBeam`
+  per `Builder.bondSegments`, fading as you zoom into the sub-atomic layer), while
+  the **sub-atomic layer** keeps the **shared electron-pair** bond spheres. The
   "Valence only" toggle composes with the LOD.
 
 Each fundamental particle is a sphere. Perspective projection + canvas-resize
@@ -131,7 +136,7 @@ Module map (under `src/`):
 | `Atom` | `Atom.purs` | Element table (Z=1..36, H…Kr) + Madelung sub-shell filling (`fillSubshells`/`subshellCap`/`configString`, per-shell totals via `electronShells`) + nucleon cluster + `electronPositions` (discrete electrons on per-sub-shell orbital rings, `subshellRadius`/`subshellInclination`; `electronPositionsBySubshell2D` gives flat XY-plane positions for the 2D Bohr view); `electronPositionsByShell` / `electronPositionsByShell2D` give shell-collapsed positions (all electrons on their principal shell ring, 3D + flat); `shellRings` returns occupied principal shell rings with radii; `clampElectron` exported for electron count clamping; `symbolOf` (element symbol string) + `atomicRadius` (normalised Cordero covalent radius per Z — Builder per-element atom sizing) |
 | `Molecule` | `Molecule.purs` | Pure, open-ended molecule model: records `Bond {a,b,order,shared}` / `MolAtom {element,center}` / `Property {label,value}` / `Molecule {name,formula,atoms,bonds,properties}`; a `molecules` registry + total/clamp-safe `moleculeOf`; `bondLength`; `sharedElectronPositions` (the shared covalent pair in the internuclear overlap, frame-animated); `moleculeNucleons` (reuses `Atom.nucleons` per atom, translated). Imports `Atom` only |
 | `Chem` | `Chem.purs` | Pure, clamp-safe **valence table** `valence :: Int -> Int` for Z = 1..36 (H…Kr). Main-group elements use their common covalent valence; transition metals (Sc…Zn) use a documented flat default of 2. Used to cap bond formation in `Builder` |
-| `Builder` | `Builder.purs` | Pure **dynamic world model** for the builder sandbox: `PlacedAtom {id,z,pos}` / `BBond {a,b}` / `BuilderState {atoms,bonds,nextId,picked}`; `addAtom`/`moveAtom`/`clear`; `recomputeBonds` (proximity + valence-capped via `Chem` + break hysteresis, `bondThreshold`/`breakThreshold`); `molecules` (connected components) + `componentOf` (the connected component containing an atom id, reusing the `molecules` flood) + `moveMolecule` (rigidly translate the whole component of an anchor atom so the anchor lands at a target — same delta for every component atom, internal bonds preserved — then `recomputeBonds`; a lone atom reduces to `moveAtom`) + `formulaOf` (Hill-style Unicode formula); `bondMidpoints`; electron helpers `degreeOf`/`loneCountOf` (per-atom bonded degree and lone count = valence − degree) + `bondElectronPositions`/`loneElectronPositions` (shared pair in each bond and the remaining lone electrons on each atom, electron count conserved); valence/core split helpers `valenceShellOf` (outermost shell from `Atom.electronShells`) + `coreLoneElectronPositions`/`valenceLoneElectronPositions` (inner-shell vs outermost-shell lone electrons for the amber/blue colour split, with `loneElectronPositions = core <> valence`); grouped electron helpers `coreLoneElectronGroups`/`valenceLoneElectronGroups`/`bondElectronGroups` (each a `{center, positions}` group, consumed by the LOD bloom cross-fade); `bondSegments` (per-bond `{a,b}` endpoint pairs for the atomic-layer bond lines); pure `projectToScreen`/`unprojectAtDepth` pick/unproject helpers. No WebGL/`Effect` |
+| `Builder` | `Builder.purs` | Pure **dynamic world model** for the builder sandbox: `PlacedAtom {id,z,pos}` / `BBond {a,b}` / `BuilderState {atoms,bonds,nextId,picked}`; `addAtom`/`moveAtom`/`moveMolecule` (each calls `resolveOverlaps` BEFORE `recomputeBonds`, enforcing the Pauli-exclusion no-overlap constraint — addAtom: the new atom yields; moveAtom: the dragged atom wins; moveMolecule: the dragged component wins) + `clear`; `recomputeBonds` (proximity + valence-capped via `Chem` + break hysteresis, `bondThreshold`/`breakThreshold`); `minSeparation` / `resolveOverlaps` (per-element-pair contact floor from `Atom.atomicRadius`, bounded relaxation solver with anchor-aware deterministic separation, idempotent on valid states); `molecules` (connected components) + `componentOf` (the connected component containing an atom id, reusing the `molecules` flood) + `moveMolecule` (rigidly translate the whole component of an anchor atom so the anchor lands at a target — same delta for every component atom, internal bonds preserved — then `recomputeBonds`; a lone atom reduces to `moveAtom`) + `formulaOf` (Hill-style Unicode formula); `bondMidpoints`; electron helpers `degreeOf`/`loneCountOf` (per-atom bonded degree and lone count = valence − degree) + `bondElectronPositions`/`loneElectronPositions` (shared pair in each bond and the remaining lone electrons on each atom, electron count conserved); valence/core split helpers `valenceShellOf` (outermost shell from `Atom.electronShells`) + `coreLoneElectronPositions`/`valenceLoneElectronPositions` (inner-shell vs outermost-shell lone electrons for the amber/blue colour split, with `loneElectronPositions = core <> valence`); grouped electron helpers `coreLoneElectronGroups`/`valenceLoneElectronGroups`/`bondElectronGroups` (each a `{center, positions}` group, consumed by the LOD bloom cross-fade); `bondSegments` (per-bond `{a,b}` endpoint pairs for the atomic-layer bond lines); pure `projectToScreen`/`unprojectAtDepth` pick/unproject helpers. No WebGL/`Effect` |
 | `BuilderApi` | `BuilderApi.purs` + `BuilderApi.js` | The **single shared `Ref BuilderState` source of truth** the renderer, the in-app Add/Clear buttons, the mouse drag, and a `window.__builder` test API (`addAtom`/`moveAtom`/`moveMolecule`/`getAtoms`/`getBonds`/`getMolecules`/`clear`) all read/write. Each mutation fires an `onChange` callback for eager re-render. `installBuilderControls` wires `#add-btn`/`#clear-btn`. DOM-only FFI, never WebGL |
 | `Controls` | `Controls.purs` + `Controls.js` | DOM-only **anime.js** controls FFI (imports only animejs; never WebGL): `renderInfoPanel` (data-driven `#molecule-info` rows + anime.js stagger reveal), `installBondButton`, `runBondAnimation` (tweens a JS value → `State.bondProgress`), `animateControlBarIn` (glassy control-bar entrance animation), `installPanelToggle` (a `#panel-toggle` icon that slides the `#controls` panel in/out as a left drawer via anime.js; closed drawer is `pointer-events:none` + off-screen so it never blocks the canvas), `installButtonPulse` (click-pulse bounce on a button by id). Sibling to `Text` |
 | `Palette` | `Palette.purs` | Shell/sub-shell colours: `shellColor n` (distinct per shell) + `subshellColor n l` (shell hue, lighter by ℓ). Pure |
@@ -173,7 +178,9 @@ synced/cleared by the `Labels` FFI.
   `playwright.config.js` sets `retries: 2` for SwiftShader render-timing
   robustness). The Builder scene is driven in E2E via the `window.__builder` test
   seam (`addAtom`/`moveAtom`/`getBonds`/`getMolecules`/`clear`), which shares the
-  same `BuilderApi` `Ref` as the renderer so reads reflect mutations immediately.
+  same `BuilderApi` `Ref` as the renderer so reads reflect mutations immediately;
+  the Pauli-exclusion no-overlap constraint is verified in
+  `builder-no-overlap.spec.js` (anchor-aware separation, deterministic resolution).
   Untested: `Graphics.GL` FFI internals, `FRP.Loop`. PureScript is
   formatted with `purs-tidy`.
 - Do NOT commit build output. `dist/`, `output/`, `.spago/`, `node_modules/`
