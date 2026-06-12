@@ -18,6 +18,13 @@ module Builder
   , clear
   , bondThreshold
   , breakThreshold
+  , contactFactor
+  , absoluteMin
+  , floorMargin
+  , floorCeil
+  , relaxPasses
+  , minSeparation
+  , resolveOverlaps
   , recomputeBonds
   , bondMidpoints
   , bondSegments
@@ -39,7 +46,7 @@ module Builder
 
 import Prelude
 
-import Atom (V3, electronShells, elementOf, nucleonRadius, nucleusRadius)
+import Atom (V3, atomicRadius, electronShells, elementOf, nucleonRadius, nucleusRadius)
 import Chem (valence)
 import Data.Array (any, concat, concatMap, filter, find, foldl, index, last, length, mapWithIndex, nub, range, snoc, sortBy, sortWith, uncons, (!!))
 import Data.Foldable (elem)
@@ -173,20 +180,10 @@ recomputeBonds :: BuilderState -> BuilderState
 recomputeBonds st =
   let
     kept = filter (\bd -> distById st bd.a bd.b <= breakThreshold) st.bonds
-    formed = foldl tryForm kept candidatePairs
+    formed = foldl tryForm kept (idPairs st)
   in
     st { bonds = formed }
   where
-  -- All unordered atom-id pairs, in ascending (a, b) id order for determinism.
-  ids = sortBy compare (map _.id st.atoms)
-  candidatePairs = do
-    i <- range 0 (length ids - 1)
-    j <- range 0 (length ids - 1)
-    if j <= i then []
-    else case ids !! i, ids !! j of
-      Just a, Just b -> [ { a, b } ]
-      _, _ -> []
-
   alreadyBonded bonds p =
     any (\bd -> (bd.a == p.a && bd.b == p.b) || (bd.a == p.b && bd.b == p.a)) bonds
 
@@ -197,6 +194,162 @@ recomputeBonds st =
         && freeValence st bonds p.a > 0
         && freeValence st bonds p.b > 0 then snoc bonds p
     else bonds
+
+-- All unordered atom-id pairs, in ascending (a, b) id order for determinism.
+-- The single candidate-pair walk shared by `recomputeBonds` (bond formation)
+-- and `resolveOverlaps` (separation constraints).
+idPairs :: BuilderState -> Array { a :: Int, b :: Int }
+idPairs st = do
+  i <- range 0 (length ids - 1)
+  j <- range 0 (length ids - 1)
+  if j <= i then []
+  else case ids !! i, ids !! j of
+    Just a, Just b -> [ { a, b } ]
+    _, _ -> []
+  where
+  ids = sortBy compare (map _.id st.atoms)
+
+-- ───── Pauli exclusion: minimum-separation constraint model ──────────
+--
+-- Physics: the Pauli exclusion principle forbids the FILLED electron shells of
+-- two atoms from interpenetrating — two atoms can never collapse onto each
+-- other, so their centres always keep a hard minimum distance. The covalent
+-- shared bonding pair is the one ALLOWED overlap: bonded atoms may sit close
+-- (anywhere below bondThreshold), just never below the contact floor. The
+-- solver below only moves atom CENTRES; the shared electron-pair rendering and
+-- all bond logic are untouched.
+
+-- Scale from the summed normalised covalent radii (Atom.atomicRadius) of a
+-- pair to its world-unit contact floor.
+contactFactor :: Number
+contactFactor = 55.0
+
+-- Hard non-collapse floor (world units): whatever the elements, nuclei /
+-- filled shells can never interpenetrate closer than this.
+absoluteMin :: Number
+absoluteMin = 130.0
+
+-- Safety margin keeping every contact floor strictly below bondThreshold.
+floorMargin :: Number
+floorMargin = 15.0
+
+-- Ceiling on the contact floor (= 165.0 = bondThreshold − floorMargin): EVERY
+-- pair's floor stays strictly below bondThreshold (180), so valence
+-- auto-bonding keeps working for any element pair, however large.
+floorCeil :: Number
+floorCeil = bondThreshold - floorMargin
+
+-- Clamp a raw radius-derived floor into [absoluteMin, floorCeil].
+clampFloor :: Number -> Number
+clampFloor x = max absoluteMin (min floorCeil x)
+
+-- Minimum allowed centre distance between atoms of atomic numbers z1/z2:
+-- proportional to the sum of their normalised covalent radii, clamped so it
+-- never drops below the hard floor nor reaches bondThreshold. Symmetric.
+minSeparation :: Int -> Int -> Number
+minSeparation z1 z2 =
+  clampFloor (contactFactor * (atomicRadius z1 + atomicRadius z2))
+
+-- FIXED number of relaxation passes: the solver is bounded (no convergence
+-- loop), so it always terminates; 10 passes settle small clusters.
+relaxPasses :: Int
+relaxPasses = 10
+
+-- Below this pair distance the separation direction is degenerate (coincident
+-- atoms) and the deterministic id-derived tie-break direction is used instead.
+coincidentEps :: Number
+coincidentEps = 1.0e-9
+
+-- Anchor-aware bounded relaxation enforcing `minSeparation` between every atom
+-- pair. Runs exactly `relaxPasses` Gauss-Seidel passes; each pass walks all
+-- unordered id pairs in ascending (a, b) order (the same `idPairs` walk
+-- `recomputeBonds` uses) and projects each violating pair back onto its floor:
+--   * d >= floor          → no change (valid states are fixed points, so the
+--                           solver is idempotent — no drag jitter);
+--   * both ids anchored   → SKIP (documented limitation: an intra-rigid-
+--                           component overlap is left to the component itself);
+--   * exactly one anchor  → push ONLY the non-anchor along the centre line,
+--                           away from the anchor, landing exactly at the floor;
+--   * neither anchored    → push BOTH apart symmetrically by (floor − d)/2
+--                           each along the centre line.
+-- Atom array order and ids are preserved (only `pos` changes); bonds are NOT
+-- recomputed here (M1 is the pure model only). Pure, total, deterministic.
+resolveOverlaps :: Array Int -> BuilderState -> BuilderState
+resolveOverlaps anchors st0 = foldl (\s _ -> relaxPass s) st0 (range 1 relaxPasses)
+  where
+  relaxPass s = foldl (separatePair anchors) s (idPairs s)
+
+-- Project one id pair back onto its separation floor (one Gauss-Seidel step).
+-- Pairs that already satisfy the floor, fully-anchored pairs, and pairs with a
+-- missing endpoint are returned unchanged.
+separatePair :: Array Int -> BuilderState -> { a :: Int, b :: Int } -> BuilderState
+separatePair anchors s p =
+  case atomById s p.a, atomById s p.b of
+    Just pa, Just pb ->
+      let
+        floorDist = minSeparation pa.z pb.z
+        d = distance pa.pos pb.pos
+        aFixed = elem p.a anchors
+        bFixed = elem p.b anchors
+      in
+        if d >= floorDist || (aFixed && bFixed) then s
+        else
+          let
+            -- Unit direction from atom a toward atom b (id-derived tie-break
+            -- when coincident, so no division by zero / NaN is possible).
+            dir = separationDir pa pb d
+          in
+            if aFixed then setAtomPos p.b (alongFrom pa.pos dir floorDist) s
+            else if bFixed then setAtomPos p.a (alongFrom pb.pos (negV3 dir) floorDist) s
+            else
+              let
+                push = (floorDist - d) / 2.0
+              in
+                setAtomPos p.b (alongFrom pb.pos dir push)
+                  (setAtomPos p.a (alongFrom pa.pos (negV3 dir) push) s)
+    _, _ -> s
+
+-- Unit separation direction from `pa` toward `pb` given their distance `d`
+-- (passed in so it is computed once). A coincident pair (d < coincidentEps)
+-- has no direction, so a deterministic tie-break direction is derived from the
+-- pair ids instead — reproducible run-to-run, never NaN, never zero-length.
+separationDir :: PlacedAtom -> PlacedAtom -> Number -> V3
+separationDir pa pb d
+  | d < coincidentEps = tieBreakDir pa.id pb.id
+  | otherwise =
+      { x: (pb.pos.x - pa.pos.x) / d
+      , y: (pb.pos.y - pa.pos.y) / d
+      , z: (pb.pos.z - pa.pos.z) / d
+      }
+
+-- Deterministic unit direction for a coincident pair: +x rotated in the XY
+-- plane by an id-derived angle, so distinct coincident pairs fan out in
+-- distinct directions while every run produces identical results. cos/sin of
+-- a finite number is always finite, so the result is NaN-free by construction.
+tieBreakDir :: Int -> Int -> V3
+tieBreakDir a b =
+  let
+    theta = toNumber (a * 7 + b * 13) * 0.61803398875
+  in
+    { x: cos theta, y: sin theta, z: 0.0 }
+
+-- The point `dist` world units from `origin` along the unit direction `dir`.
+alongFrom :: V3 -> V3 -> Number -> V3
+alongFrom origin dir dist =
+  { x: origin.x + dir.x * dist
+  , y: origin.y + dir.y * dist
+  , z: origin.z + dir.z * dist
+  }
+
+-- Negate a vector (flip a direction).
+negV3 :: V3 -> V3
+negV3 v = { x: -v.x, y: -v.y, z: -v.z }
+
+-- Replace ONLY the position of atom `aid` (immutably; array order, ids and all
+-- other atoms untouched).
+setAtomPos :: Int -> V3 -> BuilderState -> BuilderState
+setAtomPos aid pos s =
+  s { atoms = map (\a -> if a.id == aid then a { pos = pos } else a) s.atoms }
 
 -- Midpoint (in world units) of each bond's two endpoint atoms. Used by the
 -- renderer to place a shared bonding electron between the bonded nuclei. Bonds

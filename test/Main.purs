@@ -1639,6 +1639,264 @@ main = do
 
   log "all Builder atom visuals properties hold."
 
+  -- ───── M1: minSeparation + resolveOverlaps (constraint model) ────────
+  -- RED: Builder does not yet export `minSeparation` or `resolveOverlaps`.
+  -- These tests MUST fail to compile until the implementer adds those two pure
+  -- exports to src/Builder.purs. Do NOT implement them before the tests pass RED.
+  --
+  -- Constants (documented in the milestone spec):
+  --   contactFactor = 55.0
+  --   absoluteMin   = 130.0
+  --   floorCeil     = 165.0  (= bondThreshold 180.0 − floorMargin 15.0)
+  --   clampFloor x  = max absoluteMin (min floorCeil x)
+  --   minSeparation z1 z2 = clampFloor (contactFactor * (atomicRadius z1 + atomicRadius z2))
+  --   resolveOverlaps anchors state = bounded relaxation (relaxPasses=10)
+  log "M1 constraint model (minSeparation + resolveOverlaps) properties:"
+
+  let
+    -- ── helpers ──────────────────────────────────────────────────────────
+    -- Euclidean distance between two V3 points.
+    dist3 a b =
+      let
+        ddx = a.x - b.x
+        ddy = a.y - b.y
+        ddz = a.z - b.z
+      in
+        sqrt (ddx * ddx + ddy * ddy + ddz * ddz)
+
+    -- Distance between two placed atoms in a BuilderState (by array index).
+    pairDist st i j =
+      let
+        pi_ = fromMaybe { id: -1, z: 1, pos: { x: 0.0, y: 0.0, z: 0.0 } } (index st.atoms i)
+        pj_ = fromMaybe { id: -1, z: 1, pos: { x: 0.0, y: 0.0, z: 0.0 } } (index st.atoms j)
+      in
+        dist3 pi_.pos pj_.pos
+
+    -- The geometry tolerance used for solver assertions (1e-6).
+    geoTol :: Number
+    geoTol = 1.0e-6
+
+    -- The exact-position tolerance (1e-10 for unchanged atoms).
+    exactTol :: Number
+    exactTol = 1.0e-10
+
+  -- (a) FLOOR SYMMETRY: minSeparation z1 z2 == minSeparation z2 z1 for ALL z1,z2 in 1..36.
+  check "minSeparation is symmetric for all element pairs (1..36)" $
+    all identity do
+      z1 <- range 1 36
+      z2 <- range 1 36
+      pure (B.minSeparation z1 z2 == B.minSeparation z2 z1)
+
+  -- (b) WORST-CASE FLOOR: absoluteMin(130) <= minSeparation z1 z2 < bondThreshold for all pairs.
+  --     AND minSeparation 19 19 (K+K) == 165.0 (the clamped ceiling).
+  check "minSeparation is always >= absoluteMin (130) for all element pairs" $
+    all identity do
+      z1 <- range 1 36
+      z2 <- range 1 36
+      pure (B.minSeparation z1 z2 >= 130.0)
+
+  check "minSeparation is always < bondThreshold (180) for all element pairs" $
+    all identity do
+      z1 <- range 1 36
+      z2 <- range 1 36
+      pure (B.minSeparation z1 z2 < B.bondThreshold)
+
+  check "minSeparation 19 19 (K+K) == 165.0 (clamped ceiling)" $
+    approxEq (B.minSeparation 19 19) 165.0
+
+  -- (c) PAIR AT DISTANCE 0 AND PAIR AT SUB-FLOOR DISTANCE → resolveOverlaps separates them.
+  let
+    -- Two H atoms at the exact same position (coincident).
+    coincidentA = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
+    coincidentB = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } coincidentA
+    resolvedCoincident = B.resolveOverlaps [] coincidentB
+    floorHH = B.minSeparation 1 1
+
+    -- Two H atoms at distance 50 (well below the floor).
+    subFloorA = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
+    subFloorB = B.addAtom 1 { x: 50.0, y: 0.0, z: 0.0 } subFloorA
+    resolvedSubFloor = B.resolveOverlaps [] subFloorB
+    resolvedSubFloorDist = pairDist resolvedSubFloor 0 1
+
+  check "resolveOverlaps: pair at d=0 (coincident) → distance >= floor - 1e-6" $
+    pairDist resolvedCoincident 0 1 >= floorHH - geoTol
+
+  check "resolveOverlaps: pair at d=50 (sub-floor) → distance >= floor - 1e-6" $
+    resolvedSubFloorDist >= floorHH - geoTol
+
+  -- (d) THREE MUTUALLY OVERLAPPING ATOMS → every pair >= floor after resolution.
+  let
+    triA = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
+    triB = B.addAtom 6 { x: 10.0, y: 0.0, z: 0.0 } triA
+    triC = B.addAtom 8 { x: 0.0, y: 10.0, z: 0.0 } triB
+    resolvedTri = B.resolveOverlaps [] triC
+    triAtom i = fromMaybe { id: -1, z: 1, pos: { x: 0.0, y: 0.0, z: 0.0 } } (index resolvedTri.atoms i)
+    triZ i = (triAtom i).z
+    triPos i = (triAtom i).pos
+    triPairFloor i j = B.minSeparation (triZ i) (triZ j)
+    triPairDist i j = dist3 (triPos i) (triPos j)
+
+  check "resolveOverlaps: triple overlap → pair 0-1 >= floor - 1e-6" $
+    triPairDist 0 1 >= triPairFloor 0 1 - geoTol
+  check "resolveOverlaps: triple overlap → pair 0-2 >= floor - 1e-6" $
+    triPairDist 0 2 >= triPairFloor 0 2 - geoTol
+  check "resolveOverlaps: triple overlap → pair 1-2 >= floor - 1e-6" $
+    triPairDist 1 2 >= triPairFloor 1 2 - geoTol
+
+  -- (e) ANCHOR IMMOBILITY: overlapping pair, one anchor → anchor unchanged (1e-10),
+  --     partner ends up >= floor.
+  let
+    anchorSt = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
+    anchorSt2 = B.addAtom 1 { x: 40.0, y: 0.0, z: 0.0 } anchorSt
+    anchorId = fromMaybe (-1) (map _.id (index anchorSt2.atoms 0))
+    partnerId = fromMaybe (-1) (map _.id (index anchorSt2.atoms 1))
+    resolvedAnchor = B.resolveOverlaps [ anchorId ] anchorSt2
+    anchorOrigPos = fromMaybe { x: 0.0, y: 0.0, z: 0.0 } (map _.pos (B.atomById anchorSt2 anchorId))
+    anchorNewPos = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (map _.pos (B.atomById resolvedAnchor anchorId))
+    partnerNewPos = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (map _.pos (B.atomById resolvedAnchor partnerId))
+
+  check "resolveOverlaps anchor immobility: anchor x unchanged (1e-10)" $
+    abs (anchorNewPos.x - anchorOrigPos.x) < exactTol
+  check "resolveOverlaps anchor immobility: anchor y unchanged (1e-10)" $
+    abs (anchorNewPos.y - anchorOrigPos.y) < exactTol
+  check "resolveOverlaps anchor immobility: anchor z unchanged (1e-10)" $
+    abs (anchorNewPos.z - anchorOrigPos.z) < exactTol
+  check "resolveOverlaps anchor immobility: partner ends up >= floor - 1e-6" $
+    dist3 anchorNewPos partnerNewPos >= B.minSeparation 1 1 - geoTol
+
+  -- (f) BOTH-ANCHOR SKIP: overlapping pair, both anchored → BOTH positions unchanged.
+  let
+    bothAnchorSt = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
+    bothAnchorSt2 = B.addAtom 8 { x: 30.0, y: 0.0, z: 0.0 } bothAnchorSt
+    bothIdA = fromMaybe (-1) (map _.id (index bothAnchorSt2.atoms 0))
+    bothIdB = fromMaybe (-1) (map _.id (index bothAnchorSt2.atoms 1))
+    resolvedBoth = B.resolveOverlaps [ bothIdA, bothIdB ] bothAnchorSt2
+    bothPosA0 = fromMaybe { x: 0.0, y: 0.0, z: 0.0 } (map _.pos (B.atomById bothAnchorSt2 bothIdA))
+    bothPosA1 = fromMaybe { x: 0.0, y: 0.0, z: 0.0 } (map _.pos (B.atomById resolvedBoth bothIdA))
+    bothPosB0 = fromMaybe { x: 0.0, y: 0.0, z: 0.0 } (map _.pos (B.atomById bothAnchorSt2 bothIdB))
+    bothPosB1 = fromMaybe { x: 0.0, y: 0.0, z: 0.0 } (map _.pos (B.atomById resolvedBoth bothIdB))
+
+  check "resolveOverlaps both-anchor: atom A x unchanged (1e-10)" $
+    abs (bothPosA1.x - bothPosA0.x) < exactTol
+  check "resolveOverlaps both-anchor: atom A y unchanged (1e-10)" $
+    abs (bothPosA1.y - bothPosA0.y) < exactTol
+  check "resolveOverlaps both-anchor: atom A z unchanged (1e-10)" $
+    abs (bothPosA1.z - bothPosA0.z) < exactTol
+  check "resolveOverlaps both-anchor: atom B x unchanged (1e-10)" $
+    abs (bothPosB1.x - bothPosB0.x) < exactTol
+  check "resolveOverlaps both-anchor: atom B y unchanged (1e-10)" $
+    abs (bothPosB1.y - bothPosB0.y) < exactTol
+  check "resolveOverlaps both-anchor: atom B z unchanged (1e-10)" $
+    abs (bothPosB1.z - bothPosB0.z) < exactTol
+
+  -- (g) COINCIDENT DETERMINISM: two atoms at identical positions, resolve twice independently
+  --     → identical resulting positions and distance >= floor; no NaN.
+  let
+    coinA = B.addAtom 6 { x: 100.0, y: 100.0, z: 0.0 } B.emptyBuilder
+    coinB = B.addAtom 6 { x: 100.0, y: 100.0, z: 0.0 } coinA
+    resolvedCoin1 = B.resolveOverlaps [] coinB
+    resolvedCoin2 = B.resolveOverlaps [] coinB
+    coin1Pos0 = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (map _.pos (index resolvedCoin1.atoms 0))
+    coin1Pos1 = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (map _.pos (index resolvedCoin1.atoms 1))
+    coin2Pos0 = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (map _.pos (index resolvedCoin2.atoms 0))
+    coin2Pos1 = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (map _.pos (index resolvedCoin2.atoms 1))
+
+  check "resolveOverlaps coincident determinism: run1 pos0.x == run2 pos0.x (1e-10)" $
+    abs (coin1Pos0.x - coin2Pos0.x) < exactTol
+  check "resolveOverlaps coincident determinism: run1 pos0.y == run2 pos0.y (1e-10)" $
+    abs (coin1Pos0.y - coin2Pos0.y) < exactTol
+  check "resolveOverlaps coincident determinism: run1 pos1.x == run2 pos1.x (1e-10)" $
+    abs (coin1Pos1.x - coin2Pos1.x) < exactTol
+  check "resolveOverlaps coincident determinism: run1 pos1.y == run2 pos1.y (1e-10)" $
+    abs (coin1Pos1.y - coin2Pos1.y) < exactTol
+  check "resolveOverlaps coincident determinism: resulting distance >= floor - 1e-6" $
+    dist3 coin1Pos0 coin1Pos1 >= B.minSeparation 6 6 - geoTol
+  -- No NaN: a valid Number equals itself.
+  check "resolveOverlaps coincident: pos0.x is not NaN" $
+    coin1Pos0.x == coin1Pos0.x
+  check "resolveOverlaps coincident: pos0.y is not NaN" $
+    coin1Pos0.y == coin1Pos0.y
+  check "resolveOverlaps coincident: pos1.x is not NaN" $
+    coin1Pos1.x == coin1Pos1.x
+  check "resolveOverlaps coincident: pos1.y is not NaN" $
+    coin1Pos1.y == coin1Pos1.y
+
+  -- (h) IDEMPOTENCE: a state already satisfying all floors is unchanged by resolveOverlaps.
+  let
+    farSt = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
+    farSt2 = B.addAtom 8 { x: 200.0, y: 0.0, z: 0.0 } farSt
+    resolvedFar = B.resolveOverlaps [] farSt2
+    farPos0Before = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (map _.pos (index farSt2.atoms 0))
+    farPos1Before = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (map _.pos (index farSt2.atoms 1))
+    farPos0After = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (map _.pos (index resolvedFar.atoms 0))
+    farPos1After = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (map _.pos (index resolvedFar.atoms 1))
+
+  check "resolveOverlaps idempotent: well-separated pair pos0.x unchanged (1e-10)" $
+    abs (farPos0After.x - farPos0Before.x) < exactTol
+  check "resolveOverlaps idempotent: well-separated pair pos0.y unchanged (1e-10)" $
+    abs (farPos0After.y - farPos0Before.y) < exactTol
+  check "resolveOverlaps idempotent: well-separated pair pos1.x unchanged (1e-10)" $
+    abs (farPos1After.x - farPos1Before.x) < exactTol
+  check "resolveOverlaps idempotent: well-separated pair pos1.y unchanged (1e-10)" $
+    abs (farPos1After.y - farPos1Before.y) < exactTol
+
+  -- (i) VALIDLY-BONDED PAIR UNTOUCHED: pair at distance 150 (floor ~130 <= 150 < 180)
+  --     is within the valid contact range → positions unchanged (1e-10).
+  let
+    validSt = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
+    validSt2 = B.addAtom 1 { x: 150.0, y: 0.0, z: 0.0 } validSt
+    resolvedValid = B.resolveOverlaps [] validSt2
+    validPos0Before = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (map _.pos (index validSt2.atoms 0))
+    validPos1Before = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (map _.pos (index validSt2.atoms 1))
+    validPos0After = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (map _.pos (index resolvedValid.atoms 0))
+    validPos1After = fromMaybe { x: 999.0, y: 999.0, z: 999.0 } (map _.pos (index resolvedValid.atoms 1))
+
+  check "resolveOverlaps valid-bond: d=150 pair pos0.x unchanged (1e-10)" $
+    abs (validPos0After.x - validPos0Before.x) < exactTol
+  check "resolveOverlaps valid-bond: d=150 pair pos0.y unchanged (1e-10)" $
+    abs (validPos0After.y - validPos0Before.y) < exactTol
+  check "resolveOverlaps valid-bond: d=150 pair pos1.x unchanged (1e-10)" $
+    abs (validPos1After.x - validPos1Before.x) < exactTol
+  check "resolveOverlaps valid-bond: d=150 pair pos1.y unchanged (1e-10)" $
+    abs (validPos1After.y - validPos1Before.y) < exactTol
+
+  -- (j) TERMINATION SMOKE: 4-atom cluster all within a 30-unit blob → resolveOverlaps
+  --     terminates and every pair ends up >= floor - 1e-6 (10 passes sufficient for 4 atoms).
+  let
+    clust0 = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
+    clust1 = B.addAtom 8 { x: 10.0, y: 5.0, z: 0.0 } clust0
+    clust2 = B.addAtom 6 { x: -8.0, y: 3.0, z: 0.0 } clust1
+    clust3 = B.addAtom 1 { x: 2.0, y: -7.0, z: 0.0 } clust2
+    resolvedClust = B.resolveOverlaps [] clust3
+    clustAtom i = fromMaybe { id: -1, z: 1, pos: { x: 0.0, y: 0.0, z: 0.0 } } (index resolvedClust.atoms i)
+    clustZ i = (clustAtom i).z
+    clustPos i = (clustAtom i).pos
+    clustPairOk i j =
+      dist3 (clustPos i) (clustPos j) >= B.minSeparation (clustZ i) (clustZ j) - geoTol
+    clustPairs = [ { i: 0, j: 1 }, { i: 0, j: 2 }, { i: 0, j: 3 }, { i: 1, j: 2 }, { i: 1, j: 3 }, { i: 2, j: 3 } ]
+
+  check "resolveOverlaps termination: 4-atom cluster completes (smoke)" $
+    length resolvedClust.atoms == 4
+  check "resolveOverlaps termination: 4-atom cluster every pair >= floor - 1e-6" $
+    all (\p -> clustPairOk p.i p.j) clustPairs
+
+  -- Also verify 8-atom cluster terminates (no assertion on geometry — termination only).
+  let
+    c8_0 = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
+    c8_1 = B.addAtom 6 { x: 5.0, y: 0.0, z: 0.0 } c8_0
+    c8_2 = B.addAtom 8 { x: 0.0, y: 5.0, z: 0.0 } c8_1
+    c8_3 = B.addAtom 1 { x: -5.0, y: 0.0, z: 0.0 } c8_2
+    c8_4 = B.addAtom 7 { x: 0.0, y: -5.0, z: 0.0 } c8_3
+    c8_5 = B.addAtom 6 { x: 3.0, y: 3.0, z: 0.0 } c8_4
+    c8_6 = B.addAtom 1 { x: -3.0, y: 3.0, z: 0.0 } c8_5
+    c8_7 = B.addAtom 8 { x: 2.0, y: -3.0, z: 0.0 } c8_6
+    resolved8 = B.resolveOverlaps [] c8_7
+
+  check "resolveOverlaps termination: 8-atom cluster returns (smoke, count unchanged)" $
+    length resolved8.atoms == 8
+
+  log "all M1 constraint model properties hold."
+
 -- Fold applyZoomStep repeatedly with a fixed wheel delta, starting from `start`.
 -- Used to assert repeated stepping stays clamped within [minZoom, maxZoom].
 foldZoom :: Number -> Number -> Array Int -> Number
