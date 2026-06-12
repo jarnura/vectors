@@ -12,6 +12,9 @@ module Builder
   , emptyBuilder
   , addAtom
   , moveAtom
+  , moveAtomWith
+  , pullBonds
+  , pullPasses
   , moveMolecule
   , componentOf
   , atomById
@@ -47,7 +50,7 @@ module Builder
 import Prelude
 
 import Atom (V3, atomicRadius, electronShells, elementOf, nucleonRadius, nucleusRadius)
-import Chem (valence)
+import Chem (bondEnergy, valence)
 import Data.Array (any, concat, concatMap, filter, find, foldl, index, last, length, mapWithIndex, nub, range, snoc, sortBy, sortWith, uncons, (!!))
 import Data.Foldable (elem)
 import Data.Int (toNumber)
@@ -102,18 +105,124 @@ addAtom z pos st =
     )
 
 -- Move the atom with id `aid` to `pos` (immutably replacing only that atom's
--- position), then run the Pauli-exclusion separation constraint
--- (`resolveOverlaps`) BEFORE recomputing bonds. The anchor is the dragged atom
--- itself (`[aid]`): it lands EXACTLY at the requested target, and any atom now
--- inside its contact floor is pushed away instead. Physics: filled shells never
--- interpenetrate; the covalent shared pair remains the one allowed overlap.
+-- position), with infinite drag strength: every bond's energy is finite, so
+-- `pullBonds` never pulls and the legacy pipeline runs unchanged — set pos →
+-- Pauli-exclusion separation (`resolveOverlaps [aid]`, the dragged atom lands
+-- EXACTLY at the requested target while overlapping atoms yield) →
+-- `recomputeBonds`. Byte-compatible with the pre-strength behaviour.
 moveAtom :: Int -> V3 -> BuilderState -> BuilderState
-moveAtom aid pos st =
+moveAtom = moveAtomWith strengthInfinity
+
+-- A drag strength larger than any finite bond energy, so `pullBonds` holds
+-- nothing and `moveAtomWith strengthInfinity` degenerates to the legacy
+-- energy-blind `moveAtom`.
+strengthInfinity :: Number
+strengthInfinity = 1.0e18
+
+-- Strength-aware single-atom move: set the atom's position, then let strong
+-- bonds TUG their partners along (`pullBonds strength aid` — bonds whose
+-- energy beats the drag strength pull the far endpoint back to rest length,
+-- weaker bonds are left stretched to break), then the Pauli-exclusion
+-- separation constraint (`resolveOverlaps [aid]`, the dragged atom is the
+-- anchor and lands exactly at the target), then `recomputeBonds` (stretched
+-- weak bonds past breakThreshold drop here). Pure, total, deterministic.
+moveAtomWith :: Number -> Int -> V3 -> BuilderState -> BuilderState
+moveAtomWith strength aid pos st =
   recomputeBonds
     ( resolveOverlaps [ aid ]
-        st
-          { atoms = map (\a -> if a.id == aid then a { pos = pos } else a) st.atoms }
+        ( pullBonds strength aid
+            st
+              { atoms = map (\a -> if a.id == aid then a { pos = pos } else a) st.atoms }
+        )
     )
+
+-- FIXED number of bond-pull passes: like `relaxPasses`, the solver is bounded
+-- (no convergence loop), so it always terminates; 10 passes propagate a tug
+-- down chains of ~10 bonds.
+pullPasses :: Int
+pullPasses = 10
+
+-- Slack pulled bonds settle inside the FORM threshold: a pulled pair lands at
+-- bondThreshold − pullSlack (= 160), comfortably inside both thresholds so the
+-- bond is stable after the pull.
+pullSlack :: Number
+pullSlack = 20.0
+
+-- Rest length a strong bond is pulled back to: inside the bond-form threshold
+-- but never below the pair's Pauli contact floor (`minSeparation`), so the
+-- pull and the overlap solver agree (a pulled pair is a fixed point of both).
+pullRestLen :: Int -> Int -> Number
+pullRestLen za zb = max (minSeparation za zb) (bondThreshold - pullSlack)
+
+-- Strength-aware bond tug. For the drag of atom `draggedAid` at strength
+-- `strength`, run exactly `pullPasses` Gauss-Seidel passes; each pass walks
+-- the bonds in deterministic ascending (min, max) endpoint-id order and, for
+-- each bond stretched past breakThreshold whose energy resists the drag
+-- (`Chem.bondEnergy za zb >= strength`), pulls ONE endpoint along the bond
+-- axis toward the other so the pair lands at `pullRestLen`:
+--   * the dragged atom is NEVER moved — a bond incident to it pulls the
+--     other endpoint;
+--   * a chain bond not incident to the dragged atom pulls the endpoint
+--     FARTHER from the dragged atom's current position toward the nearer one
+--     (this is what propagates the tug down a chain across passes).
+-- Strength-beaten bonds (energy < strength) are skipped and left stretched,
+-- so `recomputeBonds` breaks them afterwards. Coincident endpoints reuse the
+-- deterministic `separationDir`/`tieBreakDir` machinery, so degenerate axes
+-- are NaN-free. Bonds are not re-derived here; only positions change. Pure,
+-- total, deterministic.
+pullBonds :: Number -> Int -> BuilderState -> BuilderState
+pullBonds strength draggedAid st0 =
+  foldl (\s _ -> pullPass s) st0 (range 1 pullPasses)
+  where
+  ordered =
+    sortBy
+      ( \x y ->
+          compare (min x.a x.b) (min y.a y.b)
+            <> compare (max x.a x.b) (max y.a y.b)
+      )
+      st0.bonds
+
+  pullPass s = foldl (pullBond strength draggedAid) s ordered
+
+-- One bond-tug step: pull this bond's far endpoint back to rest length if the
+-- bond is overstretched AND strong enough to resist the drag (see pullBonds).
+pullBond :: Number -> Int -> BuilderState -> BBond -> BuilderState
+pullBond strength draggedAid s bd =
+  case atomById s bd.a, atomById s bd.b of
+    Just pa, Just pb ->
+      let
+        d = distance pa.pos pb.pos
+      in
+        if d <= breakThreshold || bondEnergy pa.z pb.z < strength then s
+        else pullPair draggedAid s pa pb d
+    _, _ -> s
+
+-- Pull the chosen endpoint of an overstretched strong bond along the bond
+-- axis so the pair lands at `pullRestLen`. The dragged atom is never the one
+-- moved; for a bond with both endpoints free, the endpoint farther from the
+-- dragged atom's current position is pulled toward the nearer one (ties pull
+-- the second endpoint — deterministic either way).
+pullPair :: Int -> BuilderState -> PlacedAtom -> PlacedAtom -> Number -> BuilderState
+pullPair draggedAid s pa pb d =
+  let
+    picked =
+      if pa.id == draggedAid then { mover: pb, target: pa }
+      else if pb.id == draggedAid then { mover: pa, target: pb }
+      else if dragDist pa <= dragDist pb then { mover: pb, target: pa }
+      else { mover: pa, target: pb }
+    -- Unit direction from the held endpoint toward the pulled one (id-derived
+    -- tie-break when coincident, so no division by zero / NaN is possible).
+    dir = separationDir picked.target picked.mover d
+    rest = pullRestLen picked.mover.z picked.target.z
+  in
+    setAtomPos picked.mover.id (alongFrom picked.target.pos dir rest) s
+  where
+  -- Distance from an endpoint to the dragged atom's CURRENT position; a
+  -- missing dragged atom makes both sentinel-equal, hitting the tie branch.
+  dragDist atom =
+    case atomById s draggedAid of
+      Just dAtom -> distance atom.pos dAtom.pos
+      Nothing -> 1.0e18
 
 -- The connected component (molecule) containing `aid`, as the sorted atom ids —
 -- reusing the SAME connected-component flood `molecules` uses, so there is one
