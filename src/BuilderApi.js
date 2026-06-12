@@ -9,6 +9,8 @@ export const installWindowBuilder = (bridge) => () => {
   window.__builder = {
     addAtom: (z, x, y, z3) => bridge.addAtom(z)(x)(y)(z3)(),
     moveAtom: (id, x, y, z3) => bridge.moveAtom(id)(x)(y)(z3)(),
+    moveAtomWith: (strength, id, x, y, z3) =>
+      bridge.moveAtomWith(strength)(id)(x)(y)(z3)(),
     moveMolecule: (id, x, y, z3) => bridge.moveMolecule(id)(x)(y)(z3)(),
     clear: () => bridge.clear(),
     getBonds: () => bridge.getBonds(),

@@ -1,6 +1,7 @@
 module Main
   ( main
   , initialState
+  , applyDragStrength
   , applyValenceOnly
   , applySubshellView
   ) where
@@ -54,6 +55,7 @@ type State =
   , view2D :: Boolean
   , valenceOnly :: Boolean
   , subshellView :: Boolean
+  , dragStrength :: Number
   , bondProgress :: Number
   , zoom :: Number
   , detail :: Number
@@ -104,6 +106,11 @@ initialState =
   -- Sub-shell view is the default (each filled sub-shell its own ring); the
   -- #subshell-view checkbox unchecks to the SHELL-only (Bohr) ring view.
   , subshellView: true
+  -- How hard a single-atom drag pulls against its bonds (the #drag-strength
+  -- slider). Bonds with bondEnergy >= dragStrength HOLD (tugging the partner
+  -- along); weaker ones snap. 0.0 = every bond holds (nothing breaks); the
+  -- slider default 3.0 snaps weak bonds (O-O 1.46) but not strong ones (O-H 4.63).
+  , dragStrength: 3.0
   -- 1.0 = bonded resting state (nuclei at full separation, in the outer thirds).
   -- The bond animation sweeps this 1→0→1, drawing the atoms together and back.
   , bondProgress: 1.0
@@ -123,6 +130,7 @@ step input =
     >>> applyToggle2D input.toggle2D
     >>> applyValenceOnly input.toggleValenceOnly
     >>> applySubshellView input.toggleSubshellView
+    >>> applyDragStrength input.dragStrength
     >>> applyElement input.element
     >>> applyBondProgress input.bondProgress
     >>> applyShear input.shear
@@ -169,6 +177,13 @@ applyValenceOnly true s = s { valenceOnly = not s.valenceOnly }
 applySubshellView :: Boolean -> State -> State
 applySubshellView false s = s
 applySubshellView true s = s { subshellView = not s.subshellView }
+
+-- Receive the live drag strength from the #drag-strength slider (DOM-driven).
+-- Drives the Builder single-atom drag: bonds with bondEnergy >= dragStrength
+-- hold and tug their partner along; weaker bonds snap. Mirrors applyElement.
+applyDragStrength :: Maybe Number -> State -> State
+applyDragStrength Nothing s = s
+applyDragStrength (Just d) s = s { dragStrength = d }
 
 -- Select the rendered element (atomic number) from the selector. Out-of-range
 -- values are clamped downstream by Atom.elementOf.
@@ -990,7 +1005,11 @@ installBuilderPick canvas builderRef eagerRender readState = do
                 , y: world.y / builderScale
                 , z: world.z / builderScale
                 }
-            Ref.modify_ (if pick.whole then Builder.moveMolecule pick.id modelPos else Builder.moveAtom pick.id modelPos) builderRef
+            -- Single-atom drags pull against the LIVE slider strength
+            -- (s.dragStrength, from the same readState snapshot as zoom/scene):
+            -- strong bonds hold + tug their partner, weak ones snap. Whole-
+            -- molecule drags translate rigidly as before.
+            Ref.modify_ (if pick.whole then Builder.moveMolecule pick.id modelPos else Builder.moveAtomWith s.dragStrength pick.id modelPos) builderRef
             bs <- Ref.read builderRef
             eagerRender bs
 

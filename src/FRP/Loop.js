@@ -54,6 +54,20 @@ export const installElementInput = (cb) => () => {
   input.addEventListener("change", fire);
 };
 
+// Drag-strength slider (#drag-strength): on input/change, parse the slider
+// value and hand the live drag strength to the callback. Null-guarded and
+// NaN-guarded like the other control wirings.
+export const installDragStrengthSlider = (cb) => () => {
+  const el = document.getElementById("drag-strength");
+  if (!el) return;
+  const fire = () => {
+    const v = parseFloat(el.value);
+    if (!Number.isNaN(v)) cb(v)();
+  };
+  el.addEventListener("input", fire);
+  el.addEventListener("change", fire);
+};
+
 export const installAddButton = (cb) => () => {
   const button = document.getElementById("add-btn");
   const input = document.getElementById("element-value");

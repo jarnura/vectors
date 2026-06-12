@@ -9,6 +9,7 @@ module FRP.Loop
   , installZoomButtons
   , installValenceOnlyToggle
   , installSubshellViewToggle
+  , installDragStrengthSlider
   , setBuilderDetail
   ) where
 
@@ -29,6 +30,7 @@ type Input =
   , toggleValenceOnly :: Boolean
   , toggleSubshellView :: Boolean
   , element :: Maybe Int
+  , dragStrength :: Maybe Number
   , bondProgress :: Maybe Number
   , zoomDelta :: Maybe Number
   }
@@ -43,6 +45,7 @@ emptyInput =
   , toggleValenceOnly: false
   , toggleSubshellView: false
   , element: Nothing
+  , dragStrength: Nothing
   , bondProgress: Nothing
   , zoomDelta: Nothing
   }
@@ -78,6 +81,11 @@ foreign import installSubshellViewToggle
 -- atomic number.
 foreign import installElementInput
   :: (Int -> Effect Unit) -> Effect Unit
+
+-- Wires the drag-strength slider (#drag-strength): on input/change, invokes
+-- the callback with the parsed slider value (the live drag strength).
+foreign import installDragStrengthSlider
+  :: (Number -> Effect Unit) -> Effect Unit
 
 -- Wires the builder Add button (#add-btn): on click, reads the element selector
 -- (#element-value) and invokes the callback with the chosen atomic number.
@@ -149,6 +157,8 @@ runLoop spec = do
     (Ref.modify_ (_ { toggleSubshellView = true }) inputRef)
   installElementInput \z ->
     Ref.modify_ (_ { element = Just z }) inputRef
+  installDragStrengthSlider \d ->
+    Ref.modify_ (_ { dragStrength = Just d }) inputRef
   -- Mouse wheel over the canvas: push the raw deltaY as a zoom step. The FFI
   -- preventDefault's the wheel so the page never scrolls.
   installWheelListener \d ->

@@ -13,7 +13,7 @@ import Effect.Console (log)
 import Effect.Exception (throw)
 import Math.Matrix as M
 
-import Main (applySubshellView, applyValenceOnly, initialState)
+import Main (applyDragStrength, applySubshellView, applyValenceOnly, initialState)
 import Atom (clampElectron, configString, electronPositions, electronPositionsByShell, electronPositionsByShell2D, electronPositionsBySubshell, electronPositionsBySubshell2D, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, shellRings, subshellCap, subshellInclination, subshellRadius)
 import Atom as Atom
 import Chem (bondEnergy, valence)
@@ -2375,6 +2375,128 @@ main = do
     approxEq ohDraggedPos.z 0.0
 
   log "all M1 bond-strength properties hold."
+
+  -- ───── M2: applyDragStrength + dragStrength state field ──────────────
+  -- RED: `State.dragStrength` and `applyDragStrength` do NOT exist yet.
+  -- These tests MUST fail to compile (unknown value / not exported) until the
+  -- implementer adds:
+  --   * `dragStrength :: Number` to the State record, initialised to 3.0
+  --   * `applyDragStrength :: Maybe Number -> State -> State`
+  --       applyDragStrength Nothing s  = s
+  --       applyDragStrength (Just d) s = s { dragStrength = d }
+  -- and exports `applyDragStrength` from Main.
+  --
+  -- Additionally, two extra moveAtomWith scenario tests pin short-stretch
+  -- (O-H dragged within breakThreshold, bond survives but partner IS moved)
+  -- and strength-0 (NOTHING breaks — every bond energy >= 0.0, so every
+  -- stretched bond holds and pulls its partner along; slider at 0 can't break).
+  log "M2 drag-strength wiring (applyDragStrength / State.dragStrength) properties:"
+
+  -- Default: dragStrength starts at 3.0.
+  check "initialState.dragStrength == 3.0" $
+    initialState.dragStrength == 3.0
+
+  -- Nothing is identity on all fields.
+  check "applyDragStrength Nothing leaves dragStrength unchanged" $
+    (applyDragStrength Nothing initialState).dragStrength == initialState.dragStrength
+
+  -- Just d updates dragStrength to d.
+  check "applyDragStrength (Just 5.0) sets dragStrength = 5.0" $
+    (applyDragStrength (Just 5.0) initialState).dragStrength == 5.0
+  check "applyDragStrength (Just 0.0) sets dragStrength = 0.0" $
+    (applyDragStrength (Just 0.0) initialState).dragStrength == 0.0
+
+  -- Nothing does not mutate other fields (e.g. view2D).
+  check "applyDragStrength Nothing leaves view2D unchanged" $
+    (applyDragStrength Nothing initialState).view2D == initialState.view2D
+
+  -- Just d does not mutate other fields (e.g. zoom).
+  check "applyDragStrength (Just 7.0) leaves zoom unchanged" $
+    (applyDragStrength (Just 7.0) initialState).zoom == initialState.zoom
+
+  log "all M2 drag-strength wiring properties hold."
+
+  -- ───── M2: short-stretch O-H scenario (within breakThreshold) ────────
+  -- O-H bonded at 150; drag O only to x=250 (still within breakThreshold 230
+  -- when H is pulled back — the bond SURVIVES and H's position changes). Uses
+  -- strength 3.0 (< O-H 4.63, so bond is strong relative to drag → pullBonds
+  -- tugs H). The final O-H distance should be <= breakThreshold + 1e-6 AND
+  -- H must have moved from its original position.
+  log "M2 short-stretch O-H scenario properties:"
+
+  let
+    shortOBase = B.addAtom 8 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
+    shortOId = fromMaybe (-1) (map _.id (index shortOBase.atoms 0))
+    shortWithH = B.addAtom 1 { x: 150.0, y: 0.0, z: 0.0 } shortOBase
+    shortHId = fromMaybe (-1) (map _.id (index shortWithH.atoms 1))
+    shortHOrigPos = fromMaybe { x: 150.0, y: 0.0, z: 0.0 } (map _.pos (B.atomById shortWithH shortHId))
+    -- Drag O to x=250 — the bond stretches but, since O-H is strong (4.63 >= 3.0),
+    -- pullBonds pulls H back so the pair stays within breakThreshold.
+    shortTarget = { x: 250.0, y: 0.0, z: 0.0 }
+    shortMoved = B.moveAtomWith 3.0 shortOId shortTarget shortWithH
+    shortMovedOPos = fromMaybe { x: -1.0, y: -1.0, z: -1.0 } (map _.pos (B.atomById shortMoved shortOId))
+    shortMovedHPos = fromMaybe { x: -1.0, y: -1.0, z: -1.0 } (map _.pos (B.atomById shortMoved shortHId))
+    shortDist3 a b =
+      let
+        dx3 = a.x - b.x
+        dy3 = a.y - b.y
+        dz3 = a.z - b.z
+      in
+        sqrt (dx3 * dx3 + dy3 * dy3 + dz3 * dz3)
+
+  check "short-stretch: O-H bond exists before drag" $
+    length shortWithH.bonds == 1
+  check "short-stretch: O-H bond survives after drag to x=250 (strength 3.0)" $
+    length shortMoved.bonds == 1
+  check "short-stretch: O lands at target x=250 (1e-10)" $
+    approxEq shortMovedOPos.x 250.0
+  check "short-stretch: O-H distance <= breakThreshold + 1e-6 after drag" $
+    shortDist3 shortMovedOPos shortMovedHPos <= B.breakThreshold + 1.0e-6
+  check "short-stretch: H partner IS moved (pulled by strong O-H bond)" $
+    abs (shortMovedHPos.x - shortHOrigPos.x) > 1.0
+      || abs (shortMovedHPos.y - shortHOrigPos.y) > 1.0
+      || abs (shortMovedHPos.z - shortHOrigPos.z) > 1.0
+
+  log "all M2 short-stretch O-H scenario properties hold."
+
+  -- ───── M2: strength-0 scenario (nothing breaks, every bond holds) ─────
+  -- O-O bonded at 150; drag one O to x=600 with strength 0.0.
+  -- pullBonds HOLDS a stretched bond when bondEnergy >= strength; O-O is
+  -- 1.46 >= 0.0, so even the WEAKEST bond resists a zero-strength drag: the
+  -- partner is pulled along the bond axis to restLen (~160) from the dragged
+  -- atom's NEW position, recomputeBonds keeps the pair (160 <= 230), and the
+  -- bond SURVIVES. Slider at 0 ⇒ nothing can ever be ripped apart.
+  log "M2 strength-0 scenario (weakest bond resists drag to 600) properties:"
+
+  let
+    s0OBase = B.addAtom 8 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
+    s0OId0 = fromMaybe (-1) (map _.id (index s0OBase.atoms 0))
+    s0WithO2 = B.addAtom 8 { x: 150.0, y: 0.0, z: 0.0 } s0OBase
+    s0OId1 = fromMaybe (-1) (map _.id (index s0WithO2.atoms 1))
+    s0Target = { x: 600.0, y: 0.0, z: 0.0 }
+    s0Moved = B.moveAtomWith 0.0 s0OId0 s0Target s0WithO2
+    s0DraggedPos = fromMaybe { x: -1.0, y: -1.0, z: -1.0 } (map _.pos (B.atomById s0Moved s0OId0))
+    s0PartnerPos = fromMaybe { x: -1.0, y: -1.0, z: -1.0 } (map _.pos (B.atomById s0Moved s0OId1))
+    s0Dist = sqrt
+      ( (s0DraggedPos.x - s0PartnerPos.x) * (s0DraggedPos.x - s0PartnerPos.x)
+          + (s0DraggedPos.y - s0PartnerPos.y) * (s0DraggedPos.y - s0PartnerPos.y)
+          + (s0DraggedPos.z - s0PartnerPos.z) * (s0DraggedPos.z - s0PartnerPos.z)
+      )
+
+  check "strength-0: O-O bond exists before drag" $
+    length s0WithO2.bonds == 1
+  check "strength-0: O-O bond SURVIVES moveAtomWith 0.0 to x=600 (held + tugged)" $
+    length s0Moved.bonds == 1
+  check "strength-0: dragged O lands exactly at x=600 (1e-10)" $
+    approxEq s0DraggedPos.x 600.0
+  check "strength-0: dragged O lands exactly at y=0 (1e-10)" $
+    approxEq s0DraggedPos.y 0.0
+  check "strength-0: partner was pulled along (within breakThreshold of dragged)" $
+    s0Dist <= B.breakThreshold + 1.0e-6
+  check "strength-0: partner not below the Pauli floor of the pair" $
+    s0Dist >= B.minSeparation 8 8 - 1.0e-6
+
+  log "all M2 strength-0 scenario properties hold."
 
 -- Fold applyZoomStep repeatedly with a fixed wheel delta, starting from `start`.
 -- Used to assert repeated stepping stays clamped within [minZoom, maxZoom].

@@ -15,7 +15,7 @@ module BuilderApi
 
 import Prelude
 
-import Builder (BuilderState, addAtom, bondThreshold, clear, emptyBuilder, formulaOf, molecules, moveAtom, moveMolecule)
+import Builder (BuilderState, addAtom, bondThreshold, clear, emptyBuilder, formulaOf, molecules, moveAtom, moveAtomWith, moveMolecule)
 import Data.Array (length)
 import Data.Int (toNumber)
 import Effect (Effect)
@@ -39,6 +39,7 @@ type JsAtom = { id :: Int, z :: Int, pos :: { x :: Number, y :: Number, z :: Num
 type Bridge =
   { addAtom :: Int -> Number -> Number -> Number -> Effect Unit
   , moveAtom :: Int -> Number -> Number -> Number -> Effect Unit
+  , moveAtomWith :: Number -> Int -> Number -> Number -> Number -> Effect Unit
   , moveMolecule :: Int -> Number -> Number -> Number -> Effect Unit
   , clear :: Effect Unit
   , getBonds :: Effect (Array JsBond)
@@ -68,6 +69,8 @@ installBuilderApi onChange = do
           mutate (addAtom z { x, y, z: z3 })
       , moveAtom: \aid x y z3 ->
           mutate (moveAtom aid { x, y, z: z3 })
+      , moveAtomWith: \strength aid x y z3 ->
+          mutate (moveAtomWith strength aid { x, y, z: z3 })
       , moveMolecule: \aid x y z3 ->
           mutate (moveMolecule aid { x, y, z: z3 })
       , clear:
