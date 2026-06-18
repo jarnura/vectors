@@ -15,6 +15,8 @@ module Camera
   , minZoom
   , maxZoom
   , projection
+  , orbit
+  , viewProjection
   , clampZoom
   , applyZoomStep
   , buttonZoomDelta
@@ -26,6 +28,7 @@ import Data.Maybe (fromMaybe)
 import Data.Number (exp, pi, tan)
 import Math.Matrix (Matrix)
 import Math.Matrix as M
+import Vector as Vector
 
 -- Vertical field of view, in radians.
 fov :: Number
@@ -99,6 +102,26 @@ projection zoom w h =
       ]
   in
     M.multiply p (M.translate 0.0 0.0 (negate (cameraDistance / zoom)))
+
+-- | The Builder orbit (view) rotation: yaw about Y composed with pitch about X.
+-- | `yaw`/`pitch` are in RADIANS (the camera-orbit contract), converted to the
+-- | degrees that `Vector.rotateY`/`rotateX` expect. At yaw = pitch = 0 both
+-- | factors are the exact 4x4 identity (cos 0 = 1, sin 0 = 0), so `orbit 0 0`
+-- | is byte-identical to `M.identity` and `viewProjection {0,0}` collapses to
+-- | plain `projection`. Pure / total — no Effect/WebGL.
+orbit :: Number -> Number -> Matrix Number
+orbit yaw pitch =
+  Vector.rotateY (toDeg yaw) `M.multiply` Vector.rotateX (toDeg pitch)
+  where
+  toDeg r = r * 180.0 / pi
+
+-- | The Builder view×projection: the zoom-aware perspective projection composed
+-- | with the orbit rotation. MUST be byte-identical to `projection zoom w h`
+-- | when yaw = pitch = 0 (because `orbit 0 0 == identity` and `M * I == M`).
+viewProjection
+  :: { yaw :: Number, pitch :: Number } -> Number -> Number -> Number -> Matrix Number
+viewProjection cam zoom w h =
+  projection zoom w h `M.multiply` orbit cam.yaw cam.pitch
 
 -- | Clamp a zoom factor into the supported [minZoom, maxZoom] range.
 clampZoom :: Number -> Number

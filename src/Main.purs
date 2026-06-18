@@ -59,6 +59,11 @@ type State =
   , bondProgress :: Number
   , zoom :: Number
   , detail :: Number
+  -- Builder orbit (view) angles in radians, fed to Camera.viewProjection in the
+  -- Builder scene only. Both 0.0 ⇒ viewProjection == projection ⇒ byte-identical
+  -- render (M2 plumbing; M3 wires the drag→yaw/pitch).
+  , builderYaw :: Number
+  , builderPitch :: Number
   , builder :: Builder.BuilderState
   }
 
@@ -121,6 +126,10 @@ initialState =
   -- Eased toward Layer.layerBlend s.zoom each frame so zoom changes cross-fade
   -- the Builder atoms smoothly between balls (0) and full detail (1).
   , detail: 1.0
+  -- Builder orbit angles start flat (yaw = pitch = 0) so the Builder view is
+  -- byte-identical to the plain projection until M3 wires the drag.
+  , builderYaw: 0.0
+  , builderPitch: 0.0
   , builder: Builder.emptyBuilder
   }
 
@@ -290,12 +299,23 @@ satelliteTransform s =
 ringSegments :: Int
 ringSegments = 96
 
-updateViewport :: Renderer -> CanvasElement -> Number -> Effect Unit
-updateViewport renderer canvas zoom = do
+-- The projection matrix for a scene at a given canvas size. The Builder scene
+-- routes through Camera.viewProjection (zoom-aware perspective × orbit rotation)
+-- so the builderYaw/builderPitch orbit applies; every OTHER scene uses the plain
+-- Camera.projection (they have no orbit). At yaw = pitch = 0 viewProjection is
+-- byte-identical to projection, so the Builder render is unchanged until M3.
+projectionFor :: State -> Number -> Number -> Matrix Number
+projectionFor s w h
+  | s.scene == Builder =
+      Camera.viewProjection { yaw: s.builderYaw, pitch: s.builderPitch } s.zoom w h
+  | otherwise = Camera.projection s.zoom w h
+
+updateViewport :: Renderer -> CanvasElement -> State -> Effect Unit
+updateViewport renderer canvas s = do
   w <- getCanvasWidth canvas
   h <- getCanvasHeight canvas
   GL.resizeRenderer renderer { width: w, height: h }
-  GL.setProjection renderer (M.toVector (Camera.projection zoom w h))
+  GL.setProjection renderer (M.toVector (projectionFor s w h))
 
 main :: Effect Unit
 main = do
@@ -598,7 +618,7 @@ main = do
               <> (if s.valenceOnly then [] else builderLoneElectronEntities s)
               <> builderValenceElectronEntities s
               <> builderBondElectronEntities s
-      updateViewport renderer canvas initialState.zoom
+      updateViewport renderer canvas initialState
       w0 <- getCanvasWidth canvas
       h0 <- getCanvasHeight canvas
       sizeRef <- Ref.new { w: w0, h: h0, zoom: initialState.zoom }
@@ -668,7 +688,7 @@ main = do
             prev <- Ref.read sizeRef
             when (prev.w /= w || prev.h /= h || prev.zoom /= s.zoom) do
               Ref.write { w, h, zoom: s.zoom } sizeRef
-              updateViewport renderer canvas s.zoom
+              updateViewport renderer canvas s
             renderFrame s
             -- Sync the per-atom symbol overlay labels every frame so they follow
             -- dragged/zoomed atoms in Builder, and clear when leaving the scene.
@@ -887,7 +907,7 @@ syncAtomLabels canvas s
       h <- getCanvasHeight canvas
       client <- Labels.getCanvasClientSize canvas
       let
-        proj = Camera.projection s.zoom w h
+        proj = projectionFor s w h
         sx = if w > 0.0 then client.w / w else 1.0
         sy = if h > 0.0 then client.h / h else 1.0
         opacity = clamp01 (1.0 - s.detail)

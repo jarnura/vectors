@@ -2590,6 +2590,79 @@ main = do
 
   log "all M1 3D spawn (Builder.spawnPos) properties hold."
 
+  -- ───── Camera.orbit + Camera.viewProjection (M2 genuinely-3D) ──────────
+  -- RED: `Camera.orbit` and `Camera.viewProjection` are NOT exported from
+  -- Camera.purs yet. These tests MUST fail to compile (UnknownName / not in
+  -- scope) until the M2 implementer adds those two exports. Do NOT implement
+  -- them before the tests pass RED.
+  --
+  -- Agreed design:
+  --   orbit :: Number -> Number -> Matrix Number
+  --     = rotateY yaw `multiply` rotateX pitch
+  --     where yaw and pitch are in RADIANS (unlike the existing rotateY/rotateX
+  --     which take degrees; orbit will convert internally or do its own
+  --     rotation from scratch — the contract tested here is the observable
+  --     matrix, not the implementation).
+  --
+  --   viewProjection :: { yaw :: Number, pitch :: Number }
+  --                  -> Number -> Number -> Number -> Matrix Number
+  --     = (projection zoom w h) `multiply` (orbit yaw pitch)
+  --     MUST be byte-identical to (projection zoom w h) when yaw = pitch = 0.
+  log "Camera.orbit + Camera.viewProjection (M2 3D) properties:"
+
+  -- (a) IDENTITY: orbit 0.0 0.0 is the 4x4 identity matrix (tol 1e-10).
+  check "orbit 0.0 0.0 == M.identity (entry-by-entry, 1e-10)" $
+    approxEqMatrix (Cam.orbit 0.0 0.0) M.identity
+
+  -- (b) BYTE-IDENTICAL REGRESSION GUARD: viewProjection {yaw:0,pitch:0} z w h
+  --     must equal projection z w h for at least two (z,w,h) triples.
+  check "viewProjection {0,0} 1.0 800.0 600.0 == projection 1.0 800.0 600.0 (1e-10)" $
+    approxEqMatrix
+      (Cam.viewProjection { yaw: 0.0, pitch: 0.0 } 1.0 800.0 600.0)
+      (Cam.projection 1.0 800.0 600.0)
+  check "viewProjection {0,0} 2.0 1024.0 768.0 == projection 2.0 1024.0 768.0 (1e-10)" $
+    approxEqMatrix
+      (Cam.viewProjection { yaw: 0.0, pitch: 0.0 } 2.0 1024.0 768.0)
+      (Cam.projection 2.0 1024.0 768.0)
+
+  -- (c) ORBIT IS REAL: a non-zero yaw makes the matrix differ from identity and
+  --     makes viewProjection differ from plain projection (orbit actually rotates).
+  check "orbit 0.5 0.0 /= M.identity (non-zero yaw is not identity)" $
+    not (approxEqMatrix (Cam.orbit 0.5 0.0) M.identity)
+  check "viewProjection {yaw:0.5,pitch:0} 1.0 800.0 600.0 /= projection 1.0 800.0 600.0" $
+    not
+      ( approxEqMatrix
+          (Cam.viewProjection { yaw: 0.5, pitch: 0.0 } 1.0 800.0 600.0)
+          (Cam.projection 1.0 800.0 600.0)
+      )
+
+  -- (d) AXIS MAP: orbit (pi/2) 0.0 == rotateY(pi/2) as a pure rotation matrix.
+  --     rotateY takes DEGREES, so rotateY(90°) should equal orbit(pi/2, 0).
+  --     For a 90° Y-rotation the standard matrix entries are:
+  --       [0][0] = cos(pi/2) ≈ 0    [0][2] = sin(pi/2) ≈ 1
+  --       [2][0] = -sin(pi/2) ≈ -1  [2][2] = cos(pi/2) ≈ 0
+  --     We read these entries from M.toVector (row-major, 4 columns):
+  --       entry [0][0] = index 0,  entry [0][2] = index 2
+  --       entry [2][0] = index 8,  entry [2][2] = index 10
+  let
+    orbitHalfPi = Cam.orbit (pi / 2.0) 0.0
+    orbitVec = M.toVector orbitHalfPi
+    orbitEntry r c = fromMaybe 999.0 (index orbitVec (r * 4 + c))
+
+  check "orbit (pi/2) 0.0 entry [0][0] ≈ 0.0 (cos 90°)" $
+    approxEq (orbitEntry 0 0) 0.0
+  check "orbit (pi/2) 0.0 entry [0][2] ≈ 1.0 (sin 90°)" $
+    approxEq (orbitEntry 0 2) 1.0
+  check "orbit (pi/2) 0.0 entry [2][0] ≈ -1.0 (-sin 90°)" $
+    approxEq (orbitEntry 2 0) (-1.0)
+  check "orbit (pi/2) 0.0 entry [2][2] ≈ 0.0 (cos 90°)" $
+    approxEq (orbitEntry 2 2) 0.0
+  -- Y-axis is unchanged by a Y-rotation: entry [1][1] == 1.0.
+  check "orbit (pi/2) 0.0 entry [1][1] == 1.0 (Y axis unaffected)" $
+    approxEq (orbitEntry 1 1) 1.0
+
+  log "all Camera.orbit + Camera.viewProjection (M2 3D) properties hold."
+
 -- Fold applyZoomStep repeatedly with a fixed wheel delta, starting from `start`.
 -- Used to assert repeated stepping stays clamped within [minZoom, maxZoom].
 foldZoom :: Number -> Number -> Array Int -> Number
