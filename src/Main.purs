@@ -4,6 +4,7 @@ module Main
   , applyDragStrength
   , applyValenceOnly
   , applySubshellView
+  , applyOrbit
   ) where
 
 import Prelude

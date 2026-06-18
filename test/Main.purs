@@ -13,7 +13,7 @@ import Effect.Console (log)
 import Effect.Exception (throw)
 import Math.Matrix as M
 
-import Main (applyDragStrength, applySubshellView, applyValenceOnly, initialState)
+import Main (applyDragStrength, applyOrbit, applySubshellView, applyValenceOnly, initialState)
 import Atom (clampElectron, configString, electronPositions, electronPositionsByShell, electronPositionsByShell2D, electronPositionsBySubshell, electronPositionsBySubshell2D, electronShells, elementName, elementOf, fillSubshells, nucleusRadius, nucleons, shellRadius, shellRings, subshellCap, subshellInclination, subshellRadius)
 import Atom as Atom
 import Chem (bondEnergy, valence)
@@ -2827,6 +2827,65 @@ main = do
     approxEq (Cam.clampPitch 0.0) 0.0
 
   log "all M3 (transpose / unprojectAtDepthFull / clampPitch) properties hold."
+
+  -- ───── M1: Camera.buttonOrbitDelta + Main.applyOrbit (orbit buttons) ────────
+  --
+  -- RED: `Camera.buttonOrbitDelta` does NOT exist yet in Camera.purs (only
+  -- `buttonZoomDelta` is exported). `Main.applyOrbit` exists in src/Main.purs
+  -- but is NOT currently exported (the implementer will add the export). These
+  -- tests MUST fail to compile (UnknownName / not exported) until the implementer:
+  --   1. Adds `buttonOrbitDelta :: Number` to src/Camera.purs (recommended 17.45,
+  --      derived from orbitSens=0.01: ~10° = 0.1745 rad ÷ 0.01 = 17.45).
+  --   2. Exports `applyOrbit` from src/Main.purs.
+  -- Do NOT implement either before the tests pass RED.
+  --
+  -- applyOrbit :: { dx :: Number, dy :: Number }
+  --            -> { yaw :: Number, pitch :: Number }
+  --            -> { yaw :: Number, pitch :: Number }
+  -- where orbitSens = 0.01:
+  --   yaw  = o.yaw  + dx * 0.01
+  --   pitch = Camera.clampPitch (o.pitch + dy * 0.01)
+  --
+  -- The orbit-button deltas are constructed inline (matching how the implementer
+  -- will route them through the existing `applyOrbit` channel):
+  --   right = { dx:  Cam.buttonOrbitDelta, dy: 0.0 }  (yaw right)
+  --   left  = { dx: -Cam.buttonOrbitDelta, dy: 0.0 }  (yaw left)
+  --   up    = { dx: 0.0, dy: -Cam.buttonOrbitDelta }   (pitch up; -dy decreases pitch)
+  log "M1 orbit buttons (Camera.buttonOrbitDelta + applyOrbit) properties:"
+
+  let
+    right = { dx: Cam.buttonOrbitDelta, dy: 0.0 }
+    left = { dx: negate Cam.buttonOrbitDelta, dy: 0.0 }
+    up = { dx: 0.0, dy: negate Cam.buttonOrbitDelta }
+    zero = { yaw: 0.0, pitch: 0.0 }
+
+  -- (a) buttonOrbitDelta is a positive magnitude; one right click yaws ≈ 0.1745 rad (≈10°).
+  check "buttonOrbitDelta is a positive magnitude" $
+    Cam.buttonOrbitDelta > 0.0
+  check "one right-click yaw ≈ 0.1745 rad (≈10°, within 0.01)" $
+    abs ((applyOrbit right zero).yaw - 0.1745) < 0.01
+
+  -- (b) Repeated up-clicks clamp pitch and never exceed maxPitch in magnitude.
+  --     Up uses dy = -buttonOrbitDelta so pitch decreases toward -maxPitch.
+  let
+    pitchAfterUp n = (foldl (\o _ -> applyOrbit up o) zero (range 1 n)).pitch
+    pitchSaturated = pitchAfterUp 40
+  check "pitch clamped at every step (20 up-clicks, magnitude <= maxPitch + 1e-10)" $
+    all (\n -> abs (pitchAfterUp n) <= Cam.maxPitch + 1.0e-10) (range 1 20)
+  check "pitch saturates at -maxPitch after 40 up-clicks (within 1e-10)" $
+    abs (pitchSaturated - (negate Cam.maxPitch)) < 1.0e-10
+
+  -- (c) left-then-right round-trips yaw back to 0.0 (within 1e-10).
+  check "left-then-right round-trip: yaw ≈ 0.0 (1e-10)" $
+    approxEq (applyOrbit right (applyOrbit left zero)).yaw 0.0
+
+  -- (d) Reset is exactly {yaw:0.0, pitch:0.0} — the literal record, both fields == 0.0.
+  check "reset record: yaw == 0.0 exactly" $
+    zero.yaw == 0.0
+  check "reset record: pitch == 0.0 exactly" $
+    zero.pitch == 0.0
+
+  log "all M1 orbit buttons properties hold."
 
 -- Fold applyZoomStep repeatedly with a fixed wheel delta, starting from `start`.
 -- Used to assert repeated stepping stays clamped within [minZoom, maxZoom].

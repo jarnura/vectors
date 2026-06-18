@@ -22,6 +22,7 @@ module Camera
   , clampZoom
   , applyZoomStep
   , buttonZoomDelta
+  , buttonOrbitDelta
   ) where
 
 import Prelude
@@ -76,6 +77,14 @@ zoomSensitivity = 0.0015
 -- | Pure; no Effect.
 buttonZoomDelta :: Number
 buttonZoomDelta = 120.0
+
+-- | A fixed synthetic input-delta magnitude per on-screen orbit-button click.
+-- | The orbit buttons push ±`buttonOrbitDelta` through `Main.applyOrbit`
+-- | (mirroring how `buttonZoomDelta = 120.0` is pushed through the zoom path).
+-- | With `orbitSens = 0.01` one click yields `17.45 * 0.01 = 0.1745 rad ≈ 10°`
+-- | of yaw/pitch per step. Pure; no Effect.
+buttonOrbitDelta :: Number
+buttonOrbitDelta = 17.45
 
 -- | The perspective×camera projection at a given zoom and canvas size. At
 -- | zoom 1.0 the camera translation is `-cameraDistance` (byte-identical to the
