@@ -2498,6 +2498,98 @@ main = do
 
   log "all M2 strength-0 scenario properties hold."
 
+  -- ───── M1 3D spawn: Builder.spawnPos (golden-angle/Fibonacci-shell) ──────────
+  -- RED: `Builder.spawnPos` does NOT exist yet.  These tests MUST fail to compile
+  -- (UnknownName / not exported) until the implementer adds:
+  --   spawnPos :: Int -> V3
+  -- a deterministic, total 3D position distributor based on the golden-angle /
+  -- Fibonacci shell: azimuth = i * goldenAngle (~2.39996 rad), elevation via
+  -- acos(1 - 2*(i+0.5)/k) for some k, radius growing slowly with index.
+  -- Successive atoms must differ in x, y AND z (no collinear y=z=0 spawn).
+  -- Do NOT implement spawnPos before the tests pass RED.
+  log "M1 3D spawn (Builder.spawnPos) properties:"
+
+  let
+    -- Collect spawnPos values for i = 0..5 for spread tests.
+    spawnVals = map B.spawnPos (range 0 5)
+    spawnZs = map _.z spawnVals
+    spawnYs = map _.y spawnVals
+    sp0 = B.spawnPos 0
+    sp1 = B.spawnPos 1
+    sp3 = B.spawnPos 3
+
+    -- Distance between two V3 points (shared geometry helper).
+    spawnDist a b =
+      let
+        sdx = a.x - b.x
+        sdy = a.y - b.y
+        sdz = a.z - b.z
+      in
+        sqrt (sdx * sdx + sdy * sdy + sdz * sdz)
+
+    -- Build a 5-atom world using spawnPos for each atom's position, mirroring
+    -- how BuilderApi will call it: addAtom z (spawnPos n) where n = current count.
+    spawn5 =
+      B.addAtom 1 (B.spawnPos 4)
+        ( B.addAtom 1 (B.spawnPos 3)
+            ( B.addAtom 1 (B.spawnPos 2)
+                ( B.addAtom 1 (B.spawnPos 1)
+                    (B.addAtom 1 (B.spawnPos 0) B.emptyBuilder)
+                )
+            )
+        )
+
+    -- Minimum pairwise centre distance over all atom pairs in a BuilderState.
+    minPairDist st =
+      let
+        atoms = st.atoms
+        n = length atoms
+        pairs = do
+          i <- range 0 (n - 1)
+          j <- range 0 (n - 1)
+          if j <= i then []
+          else case index atoms i, index atoms j of
+            Just a, Just b -> [ spawnDist a.pos b.pos ]
+            _, _ -> []
+      in
+        fromMaybe 0.0 (minimum pairs)
+
+  -- (a) DETERMINISM: calling spawnPos with the same index twice returns the same V3.
+  check "spawnPos determinism: spawnPos 0 == spawnPos 0 (x)" $
+    (B.spawnPos 0).x == sp0.x
+  check "spawnPos determinism: spawnPos 0 == spawnPos 0 (y)" $
+    (B.spawnPos 0).y == sp0.y
+  check "spawnPos determinism: spawnPos 0 == spawnPos 0 (z)" $
+    (B.spawnPos 0).z == sp0.z
+  check "spawnPos determinism: spawnPos 1 == spawnPos 1 (x)" $
+    (B.spawnPos 1).x == sp1.x
+  check "spawnPos determinism: spawnPos 3 == spawnPos 3 (z)" $
+    (B.spawnPos 3).z == sp3.z
+
+  -- (b) FINITE: spawnPos 0 components are valid Numbers (not NaN).
+  --     A NaN value does NOT equal itself; a finite value does.
+  check "spawnPos 0 x is finite (not NaN)" $
+    sp0.x == sp0.x
+  check "spawnPos 0 y is finite (not NaN)" $
+    sp0.y == sp0.y
+  check "spawnPos 0 z is finite (not NaN)" $
+    sp0.z == sp0.z
+
+  -- (c) GENUINELY 3D over i=0..5: z-values are not all equal AND y-values are not
+  --     all equal. A collinear y=z=0 spawn (the old behaviour) would fail both.
+  check "spawnPos: z-values over i=0..5 are not all the same (3D spread in z)" $
+    any (\z -> not (approxEq z (fromMaybe 0.0 (index spawnZs 0)))) spawnZs
+  check "spawnPos: y-values over i=0..5 are not all the same (3D spread in y)" $
+    any (\y -> not (approxEq y (fromMaybe 0.0 (index spawnYs 0)))) spawnYs
+
+  -- (d) PAULI FLOOR after build: spawn 5 H atoms via spawnPos (indices 0..4),
+  --     then assert the minimum pairwise centre distance >= absoluteMin - 1e-6.
+  --     This verifies that addAtom's resolveOverlaps wiring holds after 3D spawn.
+  check "spawnPos: 5-atom world has all pairs >= absoluteMin - 1e-6 (Pauli floor)" $
+    minPairDist spawn5 >= B.absoluteMin - 1.0e-6
+
+  log "all M1 3D spawn (Builder.spawnPos) properties hold."
+
 -- Fold applyZoomStep repeatedly with a fixed wheel delta, starting from `start`.
 -- Used to assert repeated stepping stays clamped within [minZoom, maxZoom].
 foldZoom :: Number -> Number -> Array Int -> Number

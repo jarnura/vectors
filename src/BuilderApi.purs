@@ -15,9 +15,8 @@ module BuilderApi
 
 import Prelude
 
-import Builder (BuilderState, addAtom, bondThreshold, clear, emptyBuilder, formulaOf, molecules, moveAtom, moveAtomWith, moveMolecule)
+import Builder (BuilderState, addAtom, clear, emptyBuilder, formulaOf, molecules, moveAtom, moveAtomWith, moveMolecule, spawnPos)
 import Data.Array (length)
-import Data.Int (toNumber)
 import Effect (Effect)
 import Effect.Ref as Ref
 import FRP.Loop (installAddButton, installClearButton)
@@ -111,12 +110,6 @@ installBuilderControls onChange ref = do
     mutate (\st -> addAtom z (spawnPos (length st.atoms)) st)
   installClearButton
     (mutate clear)
-  where
-  -- Lay successive atoms along x near the origin, stepped by ~0.45·bondThreshold
-  -- so each new atom sits within bonding range of the previous one (a chain that
-  -- auto-bonds as it grows), centred about the origin so it stays on-screen.
-  spawnPos i =
-    { x: (toNumber i - 1.0) * (bondThreshold * 0.45), y: 0.0, z: 0.0 }
 
 -- DOM-only FFI: stash the bridge's effectful closures on `window.__builder` as
 -- plain JS functions (each PureScript `Effect` is a thunk the FFI runs).
