@@ -14,6 +14,8 @@ module Camera
   , clipFar
   , minZoom
   , maxZoom
+  , maxPitch
+  , clampPitch
   , projection
   , orbit
   , viewProjection
@@ -51,6 +53,15 @@ minZoom = 0.2
 
 maxZoom :: Number
 maxZoom = 5.0
+
+-- | Maximum Builder orbit pitch, in radians (≈ 85°). Clamping the pitch just shy
+-- | of the poles keeps the orbit from flipping over the top/bottom of the scene.
+maxPitch :: Number
+maxPitch = 1.4835298641951802
+
+-- | Clamp an orbit pitch (radians) into the supported [-maxPitch, maxPitch] range.
+clampPitch :: Number -> Number
+clampPitch p = max (negate maxPitch) (min maxPitch p)
 
 -- How aggressively a wheel delta translates into a zoom factor. Small and
 -- positive: a typical wheel notch (~±100) changes zoom by exp(±0.15) ≈ ±16%.

@@ -46,6 +46,7 @@ module Builder
   , formulaOf
   , projectToScreen
   , unprojectAtDepth
+  , unprojectAtDepthFull
   ) where
 
 import Prelude
@@ -58,6 +59,7 @@ import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Number (cos, pi, sin, sqrt)
 import Math.Matrix (Matrix, multiply, fromColumn, toVector)
+import Math.Matrix as M
 
 -- A placed atom: a stable id, its atomic number, and its world position.
 type PlacedAtom = { id :: Int, z :: Int, pos :: V3 }
@@ -890,6 +892,30 @@ unprojectAtDepth proj canvas px ref =
     , y: clipY / m11
     , z: ref.z
     }
+
+-- Orbit-aware unproject: invert a cursor pixel back to a world point at the
+-- reference atom's depth, accounting for the Builder orbit rotation. Because the
+-- orbit matrix is orthogonal (orbitᵀ = orbit⁻¹), no general inverse is needed:
+--   1. rotate the world reference into view space (mulVec orbit worldRef),
+--   2. unproject the pixel against the plain diagonal `projection` at that depth
+--      (reusing unprojectAtDepth, whose diagonal assumption holds in view space),
+--   3. rotate the resulting view-space point back into world space (mulVec orbitᵀ).
+-- At zero orbit (orbit = identity) this collapses exactly to unprojectAtDepth.
+unprojectAtDepthFull
+  :: Matrix Number
+  -> Matrix Number
+  -> { w :: Number, h :: Number }
+  -> { x :: Number, y :: Number }
+  -> V3
+  -> V3
+unprojectAtDepthFull orbit proj canvas px worldRef =
+  let
+    vr = mulVec orbit worldRef
+    viewRef = { x: vr.x, y: vr.y, z: vr.z }
+    viewPoint = unprojectAtDepth proj canvas px viewRef
+    wp = mulVec (M.transpose orbit) viewPoint
+  in
+    { x: wp.x, y: wp.y, z: wp.z }
 
 -- Multiply a 4x4 matrix by a homogeneous vector (w = 1): M * [x, y, z, 1]ᵀ.
 mulVec :: Matrix Number -> V3 -> { x :: Number, y :: Number, z :: Number, w :: Number }

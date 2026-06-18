@@ -10,6 +10,7 @@ import Prelude
 
 import Data.Array (concat, concatMap, length, take, zipWith)
 import Data.Foldable (for_, minimumBy)
+import Data.Either (Either(..))
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Number (cos, pi, sin, sqrt)
@@ -38,6 +39,7 @@ import Labels as Labels
 import Layer as Layer
 import Meshes as Meshes
 import Molecule as Molecule
+import OrbitApi (installOrbitApi)
 import Palette (shellColor, subshellColor)
 import Scene (Scene(..), nextScene, sceneTitle, spaceColor)
 import Starfield (starPositions)
@@ -162,6 +164,25 @@ applyDetail s = s { detail = Layer.easeDetail s.detail (Layer.layerBlend s.zoom)
 applyZoom :: Maybe Number -> State -> State
 applyZoom Nothing s = s
 applyZoom (Just d) s = s { zoom = Camera.applyZoomStep s.zoom d }
+
+-- Radians of Builder orbit per pixel of empty-space drag. Small so a full screen
+-- drag (~hundreds of px) sweeps a comfortable arc; pitch is clamped at ±maxPitch.
+orbitSens :: Number
+orbitSens = 0.01
+
+-- Pure orbit update: fold one drag delta (cursor dx/dy in pixels) into an orbit
+-- record. Yaw accumulates freely about Y; pitch about X is clamped to ±maxPitch
+-- (Camera.clampPitch) so the camera never flips over the poles. Immutable —
+-- returns a NEW orbit record. Shared by the empty-space orbit-drag and reusable
+-- for tests; the orbit Ref is the single source of truth this writes into.
+applyOrbit
+  :: { dx :: Number, dy :: Number }
+  -> { yaw :: Number, pitch :: Number }
+  -> { yaw :: Number, pitch :: Number }
+applyOrbit d o =
+  { yaw: o.yaw + d.dx * orbitSens
+  , pitch: Camera.clampPitch (o.pitch + d.dy * orbitSens)
+  }
 
 -- Flip between the cube POC and atomos when the scene switch is clicked.
 applyToggle :: Boolean -> State -> State
@@ -621,7 +642,13 @@ main = do
       updateViewport renderer canvas initialState
       w0 <- getCanvasWidth canvas
       h0 <- getCanvasHeight canvas
-      sizeRef <- Ref.new { w: w0, h: h0, zoom: initialState.zoom }
+      sizeRef <- Ref.new
+        { w: w0
+        , h: h0
+        , zoom: initialState.zoom
+        , yaw: initialState.builderYaw
+        , pitch: initialState.builderPitch
+        }
       overlayRef <- Ref.new
         { scene: initialState.scene
         , element: initialState.element
@@ -656,11 +683,19 @@ main = do
           when (s.scene == Builder) (renderFrame (s { builder = bs }))
       builderRef <- installBuilderApi eagerRender
       installBuilderControls eagerRender builderRef
+      -- The Builder camera orbit (yaw/pitch radians) lives in ONE shared Ref, the
+      -- single source of truth read by the renderer (mirrored into State each
+      -- frame, like builderRef), written by the empty-space orbit-drag, and
+      -- read/written by window.__builder.setOrbit/getOrbit. It is camera state, so
+      -- it stays OUT of the pure Builder model.
+      orbitRef <- Ref.new { yaw: initialState.builderYaw, pitch: initialState.builderPitch }
+      installOrbitApi orbitRef
       -- Production pointer pick+drag: scene-gated to Builder, routed through the
       -- SAME shared Ref + eagerRender as the API, so there is one source of truth
       -- and the drag is on-screen immediately. Reads the live canvas size to build
-      -- the exact projection the renderer uses.
-      installBuilderPick canvas builderRef eagerRender (Ref.read lastStateRef)
+      -- the exact projection the renderer uses. An empty-space miss orbits the
+      -- camera (writing the shared orbitRef) instead of moving an atom.
+      installBuilderPick canvas builderRef orbitRef eagerRender (Ref.read lastStateRef)
       -- Wire the glassy controls as a left DRAWER: the #panel-toggle icon slides
       -- the #controls panel IN from the left and OUT again (anime.js, closed
       -- drawer keeps pointer-events:none so it never blocks the canvas). The icon
@@ -675,9 +710,12 @@ main = do
         { initial: initialState
         , step
         , draw: \s0 -> do
-            -- Pull the live builder snapshot into the state used for rendering.
+            -- Pull the live builder snapshot AND the live camera orbit into the
+            -- state used for rendering (both are shared Refs, the single sources
+            -- of truth for the model and the camera respectively).
             bs <- Ref.read builderRef
-            let s = s0 { builder = bs }
+            orb <- Ref.read orbitRef
+            let s = s0 { builder = bs, builderYaw = orb.yaw, builderPitch = orb.pitch }
             Ref.write s lastStateRef
             -- Publish the live eased Builder detail to window.__builderDetail every
             -- frame (deterministic E2E hook for the LOD cross-fade).
@@ -686,9 +724,17 @@ main = do
             w <- getCanvasWidth canvas
             h <- getCanvasHeight canvas
             prev <- Ref.read sizeRef
-            when (prev.w /= w || prev.h /= h || prev.zoom /= s.zoom) do
-              Ref.write { w, h, zoom: s.zoom } sizeRef
-              updateViewport renderer canvas s
+            -- Re-upload the GPU projection whenever size, zoom, OR the Builder
+            -- orbit changes — without the yaw/pitch terms an orbit-only frame
+            -- would skip the re-upload and the orbit would be invisible.
+            when
+              ( prev.w /= w || prev.h /= h || prev.zoom /= s.zoom
+                  || prev.yaw /= s.builderYaw
+                  || prev.pitch /= s.builderPitch
+              )
+              do
+                Ref.write { w, h, zoom: s.zoom, yaw: s.builderYaw, pitch: s.builderPitch } sizeRef
+                updateViewport renderer canvas s
             renderFrame s
             -- Sync the per-atom symbol overlay labels every frame so they follow
             -- dragged/zoomed atoms in Builder, and clear when leaving the scene.
@@ -968,32 +1014,52 @@ pickRadius = 80.0
 installBuilderPick
   :: CanvasElement
   -> Ref.Ref Builder.BuilderState
+  -> Ref.Ref { yaw :: Number, pitch :: Number }
   -> (Builder.BuilderState -> Effect Unit)
   -> Effect State
   -> Effect Unit
-installBuilderPick canvas builderRef eagerRender readState = do
-  pickRef <- Ref.new (Nothing :: Maybe { id :: Int, depth :: Number, whole :: Boolean })
+installBuilderPick canvas builderRef orbitRef eagerRender readState = do
+  -- The active drag, latched on mousedown: either dragging an ATOM (with its
+  -- depth + whole-molecule flag) or ORBITing (empty-space miss) — orbit tracks
+  -- the previous cursor pixel so each move feeds a delta into the orbit Ref.
+  dragRef <-
+    Ref.new
+      ( Nothing
+          :: Maybe
+               ( Either
+                   { id :: Int, ref :: Atom.V3, whole :: Boolean }
+                   { x :: Number, y :: Number }
+               )
+      )
   let
-    -- Current full projection + canvas dims (live size) at the live camera zoom,
-    -- so pick/unproject use the SAME matrix the renderer drew with.
-    projAndCanvas zoom = do
+    -- Current full view-projection (orbit-aware) + bare projection + canvas dims
+    -- (live size) at the live camera zoom and orbit, so pick/unproject use the
+    -- SAME transform the renderer drew with (true-depth drag under orbit).
+    projAndCanvas zoom orb = do
       w <- getCanvasWidth canvas
       h <- getCanvasHeight canvas
-      pure { proj: Camera.projection zoom w h, canvas: { w, h } }
+      pure
+        { vp: Camera.viewProjection orb zoom w h
+        , proj: Camera.projection zoom w h
+        , orb: Camera.orbit orb.yaw orb.pitch
+        , canvas: { w, h }
+        }
 
     onDown px py detail = do
       s <- readState
       when (s.scene == Builder) do
-        pc <- projAndCanvas s.zoom
+        orb <- Ref.read orbitRef
+        pc <- projAndCanvas s.zoom orb
         bs <- Ref.read builderRef
         let
           cursor = { x: px, y: py }
-          -- Project every atom's scaled world position and measure pixel distance.
+          -- Project every atom's scaled world position (through the orbit-aware
+          -- view-projection) and measure pixel distance.
           candidates =
             map
               ( \a ->
                   let
-                    scr = Builder.projectToScreen pc.proj pc.canvas (builderWorldPos a.pos)
+                    scr = Builder.projectToScreen pc.vp pc.canvas (builderWorldPos a.pos)
                     dx = scr.x - cursor.x
                     dy = scr.y - cursor.y
                   in
@@ -1002,23 +1068,33 @@ installBuilderPick canvas builderRef eagerRender readState = do
               bs.atoms
           nearest = minimumBy (comparing _.dist) candidates
         case nearest of
+          -- HIT: latch an atom drag (whole-molecule on single click, single atom
+          -- on double click via the native event.detail).
           Just c | c.dist <= pickRadius ->
-            Ref.write (Just { id: c.id, depth: (builderWorldPos c.pos).z, whole: detail < 2 }) pickRef
-          _ -> pure unit
+            Ref.write
+              (Just (Left { id: c.id, ref: builderWorldPos c.pos, whole: detail < 2 }))
+              dragRef
+          -- MISS: latch ORBIT mode, seeding the previous cursor pixel.
+          _ -> Ref.write (Just (Right { x: px, y: py })) dragRef
 
     onMove px py = do
-      mpick <- Ref.read pickRef
-      case mpick of
+      mdrag <- Ref.read dragRef
+      case mdrag of
         Nothing -> pure unit
-        Just pick -> do
+        Just (Left pick) -> do
           s <- readState
           when (s.scene == Builder) do
-            pc <- projAndCanvas s.zoom
+            orb <- Ref.read orbitRef
+            pc <- projAndCanvas s.zoom orb
             let
-              -- Reference world point at the picked atom's depth (z preserved) so
-              -- unprojectAtDepth lands the cursor on that camera-facing plane.
-              ref = { x: 0.0, y: 0.0, z: pick.depth }
-              world = Builder.unprojectAtDepth pc.proj pc.canvas { x: px, y: py } ref
+              -- Reference is the picked atom's FULL world position so the
+              -- orbit-aware unproject keeps the cursor on the camera-facing plane
+              -- at the atom's true view-space depth. unprojectAtDepthFull rotates
+              -- it through the orbit and back, so the atom moves in TRUE world
+              -- depth even when the scene is orbited and the atom is off-origin.
+              modelRef = pick.ref
+              world =
+                Builder.unprojectAtDepthFull pc.orb pc.proj pc.canvas { x: px, y: py } modelRef
               -- Back out builderScale to recover the builder-model position.
               modelPos =
                 { x: world.x / builderScale
@@ -1032,6 +1108,18 @@ installBuilderPick canvas builderRef eagerRender readState = do
             Ref.modify_ (if pick.whole then Builder.moveMolecule pick.id modelPos else Builder.moveAtomWith s.dragStrength pick.id modelPos) builderRef
             bs <- Ref.read builderRef
             eagerRender bs
+        Just (Right prev) -> do
+          s <- readState
+          when (s.scene == Builder) do
+            -- ORBIT: fold the cursor delta since the last move into the SINGLE
+            -- orbit Ref the renderer/pick/seam share, then re-track the cursor.
+            -- The next rAF frame mirrors the Ref into State and re-uploads the GPU
+            -- projection (sizeRef gate now watches yaw/pitch), making the orbit
+            -- visible — the GPU projection can only be re-uploaded in the draw
+            -- loop (which owns the renderer), so no eager re-render here.
+            let delta = { dx: px - prev.x, dy: py - prev.y }
+            Ref.modify_ (applyOrbit delta) orbitRef
+            Ref.write (Just (Right { x: px, y: py })) dragRef
 
-    onUp = Ref.write Nothing pickRef
+    onUp = Ref.write Nothing dragRef
   installCanvasPointer onDown onMove onUp

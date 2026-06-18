@@ -2663,6 +2663,171 @@ main = do
 
   log "all Camera.orbit + Camera.viewProjection (M2 3D) properties hold."
 
+  -- ───── M3: Matrix.transpose + Builder.unprojectAtDepthFull + Camera.clampPitch ─
+  --
+  -- RED: `Math.Matrix.transpose`, `Builder.unprojectAtDepthFull`, `Camera.clampPitch`,
+  -- and `Camera.maxPitch` do NOT exist yet. These tests MUST fail to compile
+  -- (UnknownName / not exported) until the implementer adds those four exports.
+  -- Do NOT implement them before the tests pass RED.
+  --
+  -- Agreed design:
+  --   Math.Matrix.transpose :: Matrix Number -> Matrix Number
+  --     Standard 4x4 row-major transpose: entry (i,j) of output = entry (j,i) of input.
+  --
+  --   Builder.unprojectAtDepthFull
+  --     :: Matrix Number -> Matrix Number
+  --     -> { w :: Number, h :: Number }
+  --     -> { x :: Number, y :: Number }
+  --     -> V3
+  --     -> V3
+  --     args: (orbit, projection, canvas, px, worldRef)
+  --     Recipe (orbit is orthogonal, so orbitᵀ = orbit⁻¹):
+  --       viewRef   = mulVec orbit worldRef
+  --       viewPoint = unprojectAtDepth projection canvas px viewRef
+  --       worldPoint = mulVec (Matrix.transpose orbit) viewPoint
+  --
+  --   Camera.maxPitch :: Number   (≈ 85° in radians = 1.4835)
+  --   Camera.clampPitch :: Number -> Number
+  --     Clamps pitch radians to ±maxPitch.
+  log "M3 (transpose / unprojectAtDepthFull / clampPitch) properties:"
+
+  -- ── (A) Matrix.transpose ─────────────────────────────────────────────────────
+  let
+    -- A known non-symmetric 4×4 matrix with distinct entries at each position.
+    -- Row-major layout: entries are [ row0col0, row0col1, ..., row3col3 ].
+    testM = fromMaybe (M.zeros 4 4) $ M.fromArray 4 4
+      [ 1.0
+      , 2.0
+      , 3.0
+      , 4.0
+      , 5.0
+      , 6.0
+      , 7.0
+      , 8.0
+      , 9.0
+      , 10.0
+      , 11.0
+      , 12.0
+      , 13.0
+      , 14.0
+      , 15.0
+      , 16.0
+      ]
+    testMT = M.transpose testM
+    -- entry (i,j) from a 4x4 row-major matrix vector.
+    entryM m_ i_ j_ = fromMaybe 0.0 (index (M.toVector m_) (i_ * 4 + j_))
+
+  -- transpose swaps (i,j) ↔ (j,i) for a few representative off-diagonal entries.
+  check "M3 transpose: entry (0,1) of transpose == entry (1,0) of original (2.0 -> 5.0)" $
+    approxEq (entryM testMT 0 1) (entryM testM 1 0)
+  check "M3 transpose: entry (1,0) of transpose == entry (0,1) of original (5.0 -> 2.0)" $
+    approxEq (entryM testMT 1 0) (entryM testM 0 1)
+  check "M3 transpose: entry (0,2) of transpose == entry (2,0) of original (3.0 -> 9.0)" $
+    approxEq (entryM testMT 0 2) (entryM testM 2 0)
+  check "M3 transpose: entry (2,3) of transpose == entry (3,2) of original (12.0 -> 15.0)" $
+    approxEq (entryM testMT 2 3) (entryM testM 3 2)
+  -- diagonal entries are unchanged by transpose.
+  check "M3 transpose: diagonal entry (1,1) unchanged (6.0)" $
+    approxEq (entryM testMT 1 1) (entryM testM 1 1)
+  check "M3 transpose: diagonal entry (3,3) unchanged (16.0)" $
+    approxEq (entryM testMT 3 3) (entryM testM 3 3)
+
+  -- transpose (transpose m) == m (double-transpose is identity).
+  check "M3 transpose: transpose (transpose m) == m (approxEqMatrix, 1e-10)" $
+    approxEqMatrix (M.transpose (M.transpose testM)) testM
+
+  -- transpose identity == identity.
+  check "M3 transpose: transpose M.identity == M.identity (1e-10)" $
+    approxEqMatrix (M.transpose M.identity) M.identity
+
+  -- ── (B) Builder.unprojectAtDepthFull round-trip under orbit ──────────────────
+  let
+    -- Canvas and projection used for the full-orbit unproject tests.
+    m3Canvas = { w: 800.0, h: 600.0 }
+    m3Proj = Cam.projection 1.0 800.0 600.0
+    -- A non-trivial orbit (yaw=0.5, pitch=0.3 radians).
+    m3Orb = Cam.orbit 0.5 0.3
+    -- The combined view-projection: vp = proj * orbit.
+    m3Vp = Cam.viewProjection { yaw: 0.5, pitch: 0.3 } 1.0 800.0 600.0
+    -- A world reference point in front of the camera (negative Z in camera space
+    -- at zoom 1.0; cameraDistance is 1000 so z ~ -120 is comfortably in view).
+    m3WorldRef = { x: 40.0, y: -25.0, z: -120.0 }
+    -- Project the reference point to a pixel using the FULL view-projection.
+    m3Px = B.projectToScreen m3Vp m3Canvas m3WorldRef
+    -- Unproject with the full-orbit variant; should recover worldRef.
+    m3Back = B.unprojectAtDepthFull m3Orb m3Proj m3Canvas { x: m3Px.x, y: m3Px.y } m3WorldRef
+    m3ApproxClose a c = abs (a - c) < 1.0e-6
+
+  -- (B1) Round-trip: projectToScreen then unprojectAtDepthFull recovers the world point.
+  check "M3 unprojectAtDepthFull: round-trip x ≈ worldRef.x (1e-6)" $
+    m3ApproxClose m3Back.x m3WorldRef.x
+  check "M3 unprojectAtDepthFull: round-trip y ≈ worldRef.y (1e-6)" $
+    m3ApproxClose m3Back.y m3WorldRef.y
+  check "M3 unprojectAtDepthFull: round-trip z ≈ worldRef.z (1e-6)" $
+    m3ApproxClose m3Back.z m3WorldRef.z
+
+  -- (B2) Offset pixel test: unproject a shifted pixel, then re-project the result;
+  --      it should reproduce the shifted pixel (the unproject lands on the correct ray).
+  let
+    m3PxShifted = { x: m3Px.x + 30.0, y: m3Px.y - 20.0 }
+    m3Back2 = B.unprojectAtDepthFull m3Orb m3Proj m3Canvas m3PxShifted m3WorldRef
+    m3PxReproj = B.projectToScreen m3Vp m3Canvas m3Back2
+
+  check "M3 unprojectAtDepthFull offset: re-projected x ≈ shifted px.x (1e-6)" $
+    m3ApproxClose m3PxReproj.x m3PxShifted.x
+  check "M3 unprojectAtDepthFull offset: re-projected y ≈ shifted px.y (1e-6)" $
+    m3ApproxClose m3PxReproj.y m3PxShifted.y
+
+  -- ── (C) Equivalence at zero orbit: unprojectAtDepthFull with orbit 0 0 == unprojectAtDepth ──
+  let
+    -- At zero orbit, orbit = identity, so unprojectAtDepthFull must collapse to unprojectAtDepth.
+    m3Orb0 = Cam.orbit 0.0 0.0
+    -- Use the same canvas/proj and a reference point with positive-Z (as in the
+    -- existing legacy test, refPos = { x: 40.0, y: -25.0, z: 30.0 }) so
+    -- unprojectAtDepth's diagonal assumption holds.
+    m3RefPos0 = { x: 40.0, y: -25.0, z: 30.0 }
+    m3Px0 = B.projectToScreen m3Proj m3Canvas m3RefPos0
+    m3FullAtZero = B.unprojectAtDepthFull m3Orb0 m3Proj m3Canvas { x: m3Px0.x, y: m3Px0.y } m3RefPos0
+    m3Legacy = B.unprojectAtDepth m3Proj m3Canvas { x: m3Px0.x, y: m3Px0.y } m3RefPos0
+
+  check "M3 unprojectAtDepthFull orbit=0: x ≈ unprojectAtDepth x (1e-10)" $
+    approxEq m3FullAtZero.x m3Legacy.x
+  check "M3 unprojectAtDepthFull orbit=0: y ≈ unprojectAtDepth y (1e-10)" $
+    approxEq m3FullAtZero.y m3Legacy.y
+  check "M3 unprojectAtDepthFull orbit=0: z ≈ unprojectAtDepth z (1e-10)" $
+    approxEq m3FullAtZero.z m3Legacy.z
+
+  -- ── (D) Camera.clampPitch ─────────────────────────────────────────────────────
+  -- clampPitch clamps to ±maxPitch (≈ 85° in radians = 1.4835).
+
+  -- Over-bound positive clamps to +maxPitch.
+  check "M3 clampPitch (pi) == Camera.maxPitch (over-bound positive clamps to max)" $
+    approxEq (Cam.clampPitch pi) Cam.maxPitch
+
+  -- Over-bound negative clamps to -maxPitch.
+  check "M3 clampPitch (-pi) == -Camera.maxPitch (over-bound negative clamps to -max)" $
+    approxEq (Cam.clampPitch (negate pi)) (negate Cam.maxPitch)
+
+  -- In-range value passes through unchanged.
+  check "M3 clampPitch 0.2 == 0.2 (in-range unchanged, 1e-10)" $
+    approxEq (Cam.clampPitch 0.2) 0.2
+
+  -- maxPitch is close to 85° in radians (1.4835 ± 0.01).
+  check "M3 Camera.maxPitch ≈ 1.4835 (85° in radians, within 0.01)" $
+    abs (Cam.maxPitch - 1.4835) < 0.01
+
+  -- clampPitch at exactly ±maxPitch is a fixed point.
+  check "M3 clampPitch maxPitch == maxPitch (fixed point at boundary)" $
+    approxEq (Cam.clampPitch Cam.maxPitch) Cam.maxPitch
+  check "M3 clampPitch (-maxPitch) == -maxPitch (fixed point at -boundary)" $
+    approxEq (Cam.clampPitch (negate Cam.maxPitch)) (negate Cam.maxPitch)
+
+  -- Zero is in-range (passes through).
+  check "M3 clampPitch 0.0 == 0.0 (zero is in-range)" $
+    approxEq (Cam.clampPitch 0.0) 0.0
+
+  log "all M3 (transpose / unprojectAtDepthFull / clampPitch) properties hold."
+
 -- Fold applyZoomStep repeatedly with a fixed wheel delta, starting from `start`.
 -- Used to assert repeated stepping stays clamped within [minZoom, maxZoom].
 foldZoom :: Number -> Number -> Array Int -> Number

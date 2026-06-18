@@ -12,6 +12,7 @@ module Math.Matrix
   , add
   , multiply
   , mulScalar
+  , transpose
   ) where
 
 import Prelude
@@ -143,3 +144,17 @@ multiply ma@(Matrix a) mb@(Matrix b) =
 
 mulScalar :: Number -> Vector Number -> Vector Number
 mulScalar s = map (s * _)
+
+-- | Transpose a 4x4 row-major matrix: entry (i,j) of the output equals entry
+-- | (j,i) of the input. Built via toVector/fromArray; for an orthogonal
+-- | rotation matrix this is its inverse.
+transpose :: Matrix Number -> Matrix Number
+transpose m =
+  let
+    v = toVector m
+    el i j = fromMaybe 0.0 (v !! (i * 4 + j))
+  in
+    fromMaybe (zeros 4 4) $ fromArray 4 4 do
+      i <- range 0 3
+      j <- range 0 3
+      pure (el j i)
