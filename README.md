@@ -75,6 +75,9 @@ four scenes, toggled by an on-screen switch:
   see many molecules at once), scroll in for detail.
 - **Zoom + / − buttons** (all scenes, in the controls panel) — the same camera
   zoom from on-screen buttons: **+** zooms in, **−** zooms out (clamped).
+- **Orbit D-pad buttons** (Builder, in the controls panel) — **↑↓←→ arrows** orbit
+  the camera by a fixed step per click; **⊙ reset** returns to the default orbit
+  angle. Builder-only; orbit has yaw+pitch DOF only (no roll).
 - **Zoom level-of-detail** (Builder) — the same camera zoom smoothly fades each
   atom between a single element-coloured ball (zoomed out) and its full nucleus +
   electrons (zoomed in), eased per frame.
