@@ -85,6 +85,22 @@
         padding: 0 2px;
         user-select: none;
       }
+      /* Compact D-pad grouping for the orbit buttons (reuses #controls button
+         styling; this only lays the five buttons out as a directional pad). */
+      #controls .orbit-pad {
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 3px;
+      }
+      #controls .orbit-pad-row {
+        display: inline-flex;
+        gap: 3px;
+      }
+      #controls .orbit-pad button {
+        padding: 4px 8px;
+        min-width: 30px;
+      }
       #shear-value {
         width: 64px;
       }
@@ -241,6 +257,17 @@
       <label>Zoom</label>
       <button id="zoom-in" type="button">+</button>
       <button id="zoom-out" type="button">−</button>
+      <span class="controls-sep">|</span>
+      <label>Orbit</label>
+      <span class="orbit-pad">
+        <button id="orbit-up" type="button" aria-label="Orbit up">▲</button>
+        <span class="orbit-pad-row">
+          <button id="orbit-left" type="button" aria-label="Orbit left">◀</button>
+          <button id="orbit-reset" type="button" aria-label="Reset orbit">⟲</button>
+          <button id="orbit-right" type="button" aria-label="Orbit right">▶</button>
+        </span>
+        <button id="orbit-down" type="button" aria-label="Orbit down">▼</button>
+      </span>
     </div>
     <script type="text/javascript">
       var canvas = document.getElementById('canvas');

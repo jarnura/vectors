@@ -19,7 +19,7 @@ import Data.Traversable (traverse)
 import Effect (Effect)
 import Effect.Console (log)
 import Effect.Ref as Ref
-import FRP.Loop (Input, installCanvasPointer, runLoop, setBuilderDetail)
+import FRP.Loop (Input, installCanvasPointer, installOrbitButtons, runLoop, setBuilderDetail)
 import Graphics.Canvas
   ( CanvasElement
   , getCanvasElementById
@@ -697,6 +697,30 @@ main = do
       -- the exact projection the renderer uses. An empty-space miss orbits the
       -- camera (writing the shared orbitRef) instead of moving an atom.
       installBuilderPick canvas builderRef orbitRef eagerRender (Ref.read lastStateRef)
+      -- On-screen orbit buttons: each click folds a fixed Camera.buttonOrbitDelta
+      -- step through Main.applyOrbit into the SAME shared orbitRef as the empty-
+      -- space drag (no new Ref/clamp — applyOrbit already pitch-clamps), and
+      -- #orbit-reset writes {yaw:0,pitch:0}. Builder-only: each handler reads the
+      -- live State and only mutates when the Builder scene is active (mirrors
+      -- installBuilderPick). The next rAF frame mirrors orbitRef → State and the
+      -- sizeRef gate re-uploads the projection, so no eager re-render is needed.
+      let
+        orbitWhenBuilder :: ({ yaw :: Number, pitch :: Number } -> { yaw :: Number, pitch :: Number }) -> Effect Unit
+        orbitWhenBuilder f = do
+          s <- Ref.read lastStateRef
+          when (s.scene == Builder) (Ref.modify_ f orbitRef)
+        od = Camera.buttonOrbitDelta
+      installOrbitButtons
+        (orbitWhenBuilder (applyOrbit { dx: negate od, dy: 0.0 })) -- left
+        (orbitWhenBuilder (applyOrbit { dx: od, dy: 0.0 })) -- right
+        (orbitWhenBuilder (applyOrbit { dx: 0.0, dy: negate od })) -- up
+        (orbitWhenBuilder (applyOrbit { dx: 0.0, dy: od })) -- down
+        (orbitWhenBuilder (const { yaw: 0.0, pitch: 0.0 })) -- reset
+      Controls.installButtonPulse "orbit-left"
+      Controls.installButtonPulse "orbit-right"
+      Controls.installButtonPulse "orbit-up"
+      Controls.installButtonPulse "orbit-down"
+      Controls.installButtonPulse "orbit-reset"
       -- Wire the glassy controls as a left DRAWER: the #panel-toggle icon slides
       -- the #controls panel IN from the left and OUT again (anime.js, closed
       -- drawer keeps pointer-events:none so it never blocks the canvas). The icon

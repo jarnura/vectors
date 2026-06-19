@@ -138,6 +138,24 @@ export const installZoomButtons = (delta) => (cb) => () => {
   if (zout) zout.addEventListener("click", () => cb(delta)());
 };
 
+// On-screen orbit buttons: #orbit-left / #orbit-right step yaw, #orbit-up /
+// #orbit-down step pitch, #orbit-reset returns to {yaw:0,pitch:0}. Each is a
+// plain Effect Unit thunk — the PureScript side owns the per-direction {dx,dy}
+// decision and the Camera.buttonOrbitDelta magnitude, mirroring how the
+// empty-space drag folds a cursor delta. Null-guarded like the other wirings.
+export const installOrbitButtons =
+  (onLeft) => (onRight) => (onUp) => (onDown) => (onReset) => () => {
+    const wire = (id, cb) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener("click", () => cb());
+    };
+    wire("orbit-left", onLeft);
+    wire("orbit-right", onRight);
+    wire("orbit-up", onUp);
+    wire("orbit-down", onDown);
+    wire("orbit-reset", onReset);
+  };
+
 // Publish the live eased Builder detail level for deterministic E2E observation.
 export const setBuilderDetail = (d) => () => {
   window.__builderDetail = d;

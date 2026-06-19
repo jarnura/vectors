@@ -7,6 +7,7 @@ module FRP.Loop
   , installCanvasPointer
   , installWheelListener
   , installZoomButtons
+  , installOrbitButtons
   , installValenceOnlyToggle
   , installSubshellViewToggle
   , installDragStrengthSlider
@@ -122,6 +123,20 @@ foreign import installWheelListener
 -- channel as the mouse wheel. DOM-only input plumbing — never touches WebGL.
 foreign import installZoomButtons
   :: Number -> (Number -> Effect Unit) -> Effect Unit
+
+-- Wires the on-screen orbit buttons (#orbit-left / #orbit-right step yaw,
+-- #orbit-up / #orbit-down step pitch, #orbit-reset returns to zero). Each
+-- argument is a plain `Effect Unit` click handler — the caller (Main) owns the
+-- per-direction {dx,dy} decision (Camera.buttonOrbitDelta pushed through
+-- Main.applyOrbit) and the scene gate, mirroring the empty-space orbit-drag.
+-- DOM-only input plumbing — never touches WebGL.
+foreign import installOrbitButtons
+  :: Effect Unit
+  -> Effect Unit
+  -> Effect Unit
+  -> Effect Unit
+  -> Effect Unit
+  -> Effect Unit
 
 -- Publish the live eased Builder detail level to the `window.__builderDetail`
 -- debug global (a number in [0,1]) for deterministic E2E observation. Called
