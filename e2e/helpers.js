@@ -31,6 +31,17 @@ export async function openDrawer(page) {
   }, undefined, { timeout: 2500, polling: 100 });
 }
 
+// Reach the Builder scene (CubePoc → Atomos → Molecule → Builder = three
+// #scene-toggle clicks) and wait for window.__builder.
+export async function gotoBuilder(page) {
+  await expect(page.locator('#scene-toggle')).toBeVisible();
+  await page.click('#scene-toggle'); // → atomos
+  await page.click('#scene-toggle'); // → molecule
+  await page.click('#scene-toggle'); // → builder
+  await page.waitForTimeout(700); // generous: let the builder scene boot + render
+  await page.waitForFunction(() => !!window.__builder, null, { timeout: 6000 });
+}
+
 // Wait until the WebGL2 canvas exists, is sized, and has rendered ≥1 frame.
 export async function waitForRenderedCanvas(page) {
   await page.waitForSelector(CANVAS, { state: 'attached' });
