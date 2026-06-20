@@ -5,6 +5,7 @@
   "scripts": {
     "build": "spago bundle",
     "test": "spago test",
+    "validate": "node scripts/validate-standards.mjs",
     "dev": "spago bundle && node dev-server.js",
     "e2e": "playwright test",
     "e2e:report": "playwright show-report artifacts/e2e-report",
