@@ -5,7 +5,7 @@ import Prelude
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Console (log)
-import Main (applyDragStrength, applySubshellView, applyValenceOnly, initialState)
+import Main (applyAntibonding, applyDragStrength, applySubshellView, applyValenceOnly, initialState)
 import Test.Util (check)
 
 mainStateSpec :: Effect Unit
@@ -79,3 +79,40 @@ mainStateSpec = do
     (applyDragStrength (Just 7.0) initialState).zoom == initialState.zoom
 
   log "all M2 drag-strength wiring properties hold."
+
+  -- ───── M3-S2: antibonding toggle (Builder-only render flag) ────────────
+  log "M3-S2 antibonding toggle properties:"
+
+  -- Default: antibonding starts as false.
+  check "initialState.antibonding == false" $
+    initialState.antibonding == false
+
+  -- true flips the field from its false init.
+  check "applyAntibonding true flips false→true" $
+    (applyAntibonding true initialState).antibonding == true
+
+  -- A double-toggle returns to the original value.
+  check "applyAntibonding true twice returns to false" $
+    (applyAntibonding true (applyAntibonding true initialState)).antibonding == false
+
+  -- false is identity on the field.
+  check "applyAntibonding false leaves antibonding = false" $
+    (applyAntibonding false initialState).antibonding == false
+
+  -- false is a no-op: other fields (e.g. valenceOnly) are untouched.
+  check "applyAntibonding false leaves valenceOnly unchanged" $
+    (applyAntibonding false initialState).valenceOnly == initialState.valenceOnly
+
+  -- true does not mutate other fields (e.g. zoom).
+  check "applyAntibonding true leaves zoom unchanged" $
+    (applyAntibonding true initialState).zoom == initialState.zoom
+
+  -- true does not mutate scene field.
+  check "applyAntibonding true leaves scene unchanged" $
+    (applyAntibonding true initialState).scene == initialState.scene
+
+  -- true does not mutate valenceOnly.
+  check "applyAntibonding true leaves valenceOnly unchanged" $
+    (applyAntibonding true initialState).valenceOnly == initialState.valenceOnly
+
+  log "all M3-S2 antibonding toggle properties hold."

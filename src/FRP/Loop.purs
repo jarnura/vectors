@@ -9,6 +9,7 @@ module FRP.Loop
   , installZoomButtons
   , installOrbitButtons
   , installValenceOnlyToggle
+  , installAntibondingToggle
   , installSubshellViewToggle
   , installDragStrengthSlider
   , setBuilderDetail
@@ -29,6 +30,7 @@ type Input =
   , toggleScene :: Boolean
   , toggle2D :: Boolean
   , toggleValenceOnly :: Boolean
+  , toggleAntibonding :: Boolean
   , toggleSubshellView :: Boolean
   , element :: Maybe Int
   , dragStrength :: Maybe Number
@@ -44,6 +46,7 @@ emptyInput =
   , toggleScene: false
   , toggle2D: false
   , toggleValenceOnly: false
+  , toggleAntibonding: false
   , toggleSubshellView: false
   , element: Nothing
   , dragStrength: Nothing
@@ -72,6 +75,11 @@ foreign import installView2DToggle
 
 -- Wires the "valence only" checkbox: runs the given effect on each change.
 foreign import installValenceOnlyToggle
+  :: Effect Unit -> Effect Unit
+
+-- Wires the "antibonding" checkbox: runs the given effect on each change.
+-- Mirrors installValenceOnlyToggle. Builder-only render flag.
+foreign import installAntibondingToggle
   :: Effect Unit -> Effect Unit
 
 -- Wires the "sub-shells" view checkbox: runs the given effect on each change.
@@ -168,6 +176,8 @@ runLoop spec = do
     (Ref.modify_ (_ { toggle2D = true }) inputRef)
   installValenceOnlyToggle
     (Ref.modify_ (_ { toggleValenceOnly = true }) inputRef)
+  installAntibondingToggle
+    (Ref.modify_ (_ { toggleAntibonding = true }) inputRef)
   installSubshellViewToggle
     (Ref.modify_ (_ { toggleSubshellView = true }) inputRef)
   installElementInput \z ->

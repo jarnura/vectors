@@ -29,6 +29,8 @@
 module Chem
   ( valence
   , bondEnergy
+  , lengthFactor
+  , depthFactor
   ) where
 
 import Prelude
@@ -141,6 +143,48 @@ fallbackEnergy = 2.5
 -- Tabulated energy for the unordered pair (lo, hi), if present.
 lookupPair :: Int -> Int -> Maybe Number
 lookupPair lo hi = map _.e (find (\r -> r.a == lo && r.b == hi) energyTable)
+
+-- ───── Per-order bond-length and depth scaling factors ───────────────────────
+--
+-- These pure factors generalise C-C experimental bond-length and dissociation-
+-- energy ratios to any element pair, providing order-aware geometry/energy for
+-- the Morse potential without a full multi-centre quantum chemistry table.
+--
+-- Source ratios from C-C bonds (teaching values, see CODING_STANDARDS.md):
+--   R0:  single 154 pm / double 134 pm / triple 120 pm
+--        → factor_2 = 134/154 ≈ 0.870 ; factor_3 = 120/154 ≈ 0.779
+--   De:  single 346 kJ/mol / double 614 kJ/mol / triple 839 kJ/mol
+--        → factor_2 = 614/346 ≈ 1.775 ; factor_3 = 839/346 ≈ 2.425
+--        (both < the naive order multiple, confirming diminishing π contribution)
+--
+-- SIMPLIFICATION: these C-C-derived factors are applied universally. For pairs
+-- without explicit multi-bond data this is a teaching approximation; the σ + π
+-- energy gain relative to the σ baseline will differ by element, but the
+-- qualitative trends (shorter, stronger) are universal covalent chemistry.
+--
+-- Continuity: order=1 returns exactly 1.0 for both factors so every existing
+-- Pe call — which implicitly assumes order 1 — is unchanged by S3.
+
+-- | Ratio by which the equilibrium bond distance R0 shrinks for a given bond
+-- | order relative to a single bond. lengthFactor 1 = 1.0 (continuity).
+-- | 2 → ~0.870 (double bond ~13% shorter); 3 → ~0.779 (triple ~22% shorter).
+-- | Out-of-range order clamps to order=1 (returns 1.0), keeping the function total.
+lengthFactor :: Int -> Number
+lengthFactor 1 = 1.0
+lengthFactor 2 = 0.870
+lengthFactor 3 = 0.779
+lengthFactor _ = 1.0
+
+-- | Ratio by which the Morse well depth De deepens for a given bond order
+-- | relative to a single bond. depthFactor 1 = 1.0 (continuity).
+-- | 2 → ~1.775 (double bond less than 2× stronger — diminishing π);
+-- | 3 → ~2.425 (triple bond less than 3× — same reason).
+-- | Out-of-range order clamps to order=1 (returns 1.0), keeping the function total.
+depthFactor :: Int -> Number
+depthFactor 1 = 1.0
+depthFactor 2 = 1.775
+depthFactor 3 = 2.425
+depthFactor _ = 1.0
 
 -- Clamp-safe normalised single-bond energy (kJ/mol ÷ 100) between two atomic
 -- numbers. Both args clamp into [1, 36]; the lookup is on the unordered pair,

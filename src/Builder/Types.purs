@@ -14,8 +14,10 @@ import Data.Maybe (Maybe(..))
 -- A placed atom: a stable id, its atomic number, and its world position.
 type PlacedAtom = { id :: Int, z :: Int, pos :: V3 }
 
--- A single (undirected) bond between two atom ids.
-type BBond = { a :: Int, b :: Int }
+-- A single (undirected) bond between two atom ids, with a bond order.
+-- order 1 = single bond (the only order produced by recomputeBonds in this step);
+-- higher orders are reserved for future M2 steps.
+type BBond = { a :: Int, b :: Int, order :: Int }
 
 -- The whole builder world: the atoms, the bonds between them, the next id to
 -- hand out, and the currently picked atom (if any).

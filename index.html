@@ -221,6 +221,33 @@
       .mol-value {
         color: #eaf2ff;
       }
+      /* Builder-only potential-energy (Morse) curve overlay. A small glassy
+         panel in the top-right corner; pointer-events:none so it never blocks
+         the canvas. Hidden by default; shown only in the Builder scene. */
+      #pe-overlay {
+        position: absolute;
+        top: 100px;
+        right: 16px;
+        z-index: 1;
+        width: 220px;
+        height: 140px;
+        box-sizing: border-box;
+        font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+        background: rgba(8, 14, 28, 0.72);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        border: 1px solid rgba(120, 160, 230, 0.45);
+        border-radius: 8px;
+        padding: 6px 8px;
+        color: #cfe0ff;
+        pointer-events: none;
+        display: none;
+      }
+      #pe-overlay svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
     </style>
   </head>
   <body>
@@ -231,12 +258,15 @@
     <div id="atom-label">Carbon</div>
     <div id="orbital-info">1s2 2s2 2p2</div>
     <div id="molecule-info"></div>
+    <div id="pe-overlay"></div>
     <div id="controls">
       <button id="scene-toggle" type="button">Switch scene</button>
       <label for="view-2d">2D</label>
       <input id="view-2d" type="checkbox" />
       <label for="valence-only">Valence&nbsp;only</label>
       <input id="valence-only" type="checkbox" />
+      <label for="antibonding">Anti&nbsp;bonding</label>
+      <input id="antibonding" type="checkbox" />
       <label for="drag-strength">Drag&nbsp;strength</label>
       <input id="drag-strength" type="range" min="0" max="10" step="0.1" value="3" />
       <label for="subshell-view">Sub-shells</label>
