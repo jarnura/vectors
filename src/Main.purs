@@ -65,7 +65,8 @@ import Builder.Vibration as Vibration
 import Starfield (starPositions)
 import Update (State, applyOrbit, initialState, step)
 import Update
-  ( applyDragStrength
+  ( applyAntibonding
+  , applyDragStrength
   , applyOrbit
   , applySubshellView
   , applyValenceOnly
@@ -441,17 +442,22 @@ main = do
           builderElectronGroupEntities builderValenceElectronMesh
             (Builder.valenceLoneElectronGroups s.builder s.frame)
 
-        -- Shared (bonding) electrons: the pair sitting BETWEEN each bond's two
-        -- vibrated nuclei (Builder.bondElectronPositions), breathing with the
-        -- frame. The group centre is the vibrated midpoint (M1.5: the midpoint
-        -- is frame-invariant by symmetry, so vibratedMidpoints == bondMidpoints,
-        -- but routing through Vibration.vibratedMidpoints makes the wiring
-        -- explicit). Bonding electrons ARE valence electrons → reuses the amber
-        -- valence mesh. Render-only: never mutates BuilderState.
+        -- Shared (bonding / antibonding) electrons: the pair sitting BETWEEN
+        -- each bond's two nuclei when s.antibonding = false (Bonding phase,
+        -- standard in-phase pair), or pushed outward past each nucleus when
+        -- s.antibonding = true (Antibonding phase, node at midpoint).
+        -- Phase is chosen via Builder.bondElectronGroupsPhased using
+        -- Builder.Bonding / Builder.Antibonding. The LOD bloom centre is always
+        -- the bond midpoint regardless of phase (sensible fade in both cases).
+        -- Bonding electrons ARE valence electrons → reuses the amber valence mesh.
+        -- Render-only: never mutates BuilderState.
         builderBondElectronEntities :: State -> Array Entity
         builderBondElectronEntities s =
-          builderElectronGroupEntities builderValenceElectronMesh
-            (Builder.bondElectronGroups s.builder s.frame)
+          let
+            phase = if s.antibonding then Builder.Antibonding else Builder.Bonding
+          in
+            builderElectronGroupEntities builderValenceElectronMesh
+              (Builder.bondElectronGroupsPhased phase s.builder s.frame)
 
         entitiesFor :: State -> Array Entity
         entitiesFor s = case s.scene of

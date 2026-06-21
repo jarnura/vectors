@@ -2,13 +2,30 @@
 -- bond degree, lone counts, the valence shell split, and the model-space
 -- positions of shared bonding pairs and per-atom core/valence lone electrons —
 -- both flat arrays and per-atom grouped forms for the LOD bloom cross-fade.
+-- Also provides phase-aware (Bonding / Antibonding) shared-electron placement:
+-- the Bonding phase is byte-identical to bondElectronPositions; the Antibonding
+-- phase emits a node at the bond midpoint with electrons pushed outward past
+-- each nucleus (same electron count — conservation unchanged).
+-- M3-S3: spin tags — a pure VISUAL label (Up | Down) for the sigma-paired
+-- singlet electrons of each bond. The sigma pair is the FIRST 2 electrons per
+-- bond (indices 0 and 1 of bondPairAt). One is tagged Up, its mirror Down,
+-- forming a singlet (paired anti-parallel spins, as required by Pauli exclusion).
+-- Pi pairs (bond order > 1) receive the same Up/Down alternating label so the
+-- renderer can tint all bond electrons. VISUAL LAYER ONLY: exchange-integral
+-- energetics (singlet vs. triplet splitting) are NOT modelled here — see
+-- a future QM solver for that.
 -- Pure, total, deterministic — no Effect/WebGL.
 module Builder.Electrons
-  ( degreeOf
+  ( BondPhase(..)
+  , Spin(..)
+  , degreeOf
   , loneCountOf
   , valenceShellOf
   , bondElectronPositions
+  , bondElectronPositionsPhased
   , bondElectronGroups
+  , bondElectronGroupsPhased
+  , bondSigmaSpins
   , loneElectronPositions
   , coreLoneElectronPositions
   , valenceLoneElectronPositions
@@ -25,6 +42,62 @@ import Data.Array (concat, concatMap, foldl, init, last, length, mapWithIndex, r
 import Data.Int (floor, toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Number (asin, atan2, cos, pi, sin, sqrt)
+
+-- Phase selector for shared (bonding) electron placement.
+-- Bonding:    the standard in-phase pair — sigma pair straddles the bond
+--             midpoint along the axis, PI pairs perpendicular (byte-identical to
+--             the existing bondElectronPositions).
+-- Antibonding: out-of-phase — a NODE at the midpoint (zero electron density in
+--             the middle); the shared electrons are pushed OUTWARD past each
+--             nucleus along the bond axis (sigma) or outward along their
+--             perpendicular direction (pi). Electron count is conserved: 2*order
+--             per bond in both phases.
+data BondPhase = Bonding | Antibonding
+
+derive instance eqBondPhase :: Eq BondPhase
+
+-- M3-S3: spin quantum number tag for a shared bond electron.
+-- Up and Down represent the two anti-parallel spin projections (m_s = +½ and
+-- m_s = −½) of the Pauli-mandated singlet pair. The sigma pair carries one Up
+-- and one Down (in that positional order from bondPairAt, index 0 → Up, 1 → Down).
+-- Pi pairs (bond order > 1) are tagged with the same Up/Down alternating pattern
+-- so every bond electron gets a spin label.
+-- VISUAL ONLY: exchange-integral energetics (singlet vs. triplet energy gap)
+-- are deferred — a QM solver is needed for that. Do NOT use Spin for energy
+-- calculations without the full Hamiltonian.
+data Spin = Up | Down
+
+derive instance eqSpin :: Eq Spin
+derive instance ordSpin :: Ord Spin
+
+-- Return the spin tag for every shared bond electron in the state, in the same
+-- order as `bondElectronPositions`: for each bond (in st.bonds order) the first
+-- 2*order positions carry alternating spins [Up, Down, Up, Down, ...], so the
+-- sigma pair (positions 0,1) is always (Up, Down) — the singlet — and each
+-- subsequent PI pair also carries (Up, Down).
+-- Length equals length (bondElectronPositions st frame) for any frame.
+-- Deterministic, pure, total. Does not depend on frame (spins are static labels).
+bondSigmaSpins :: BuilderState -> Array Spin
+bondSigmaSpins st = concatMap spinForBond st.bonds
+  where
+  -- Each bond of order n contributes 2*n spin tags: alternating Up/Down.
+  spinForBond bd = map (\i -> if i `mod` 2 == 0 then Up else Down)
+                       (range 0 (2 * bd.order - 1))
+
+-- Phase-aware shared electron positions. Bonding is byte-identical to
+-- bondElectronPositions. Antibonding places the SAME number of electrons but
+-- with a node at the midpoint (electrons pushed outward past each nucleus).
+-- Pure, total, deterministic, NaN-safe.
+bondElectronPositionsPhased :: BondPhase -> BuilderState -> Number -> Array V3
+bondElectronPositionsPhased phase st frame = concatMap bondPair st.bonds
+  where
+  bondPair bd =
+    case atomById st bd.a, atomById st bd.b of
+      Just a, Just b ->
+        case phase of
+          Bonding -> bondPairAt bd.order a b frame
+          Antibonding -> antibondPairAt bd.order a b frame
+      _, _ -> []
 
 -- Number of bonds incident to atom `aid` in the world's bond set. A public view
 -- of the internal degree count, exposed for the renderer's electron clouds.
@@ -50,13 +123,9 @@ loneCountOf st aid =
 -- (N-1) PI pairs offset PERPENDICULAR to the bond axis, each pair also mirrored
 -- about the midpoint and frame-animated. Total length = Σ 2*order over bonds.
 -- Pure, total, deterministic. Model-space.
+-- Defined as bondElectronPositionsPhased Bonding for byte-identical behaviour.
 bondElectronPositions :: BuilderState -> Number -> Array V3
-bondElectronPositions st frame = concatMap bondPair st.bonds
-  where
-  bondPair bd =
-    case atomById st bd.a, atomById st bd.b of
-      Just a, Just b -> bondPairAt bd.order a b frame
-      _, _ -> []
+bondElectronPositions = bondElectronPositionsPhased Bonding
 
 -- The bloom centre + the 2*order shared electrons of each resolvable bond (the
 -- bond MIDPOINT and its electron positions). Used by the renderer's LOD
@@ -77,6 +146,32 @@ bondElectronGroups st frame = foldl collect [] st.bonds
             }
         in
           snoc acc { center: mid, positions: bondPairAt bd.order a b frame }
+      _, _ -> acc
+
+-- Phase-aware companion to `bondElectronGroups`: the bloom centre is always the
+-- bond midpoint (same as the Bonding case — the LOD detail bloom is
+-- centre-relative, so using the midpoint gives a sensible fade for antibonding
+-- electrons too). The positions array carries the phase-appropriate electrons
+-- (Bonding = bondPairAt, Antibonding = antibondPairAt). Render-only; no model
+-- mutation. `bondElectronGroups = bondElectronGroupsPhased Bonding`.
+bondElectronGroupsPhased
+  :: BondPhase -> BuilderState -> Number -> Array { center :: V3, positions :: Array V3 }
+bondElectronGroupsPhased phase st frame = foldl collect [] st.bonds
+  where
+  collect acc bd =
+    case atomById st bd.a, atomById st bd.b of
+      Just a, Just b ->
+        let
+          mid =
+            { x: (a.pos.x + b.pos.x) / 2.0
+            , y: (a.pos.y + b.pos.y) / 2.0
+            , z: (a.pos.z + b.pos.z) / 2.0
+            }
+          positions = case phase of
+            Bonding -> bondPairAt bd.order a b frame
+            Antibonding -> antibondPairAt bd.order a b frame
+        in
+          snoc acc { center: mid, positions }
       _, _ -> acc
 
 -- The 2*order shared electrons for a bond of the given order between endpoints
@@ -184,6 +279,130 @@ piPairs order a b mid frame =
           in
             [ { x: mid.x + ox + bx, y: mid.y + oy + by, z: mid.z + oz + bz }
             , { x: mid.x - ox - bx, y: mid.y - oy - by, z: mid.z - oz - bz }
+            ]
+      )
+      (range 1 numPi)
+
+-- ──────────────────────────────────────────────────────────────────────────────
+-- ANTIBONDING placement: 2*order electrons per bond, node at the midpoint.
+-- ──────────────────────────────────────────────────────────────────────────────
+
+-- The 2*order anti-bonding electrons for a bond between endpoints `a`/`b`.
+-- Sigma pair (1st pair): the two electrons are placed OUTWARD past each nucleus
+-- along the bond axis — one beyond atom a (on the far side from b) and one
+-- beyond atom b (on the far side from a), so the midpoint has zero density (the
+-- node). Frame-animated with a bounded breathe like the bonding case.
+-- Pi pairs (order>1): the (order-1) perpendicular pairs are also split outward —
+-- each pair's two electrons are pushed to the a-side / b-side along the axis at
+-- `antiAxialShift`, while keeping the same perpendicular offset `piRadius`, so
+-- they clear the midpoint region. Deterministic, NaN-safe (same coincident-axis
+-- fallback as bondPairAt / piPairs).
+-- Electron count: always 2*order per bond (same as the bonding branch).
+antibondPairAt :: Int -> PlacedAtom -> PlacedAtom -> Number -> Array V3
+antibondPairAt order a b frame =
+  let
+    -- Raw axis.
+    axRaw = { x: b.pos.x - a.pos.x, y: b.pos.y - a.pos.y, z: b.pos.z - a.pos.z }
+    d = sqrt (axRaw.x * axRaw.x + axRaw.y * axRaw.y + axRaw.z * axRaw.z)
+    -- Safe normalised axis (fallback world-X for degenerate pairs).
+    u =
+      if d < 1.0e-9 then { x: 1.0, y: 0.0, z: 0.0 }
+      else { x: axRaw.x / d, y: axRaw.y / d, z: axRaw.z / d }
+    -- Half the bond length: distance from midpoint to each nucleus.
+    halfBond = d / 2.0
+    -- Outward displacement beyond each nucleus: nucleus + outwardExtra beyond midpoint.
+    -- We push each electron past the nucleus by outwardExtra model units, so it
+    -- clearly clears both the midpoint AND the nucleus.
+    outwardExtra = electronCloud * 2.0
+    outwardDist = halfBond + outwardExtra
+    -- Frame-driven bounded breathe along the axis (same speed as the bonding sigma).
+    speed = 0.03
+    breathe = electronCloud * cos (frame * speed)
+    -- The two sigma electrons: one beyond a (in -u direction) and one beyond b (+u).
+    sigmaA =
+      { x: a.pos.x - u.x * (outwardDist + breathe)
+      , y: a.pos.y - u.y * (outwardDist + breathe)
+      , z: a.pos.z - u.z * (outwardDist + breathe)
+      }
+    sigmaB =
+      { x: b.pos.x + u.x * (outwardDist + breathe)
+      , y: b.pos.y + u.y * (outwardDist + breathe)
+      , z: b.pos.z + u.z * (outwardDist + breathe)
+      }
+    sigmaPair = [ sigmaA, sigmaB ]
+  in
+    if order <= 1 then
+      sigmaPair
+    else
+      sigmaPair <> antiPiPairs order a b u d frame
+
+-- Build (order - 1) anti-bonding PI pairs. Each pair's two electrons are
+-- pushed to the a-side / b-side of the bond along the axis at `antiAxialShift`
+-- (so they clear the midpoint) while keeping the perpendicular offset `piRadius`
+-- from the axis. The perpendicular basis {p1, p2} is computed exactly as in
+-- `piPairs` (same NaN-safe construction) for determinism.
+antiPiPairs :: Int -> PlacedAtom -> PlacedAtom -> V3 -> Number -> Number -> Array V3
+antiPiPairs order a b u d frame =
+  let
+    -- Reference vector for perpendicular basis (same as piPairs).
+    ref =
+      if absN u.y > 0.9 then { x: 1.0, y: 0.0, z: 0.0 }
+      else { x: 0.0, y: 1.0, z: 0.0 }
+    cross1 = crossV3 ref u
+    lenC1 = sqrt (cross1.x * cross1.x + cross1.y * cross1.y + cross1.z * cross1.z)
+    p1 =
+      if lenC1 < 1.0e-9 then { x: 1.0, y: 0.0, z: 0.0 }
+      else { x: cross1.x / lenC1, y: cross1.y / lenC1, z: cross1.z / lenC1 }
+    cross2 = crossV3 u p1
+    lenC2 = sqrt (cross2.x * cross2.x + cross2.y * cross2.y + cross2.z * cross2.z)
+    p2 =
+      if lenC2 < 1.0e-9 then { x: 0.0, y: 0.0, z: 1.0 }
+      else { x: cross2.x / lenC2, y: cross2.y / lenC2, z: cross2.z / lenC2 }
+    -- Midpoint (from a and b positions, derivable from a + d*u/2).
+    mid =
+      { x: (a.pos.x + b.pos.x) / 2.0
+      , y: (a.pos.y + b.pos.y) / 2.0
+      , z: (a.pos.z + b.pos.z) / 2.0
+      }
+    -- Each PI electron is shifted ±antiAxialShift along the axis from the midpoint,
+    -- clearing the midpoint region. We use a fraction of the half-bond length so
+    -- the shift scales with bond length; at least outwardExtra to clear degenerate bonds.
+    halfBond = d / 2.0
+    antiAxialShift = halfBond * 0.6 + electronCloud
+    -- Frame phase for PI breathe.
+    piSpeed = 0.025
+    piPhase = frame * piSpeed
+    numPi = order - 1
+  in
+    concatMap
+      ( \k ->
+          let
+            theta = toNumber k * pi / toNumber order
+            cT = cos theta
+            sT = sin theta
+            -- Perpendicular offset (same as piPairs).
+            ox = piRadius * (cT * p1.x + sT * p2.x)
+            oy = piRadius * (cT * p1.y + sT * p2.y)
+            oz = piRadius * (cT * p1.z + sT * p2.z)
+            -- Frame-driven breathe along the perpendicular (same as piPairs).
+            breathe = electronCloud * cos (piPhase + toNumber k * 1.2)
+            bx = breathe * (cT * p1.x + sT * p2.x)
+            by = breathe * (cT * p1.y + sT * p2.y)
+            bz = breathe * (cT * p1.z + sT * p2.z)
+            -- Axial shift: one electron to the a-side (-u), one to the b-side (+u).
+            sA = antiAxialShift
+            sB = antiAxialShift
+          in
+            -- Electron on the a-side: midpoint - sA*u + perp offset
+            [ { x: mid.x - u.x * sA + ox + bx
+              , y: mid.y - u.y * sA + oy + by
+              , z: mid.z - u.z * sA + oz + bz
+              }
+            -- Electron on the b-side: midpoint + sB*u - perp offset (mirrored perp).
+            , { x: mid.x + u.x * sB - ox - bx
+              , y: mid.y + u.y * sB - oy - by
+              , z: mid.z + u.z * sB - oz - bz
+              }
             ]
       )
       (range 1 numPi)

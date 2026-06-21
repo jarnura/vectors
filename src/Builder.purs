@@ -35,8 +35,13 @@ import Prelude
 import Atom (V3, elementOf)
 import Builder.Bonds (bondMidpoints, bondSegments, breakFrac, pullBonds, pullPasses, recomputeBonds)
 import Builder.Electrons
-  ( bondElectronGroups
+  ( BondPhase(..)
+  , Spin(..)
+  , bondElectronGroups
+  , bondElectronGroupsPhased
   , bondElectronPositions
+  , bondElectronPositionsPhased
+  , bondSigmaSpins
   , coreLoneElectronGroups
   , coreLoneElectronPositions
   , degreeOf

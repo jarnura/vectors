@@ -8,6 +8,7 @@ module Update
   , applyToggle
   , applyToggle2D
   , applyValenceOnly
+  , applyAntibonding
   , applySubshellView
   , applyDragStrength
   , applyElement
@@ -39,6 +40,11 @@ type State =
   , element :: Int
   , view2D :: Boolean
   , valenceOnly :: Boolean
+  -- Builder-only render flag (M3-S2): when true the shared bonding-electron
+  -- positions switch from the Bonding to the Antibonding placement
+  -- (bondElectronPositionsPhased Antibonding). Render-only; never mutates
+  -- BuilderState. Initialises to false (Bonding is the default view).
+  , antibonding :: Boolean
   , subshellView :: Boolean
   , dragStrength :: Number
   , bondProgress :: Number
@@ -74,6 +80,8 @@ initialState =
   , element: 6 -- Carbon by default
   , view2D: false
   , valenceOnly: false
+  -- Antibonding starts false: Bonding placement is the default render view.
+  , antibonding: false
   -- Sub-shell view is the default (each filled sub-shell its own ring); the
   -- #subshell-view checkbox unchecks to the SHELL-only (Bohr) ring view.
   , subshellView: true
@@ -104,6 +112,7 @@ step input =
   applyToggle input.toggleScene
     >>> applyToggle2D input.toggle2D
     >>> applyValenceOnly input.toggleValenceOnly
+    >>> applyAntibonding input.toggleAntibonding
     >>> applySubshellView input.toggleSubshellView
     >>> applyDragStrength input.dragStrength
     >>> applyElement input.element
@@ -163,6 +172,15 @@ applyToggle2D true s = s { view2D = not s.view2D }
 applyValenceOnly :: Boolean -> State -> State
 applyValenceOnly false s = s
 applyValenceOnly true s = s { valenceOnly = not s.valenceOnly }
+
+-- Flip the Builder antibonding render mode when the "#antibonding" checkbox
+-- changes. When true the shared bonding-electron positions switch from the
+-- Bonding placement (standard in-phase pair) to the Antibonding placement
+-- (node at midpoint, electrons pushed outward past each nucleus). Render-only —
+-- never mutates BuilderState. Mirrors applyValenceOnly exactly.
+applyAntibonding :: Boolean -> State -> State
+applyAntibonding false s = s
+applyAntibonding true s = s { antibonding = not s.antibonding }
 
 -- Flip the atomos sub-shell/shell view when the "#subshell-view" checkbox
 -- changes. true (sub-shells) draws one ring per filled sub-shell; false
