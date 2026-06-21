@@ -33,7 +33,7 @@ module Builder
 import Prelude
 
 import Atom (V3, elementOf)
-import Builder.Bonds (bondMidpoints, bondSegments, pullBonds, pullPasses, recomputeBonds)
+import Builder.Bonds (bondMidpoints, bondSegments, breakFrac, pullBonds, pullPasses, recomputeBonds)
 import Builder.Electrons
   ( bondElectronGroups
   , bondElectronPositions

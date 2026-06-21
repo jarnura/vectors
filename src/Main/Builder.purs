@@ -7,6 +7,7 @@ module Main.Builder
   , updateViewport
   , clamp01
   , syncAtomLabels
+  , renderPeOverlay
   , pickRadius
   , installBuilderPick
   ) where
@@ -30,7 +31,10 @@ import Graphics.GL as GL
 import Labels as Labels
 import Math.Matrix (Matrix)
 import Math.Matrix as M
+import Data.Array (head, mapMaybe) as Array
 import Molecule as Molecule
+import Pe as Pe
+import PeOverlay as PeOverlay
 import Scene (Scene(..), sceneTitle, spaceColor)
 import Scene.Entities (builderScale, builderWorldPos)
 import Text as Text
@@ -157,6 +161,58 @@ syncAtomLabels canvas s
             s.builder.atoms
       Labels.syncAtomLabels items
   | otherwise = Labels.clearAtomLabels
+
+-- Number of curve samples drawn into the PE overlay (resolution of the Morse
+-- polyline). 80 points span the repulsive wall, well, and dissociation tail.
+peCurveResolution :: Int
+peCurveResolution = 80
+
+-- Euclidean distance between two world points (local — Builder.Geom.distance is
+-- not re-exported through the facade, and this avoids a new facade export).
+v3Distance :: Atom.V3 -> Atom.V3 -> Number
+v3Distance a b =
+  let
+    dx = a.x - b.x
+    dy = a.y - b.y
+    dz = a.z - b.z
+  in
+    sqrt (dx * dx + dy * dy + dz * dz)
+
+-- Render the Builder potential-energy (Morse) curve overlay. Render-only and
+-- DOM-only (via the PeOverlay FFI) — it never mutates the BuilderState.
+--
+-- Representative pair: the element pair of the FIRST live bond if any bond
+-- exists, else a default Carbon–Carbon (6,6) so the well is always visible. The
+-- curve is `Pe.peCurveSamples 80 z1 z2` for that pair.
+--
+-- Markers: one live dot per bond at its current internuclear distance r and the
+-- Morse energy there — built by looking up each bond's two atoms (z + pos),
+-- computing r, and running `Pe.bondCurveMarkers`. The overlay shows + dot(s)
+-- only in the Builder scene; every other scene hides it.
+renderPeOverlay :: State -> Effect Unit
+renderPeOverlay s
+  | s.scene == Builder = do
+      let
+        bs = s.builder
+        -- Per-bond {z1,z2,r}: skip a bond if either atom can't be resolved.
+        bondData =
+          Array.mapMaybe
+            ( \bd -> case Builder.atomById bs bd.a, Builder.atomById bs bd.b of
+                Just a, Just b ->
+                  Just { z1: a.z, z2: b.z, r: v3Distance a.pos b.pos }
+                _, _ -> Nothing
+            )
+            bs.bonds
+        -- Representative pair: first bond's elements, else Carbon–Carbon (6,6).
+        rep = case Array.head bondData of
+          Just d -> { z1: d.z1, z2: d.z2 }
+          Nothing -> { z1: 6, z2: 6 }
+        samples = Pe.peCurveSamples peCurveResolution rep.z1 rep.z2
+        markers =
+          map (\m -> { r: m.r, e: m.e }) (Pe.bondCurveMarkers bondData)
+      PeOverlay.renderPeCurve { samples, markers }
+      PeOverlay.setPeOverlayVisible true
+  | otherwise = PeOverlay.setPeOverlayVisible false
 
 -- Pixel radius within which a pointer-down counts as picking an atom. Generous
 -- enough to grab the centre atom under a real mouse drag.

@@ -15,9 +15,17 @@
 import { test } from '@playwright/test';
 import { expect, waitForRenderedCanvas, openDrawer } from './helpers.js';
 
-// breakThreshold (230) plus a small tolerance, so a partner tugged exactly to
-// the hold distance passes the "stayed within range" assertion.
-const HOLD_RANGE = 230.1;
+// Bond rest-length (world units): pullRestLen = max(minSeparation, bondThreshold
+// - pullSlack) = max(130, 160) = 160.  This is Pe.bondR0 for most element pairs
+// (H, O, C) and is pinned == the snap target in Builder.Bonds.pullPair today.
+// After S4 force relaxation, partners converge to this value within BOND_R0_TOL.
+const BOND_REST_LEN = 160.0;
+
+// Convergence-band tolerance (world units): today's snap places the partner
+// EXACTLY at BOND_REST_LEN (error = 0); S4 force-relaxation will land it within
+// a few world units.  5.0 is tight enough to be meaningful while accommodating
+// relaxation; it is consistent with the bondR0Tol used in BuilderBondsSpec.
+const BOND_R0_TOL = 5.0;
 
 // Euclidean distance between two {x,y,z} positions from getAtoms().
 function dist(p, q) {
@@ -92,12 +100,16 @@ test('builder: drag strength 3 holds the strong O-H bond and tugs the H along', 
   });
 
   expect(result.bondsBefore).toBe(1);
-  // The strong bond SURVIVES the far drag.
+  // The strong bond SURVIVES the far drag (kept exact: outcome assertion).
   expect(result.bondsAfter).toBe(1);
-  // The H partner was tugged along (its position changed).
+  // The H partner was tugged along (its position changed — kept exact).
   expect(dist(result.hBefore, result.hAfter)).toBeGreaterThan(1);
-  // ... and the pair stayed within bond-holding range (breakThreshold).
-  expect(dist(result.oAfter, result.hAfter)).toBeLessThanOrEqual(HOLD_RANGE);
+  // Convergence-band: the O-H inter-atom distance must be within BOND_R0_TOL of
+  // BOND_REST_LEN (160.0 = pullRestLen = Pe.bondR0 O-H).  Today's snap puts it
+  // exactly at 160 (error = 0 <= 5); S4 relaxation will land it close.
+  const ohDist = dist(result.oAfter, result.hAfter);
+  expect(ohDist).toBeGreaterThanOrEqual(0);
+  expect(Math.abs(ohDist - BOND_REST_LEN)).toBeLessThanOrEqual(BOND_R0_TOL);
 });
 
 // (c) OVERPOWERED: the SAME O-H build dragged at strength 10 snaps — no
@@ -151,12 +163,15 @@ test('builder: drag strength 0 never breaks — the O-O partner follows the drag
   });
 
   expect(result.bondsBefore).toBe(1);
-  // The weakest bond SURVIVES a zero-strength drag (slider 0 = nothing breaks).
+  // The weakest bond SURVIVES a zero-strength drag (slider 0 = nothing breaks — kept exact).
   expect(result.bondsAfter).toBe(1);
-  // The partner was pulled along...
+  // The partner was pulled along (kept exact: displacement assertion).
   expect(dist(result.partnerBefore, result.partnerAfter)).toBeGreaterThan(1);
-  // ... staying within bond-holding range of the dragged atom.
-  expect(dist(result.draggedAfter, result.partnerAfter)).toBeLessThanOrEqual(HOLD_RANGE);
+  // Convergence-band: the O-O inter-atom distance must be within BOND_R0_TOL of
+  // BOND_REST_LEN (160.0 = pullRestLen = Pe.bondR0 O-O).  Today's snap puts it
+  // exactly at 160 (error = 0 <= 5); S4 relaxation will land it close.
+  const ooDist = dist(result.draggedAfter, result.partnerAfter);
+  expect(Math.abs(ooDist - BOND_REST_LEN)).toBeLessThanOrEqual(BOND_R0_TOL);
 });
 
 // (e) LEGACY: plain moveAtom is moveAtomWith(1e18) — stronger than ANY bond —

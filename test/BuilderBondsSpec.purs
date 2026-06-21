@@ -10,7 +10,15 @@ import Effect (Effect)
 import Effect.Console (log)
 import Chem (bondEnergy)
 import Builder as B
+import Pe as Pe
 import Test.Util (approxEq, check)
+
+-- Convergence-band tolerance (world units) for pulled-partner distance assertions.
+-- Today's snap places the partner EXACTLY at Pe.bondR0 (distance = 0 from centre);
+-- the S4 force-relaxation will land it within a few world units. 5.0 is generous
+-- enough for relaxation without allowing the full breakThreshold range.
+bondR0Tol :: Number
+bondR0Tol = 5.0
 
 builderBondsSpec :: Effect Unit
 builderBondsSpec = do
@@ -106,7 +114,11 @@ builderBondsSpec = do
     length ohWith1.bonds == 1
   check "STRONG-HOLD: O-H (4.63 >= 3.0) bond survives after moveAtomWith 3.0" $
     length ohMoved.bonds == 1
-  check "STRONG-HOLD: pulled H distance from dragged O <= breakThreshold + 1e-6" $
+  -- Convergence-band checks: the pulled H must land within bondR0Tol of
+  -- Pe.bondR0 8 1 (= pullRestLen O-H = 160.0). Today's snap puts it EXACTLY at
+  -- bondR0 (error = 0); S4 force-relaxation will land it within a few world units.
+  -- The lower bound (>= minSeparation - 1e-6) guards the Pauli floor.
+  check "STRONG-HOLD: pulled H distance from dragged O within bondR0Tol of bondR0 O-H" $
     let
       pullDist3 a b =
         let
@@ -116,7 +128,7 @@ builderBondsSpec = do
         in
           sqrt (ddx * ddx + ddy * ddy + ddz * ddz)
     in
-      pullDist3 ohDraggedPos ohPartnerPos <= B.breakThreshold + 1.0e-6
+      abs (pullDist3 ohDraggedPos ohPartnerPos - Pe.bondR0 8 1) <= bondR0Tol
   check "STRONG-HOLD: pulled H distance from dragged O >= minSeparation O H - 1e-6" $
     let
       pullDist3 a b =
@@ -283,6 +295,11 @@ builderBondsSpec = do
     length shortMoved.bonds == 1
   check "short-stretch: O lands at target x=250 (1e-10)" $
     approxEq shortMovedOPos.x 250.0
+  -- Short-stretch: O dragged to x=250, H starts at x=150 (distance 100). Since
+  -- 100 < breakThreshold (230), pullBonds does NOT fire; H is only adjusted by
+  -- resolveOverlaps (Pauli floor). Final O-H distance is minSeparation(8,1) = 130,
+  -- well within breakThreshold. This is a Pauli-floor scenario, not a pull
+  -- scenario, so the bound stays as <= breakThreshold (not a bondR0 convergence band).
   check "short-stretch: O-H distance <= breakThreshold + 1e-6 after drag" $
     shortDist3 shortMovedOPos shortMovedHPos <= B.breakThreshold + 1.0e-6
   check "short-stretch: H partner IS moved (pulled by strong O-H bond)" $
@@ -318,8 +335,11 @@ builderBondsSpec = do
     approxEq s0DraggedPos.x 600.0
   check "strength-0: dragged O lands exactly at y=0 (1e-10)" $
     approxEq s0DraggedPos.y 0.0
-  check "strength-0: partner was pulled along (within breakThreshold of dragged)" $
-    s0Dist <= B.breakThreshold + 1.0e-6
+  -- Convergence band: partner O must land within bondR0Tol of Pe.bondR0 8 8
+  -- (= 160.0 for O-O). Today's snap puts it exactly at pullRestLen = bondR0;
+  -- S4 force-relaxation will land it close. Lower bound guards the Pauli floor.
+  check "strength-0: partner was pulled along (within bondR0Tol of bondR0 O-O)" $
+    abs (s0Dist - Pe.bondR0 8 8) <= bondR0Tol
   check "strength-0: partner not below the Pauli floor of the pair" $
     s0Dist >= B.minSeparation 8 8 - 1.0e-6
 
@@ -406,3 +426,118 @@ builderBondsSpec = do
     minPairDist spawn5 >= B.absoluteMin - 1.0e-6
 
   log "all M1 3D spawn (Builder.spawnPos) properties hold."
+
+  -- ───── S5 energy-criterion assertions (recomputeBonds + pullBond) ─────────────
+  log "S5 energy-criterion (breakFrac, crossover, drag-strength contract) properties:"
+
+  let
+    -- Helper: compute stretchEnergy via Pe module (already imported as Pe).
+    -- Tolerance: energy crossover should land within 5 wu of old breakThreshold=230.
+    energyCrossoverTol :: Number
+    energyCrossoverTol = 5.0
+
+    -- Binary-search the energy crossover distance for a pair (z1,z2): the
+    -- smallest r where Pe.stretchEnergy z1 z2 r >= Pe.bondDepth z1 z2 * B.breakFrac.
+    -- Returns the midpoint of the last bracket [lo,hi] after 80 iterations.
+    findCrossover :: Int -> Int -> Number
+    findCrossover z1 z2 = go 80 (Pe.bondR0 z1 z2) 1000.0
+      where
+      go 0 lo hi = (lo + hi) / 2.0
+      go n lo hi =
+        let
+          mid = (lo + hi) / 2.0
+        in
+          if Pe.stretchEnergy z1 z2 mid < Pe.bondDepth z1 z2 * B.breakFrac then
+            go (n - 1) mid hi
+          else
+            go (n - 1) lo mid
+
+    -- Energy crossover distances for representative pairs.
+    crossoverHH = findCrossover 1 1
+    crossoverCC = findCrossover 6 6
+    crossoverOH = findCrossover 1 8
+    crossoverOO = findCrossover 8 8
+
+    -- breakFrac smoke check: must be in (0, 1).
+    bfOk = B.breakFrac > 0.0 && B.breakFrac < 1.0
+
+    -- Drag-strength contract assertions via moveAtomWith:
+    -- str=0: O-O bond survives drag to 600 (reused from M2 strength-0 scenario above).
+    -- str=10: O-H bond breaks (De(O-H)=4.63 < 10 → De <= strength → yields).
+    ohBase10 = B.addAtom 8 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
+    ohWith1_10 = B.addAtom 1 { x: 150.0, y: 0.0, z: 0.0 } ohBase10
+    ohOId10 = fromMaybe (-1) (map _.id (index ohWith1_10.atoms 0))
+    ohTarget10 = { x: 600.0, y: 0.0, z: 0.0 }
+    ohMoved10 = B.moveAtomWith 10.0 ohOId10 ohTarget10 ohWith1_10
+
+    -- str=10: H-H bond breaks (De(H-H)=4.36 < 10 → yields).
+    hhBase10 = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
+    hhWith2_10 = B.addAtom 1 { x: 150.0, y: 0.0, z: 0.0 } hhBase10
+    hhH0Id10 = fromMaybe (-1) (map _.id (index hhWith2_10.atoms 0))
+    hhTarget10 = { x: 600.0, y: 0.0, z: 0.0 }
+    hhMoved10 = B.moveAtomWith 10.0 hhH0Id10 hhTarget10 hhWith2_10
+
+    -- str=0: H-F bond survives (De(H-F)=5.65 > 0 → holds always).
+    hfBase0 = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
+    hfWith9_0 = B.addAtom 9 { x: 150.0, y: 0.0, z: 0.0 } hfBase0
+    hfHId0 = fromMaybe (-1) (map _.id (index hfWith9_0.atoms 0))
+    hfTarget0 = { x: 600.0, y: 0.0, z: 0.0 }
+    hfMoved0 = B.moveAtomWith 0.0 hfHId0 hfTarget0 hfWith9_0
+
+  -- (a) breakFrac constant is in (0,1).
+  check "S5 breakFrac is in (0,1)" bfOk
+
+  -- (b) Energy crossover for H-H is within energyCrossoverTol of old breakThreshold 230.
+  check "S5 energy crossover for H-H within 5 wu of breakThreshold=230" $
+    abs (crossoverHH - B.breakThreshold) <= energyCrossoverTol
+
+  -- (c) Energy crossover for C-C is within energyCrossoverTol of old breakThreshold 230.
+  check "S5 energy crossover for C-C within 5 wu of breakThreshold=230" $
+    abs (crossoverCC - B.breakThreshold) <= energyCrossoverTol
+
+  -- (d) Energy crossover for O-H within energyCrossoverTol of old breakThreshold 230.
+  check "S5 energy crossover for O-H within 5 wu of breakThreshold=230" $
+    abs (crossoverOH - B.breakThreshold) <= energyCrossoverTol
+
+  -- (e) Energy crossover for O-O within energyCrossoverTol of old breakThreshold 230.
+  check "S5 energy crossover for O-O within 5 wu of breakThreshold=230" $
+    abs (crossoverOO - B.breakThreshold) <= energyCrossoverTol
+
+  -- (f) Hysteresis preserved: stretchEnergy at bondThreshold (180) is strictly
+  --     below De*breakFrac for H-H (so a freshly-formed bond is not immediately broken).
+  check "S5 hysteresis: stretchEnergy(H-H,180) < bondDepth(H-H)*breakFrac" $
+    Pe.stretchEnergy 1 1 180.0 < Pe.bondDepth 1 1 * B.breakFrac
+
+  -- (g) Hysteresis for O-O: weaker bond also safely below break criterion at 180.
+  check "S5 hysteresis: stretchEnergy(O-O,180) < bondDepth(O-O)*breakFrac" $
+    Pe.stretchEnergy 8 8 180.0 < Pe.bondDepth 8 8 * B.breakFrac
+
+  -- (h) Monotone: weaker-De bonds (O-O, De=1.46) yield at lower drag strength
+  --     than stronger bonds (O-H, De=4.63). The pullBond gate uses De <= strength;
+  --     smaller De means the threshold is lower (yields earlier as strength rises).
+  check "S5 monotone: bondDepth(O-O) < bondDepth(O-H) (weaker yields at lower strength)" $
+    Pe.bondDepth 8 8 < Pe.bondDepth 1 8
+
+  -- (i) drag-strength contract: str=10 → O-H bond breaks (De=4.63 < 10 → yields).
+  check "S5 str=10: O-H bond breaks (moveAtomWith 10.0 to 600)" $
+    length ohMoved10.bonds == 0
+
+  -- (j) drag-strength contract: str=10 → H-H bond breaks (De=4.36 < 10 → yields).
+  check "S5 str=10: H-H bond breaks (moveAtomWith 10.0 to 600)" $
+    length hhMoved10.bonds == 0
+
+  -- (k) drag-strength contract: str=0 → H-F bond survives (De=5.65 > 0 → holds).
+  check "S5 str=0: H-F bond survives (moveAtomWith 0.0 to 600)" $
+    length hfMoved0.bonds == 1
+
+  -- (l) Energy break criterion: stretchEnergy at a far distance (450) exceeds
+  --     De*breakFrac for H-H (so the recomputeBonds predicate would drop it).
+  check "S5 stretchEnergy(H-H,450) >= bondDepth(H-H)*breakFrac (far → break)" $
+    Pe.stretchEnergy 1 1 450.0 >= Pe.bondDepth 1 1 * B.breakFrac
+
+  -- (m) Energy keep criterion: stretchEnergy at bondR0 (equilibrium, 160) is 0
+  --     which is strictly below De*breakFrac (so equilibrium bond always kept).
+  check "S5 stretchEnergy(H-H,bondR0) = 0 < bondDepth*breakFrac (equilibrium kept)" $
+    Pe.stretchEnergy 1 1 (Pe.bondR0 1 1) < Pe.bondDepth 1 1 * B.breakFrac
+
+  log "all S5 energy-criterion properties hold."

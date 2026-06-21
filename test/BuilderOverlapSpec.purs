@@ -7,7 +7,10 @@ import Data.Maybe (fromMaybe)
 import Data.Number (abs, sqrt)
 import Effect (Effect)
 import Effect.Console (log)
+import Atom (atomicRadius) as Atom
 import Builder as B
+import Builder.Overlap (minSeparation) as Overlap
+import Pe as Pe
 import Test.Util (approxEq, check)
 
 builderOverlapSpec :: Effect Unit
@@ -439,3 +442,81 @@ builderOverlapSpec = do
     abs (gHPos1.y - gHPos2.y) < m2ExactTol
 
   log "all M2 op-wiring properties hold."
+
+  -- ───── S2: Pe / Builder.Overlap.minSeparation equivalence guard ──────────────
+  -- CRITICAL: Pe.purs inlines copies of Builder.Overlap's floor constants
+  -- (contactFactorPe, absoluteMinPe, floorCeilPe) to avoid an import cycle.
+  -- These tests import Builder.Overlap.minSeparation directly and compare it
+  -- against Pe's inlined formula, catching any silent constant drift.
+  --
+  -- Tolerance note:
+  --   • Pe.wallDistanceFor z1 z2 is NOT identical to minSeparation: it equals
+  --     R0 - (R0-minSep) * ln(1+sqrt(10)) / ln(1+sqrt(11)) ≈ minSep + 4.4
+  --     for a 30-unit gap (H-H/C-C). Documented tolerance: 6.0 world units.
+  --   • The inline formula (contactFactorPe * (r1+r2) clamped to [130,165])
+  --     must produce EXACTLY the same result as Builder.Overlap.minSeparation
+  --     (same constants, same clamp): tolerance 1e-10.
+  log "S2 Pe / Builder.Overlap.minSeparation equivalence guard:"
+
+  let
+    -- Re-compute minSepPe inline (Pe.purs formula, using Pe's exported constants)
+    -- so we can assert it equals Builder.Overlap.minSeparation exactly.
+    minSepPeInline z1 z2 =
+      let raw = Pe.contactFactorPe * (Atom.atomicRadius z1 + Atom.atomicRadius z2)
+      in max Pe.absoluteMinPe (min Pe.floorCeilPe raw)
+
+    -- Tolerance for wallDistanceFor ≈ minSeparation (documented ~4.4 + margin).
+    wallEquivTol :: Number
+    wallEquivTol = 6.0
+
+    -- Tolerance for the inlined-formula exact match (floating-point identity).
+    exactEquivTol :: Number
+    exactEquivTol = 1.0e-10
+
+  -- ── (1) Inlined Pe floor constants match Builder.Overlap constants exactly ──
+  check "S2 constant: Pe.contactFactorPe == Builder.Overlap.contactFactor (55.0)" $
+    approxEq Pe.contactFactorPe B.contactFactor
+  check "S2 constant: Pe.absoluteMinPe == Builder.Overlap.absoluteMin (130.0)" $
+    approxEq Pe.absoluteMinPe B.absoluteMin
+  check "S2 constant: Pe.floorCeilPe == Builder.Overlap.floorCeil (165.0)" $
+    approxEq Pe.floorCeilPe B.floorCeil
+
+  -- ── (2) Inline formula produces same result as Builder.Overlap.minSeparation ──
+  -- H-H (1,1): absoluteMin is active (55*(0.31+0.31)=34.1 < 130) → 130.0.
+  check "S2 inline formula == minSeparation H-H (1,1): exact match (1e-10)" $
+    abs (minSepPeInline 1 1 - Overlap.minSeparation 1 1) < exactEquivTol
+  -- C-C (6,6): absoluteMin is active → 130.0.
+  check "S2 inline formula == minSeparation C-C (6,6): exact match (1e-10)" $
+    abs (minSepPeInline 6 6 - Overlap.minSeparation 6 6) < exactEquivTol
+  -- O-H (8,1): absoluteMin is active → 130.0.
+  check "S2 inline formula == minSeparation O-H (8,1): exact match (1e-10)" $
+    abs (minSepPeInline 8 1 - Overlap.minSeparation 8 1) < exactEquivTol
+  -- K-K (19,19): floorCeil is active → 165.0.
+  check "S2 inline formula == minSeparation K-K (19,19): exact match (1e-10)" $
+    abs (minSepPeInline 19 19 - Overlap.minSeparation 19 19) < exactEquivTol
+  -- Full sweep: inline formula == Builder.Overlap.minSeparation for ALL z1,z2 in 1..36.
+  check "S2 inline formula == minSeparation for all 36x36 element pairs (1e-10)" $
+    all identity do
+      z1 <- range 1 36
+      z2 <- range 1 36
+      pure (abs (minSepPeInline z1 z2 - Overlap.minSeparation z1 z2) < exactEquivTol)
+
+  -- ── (3) Pe.wallDistanceFor ≈ Builder.Overlap.minSeparation (within 6 wu) ──
+  -- wallDistanceFor lands slightly above minSep by design (see Pe.purs comment).
+  -- The tolerance proves the Morse wall crossings are physically consistent with
+  -- the Pauli contact floor. Tighter than the S1 test (which used 5.0 vs absoluteMinPe).
+  check "S2 wallDistanceFor H-H ≈ minSeparation H-H (within 6 world units)" $
+    abs (Pe.wallDistanceFor 1 1 - Overlap.minSeparation 1 1) < wallEquivTol
+  check "S2 wallDistanceFor C-C ≈ minSeparation C-C (within 6 world units)" $
+    abs (Pe.wallDistanceFor 6 6 - Overlap.minSeparation 6 6) < wallEquivTol
+  check "S2 wallDistanceFor O-H ≈ minSeparation O-H (within 6 world units)" $
+    abs (Pe.wallDistanceFor 8 1 - Overlap.minSeparation 8 1) < wallEquivTol
+  -- Direction: wallDistanceFor >= minSeparation (wall crossing is above the hard floor).
+  check "S2 wallDistanceFor H-H >= minSeparation H-H (wall at or above floor)" $
+    Pe.wallDistanceFor 1 1 >= Overlap.minSeparation 1 1
+  check "S2 wallDistanceFor C-C >= minSeparation C-C (wall at or above floor)" $
+    Pe.wallDistanceFor 6 6 >= Overlap.minSeparation 6 6
+  check "S2 wallDistanceFor O-H >= minSeparation O-H (wall at or above floor)" $
+    Pe.wallDistanceFor 8 1 >= Overlap.minSeparation 8 1
+
+  log "all S2 Pe/Builder.Overlap.minSeparation equivalence properties hold."

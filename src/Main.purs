@@ -24,6 +24,7 @@ import Graphics.GL as GL
 import Main.Builder
   ( clearColorFor
   , installBuilderPick
+  , renderPeOverlay
   , ringSegments
   , satelliteTransform
   , syncAtomLabels
@@ -493,4 +494,8 @@ main = do
             -- Sync the per-atom symbol overlay labels every frame so they follow
             -- dragged/zoomed atoms in Builder, and clear when leaving the scene.
             syncAtomLabels canvas s
+            -- Builder-only potential-energy (Morse) curve overlay: draw the
+            -- well for a representative pair + a live dot per bond, hide off
+            -- Builder. Render-only (DOM via PeOverlay) — no model mutation.
+            renderPeOverlay s
         }
