@@ -167,11 +167,13 @@ test('builder: drag strength 0 never breaks — the O-O partner follows the drag
   expect(result.bondsAfter).toBe(1);
   // The partner was pulled along (kept exact: displacement assertion).
   expect(dist(result.partnerBefore, result.partnerAfter)).toBeGreaterThan(1);
-  // Convergence-band: the O-O inter-atom distance must be within BOND_R0_TOL of
-  // BOND_REST_LEN (160.0 = pullRestLen = Pe.bondR0 O-O).  Today's snap puts it
-  // exactly at 160 (error = 0 <= 5); S4 relaxation will land it close.
+  // Convergence-band: O-O is a DOUBLE bond (M2: isolated O-O has spare valence,
+  // so it forms order 2). Its rest length is therefore the order-2 value
+  // Pe.bondR0' 8 8 2 = bondR0(8,8) * lengthFactor(2) = 160 * 0.870 = 139.2, NOT
+  // the order-1 160. (The order-1 O-H test above still uses BOND_REST_LEN.)
+  const OO_REST_LEN_ORDER2 = 139.2;
   const ooDist = dist(result.draggedAfter, result.partnerAfter);
-  expect(Math.abs(ooDist - BOND_REST_LEN)).toBeLessThanOrEqual(BOND_R0_TOL);
+  expect(Math.abs(ooDist - OO_REST_LEN_ORDER2)).toBeLessThanOrEqual(BOND_R0_TOL);
 });
 
 // (e) LEGACY: plain moveAtom is moveAtomWith(1e18) — stronger than ANY bond —

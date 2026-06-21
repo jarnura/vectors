@@ -2,9 +2,8 @@
 // through window.__builder.getBonds()[i].order, and that the expected orders
 // appear for canonical element pairs.
 //
-// These tests do NOT run automatically (they are authored but excluded from the
-// CI suite until a dedicated builder-bond-order runner is added). Run manually:
-//   npm run e2e -- --grep "bond order"
+// These tests run as part of the default `npm run e2e` suite (testDir ./e2e).
+// To run just this file:  npm run e2e -- e2e/builder-bond-order.spec.js
 //
 // All assertions drive the world exclusively via window.__builder and make no
 // pixel-level checks — the render geometry is covered by the unit tests in
@@ -21,15 +20,18 @@
 // 180-unit bondThreshold so every pair bonds immediately after addAtom).
 
 import { test, expect } from '@playwright/test';
+import { gotoBuilder as enterBuilderScene, waitForRenderedCanvas, openDrawer } from './helpers.js';
 
 // Navigate to the Builder scene and wait for window.__builder to be available.
+// Mirror the proven passing-spec flow: load the page, let the canvas settle, and
+// OPEN THE LEFT DRAWER (the #controls panel that holds #scene-toggle is
+// off-screen until opened, so the toggle is outside the viewport and unclickable
+// otherwise) BEFORE clicking through the scene toggles via the shared helper.
 async function gotoBuilder(page) {
   await page.goto('/');
-  // Three scene-toggles: CubePoc → Atomos → Molecule → Builder.
-  await page.click('#scene-toggle');
-  await page.click('#scene-toggle');
-  await page.click('#scene-toggle');
-  await page.waitForFunction(() => !!window.__builder, null, { timeout: 6000 });
+  await waitForRenderedCanvas(page);
+  await openDrawer(page);
+  await enterBuilderScene(page);
   // Clear any atoms left from a previous test (defensive).
   await page.evaluate(() => window.__builder.clear());
 }
