@@ -22,7 +22,9 @@ import Effect.Ref as Ref
 import FRP.Loop (installAddButton, installClearButton)
 
 -- One bond rendered as a plain JS object the test reads as an array element.
-type JsBond = { a :: Int, b :: Int }
+-- order is exposed so E2E consumers can read the bond multiplicity; existing
+-- readers that only inspect a/b are unaffected (extra field is ignored in JS).
+type JsBond = { a :: Int, b :: Int, order :: Int }
 
 -- One molecule (connected component) rendered as a JS object carrying both the
 -- atom ids and the Unicode formula, so the E2E can adapt to either shape.
@@ -76,7 +78,7 @@ installBuilderApi onChange = do
           mutate clear
       , getBonds: do
           st <- Ref.read ref
-          pure (map (\bd -> { a: bd.a, b: bd.b }) st.bonds)
+          pure (map (\bd -> { a: bd.a, b: bd.b, order: bd.order }) st.bonds)
       , getMolecules: do
           st <- Ref.read ref
           pure

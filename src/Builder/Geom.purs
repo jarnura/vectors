@@ -25,7 +25,7 @@ import Prelude
 
 import Atom (V3)
 import Builder.Types (BBond, BuilderState, PlacedAtom)
-import Data.Array (filter, index, length, range, sortBy, (!!))
+import Data.Array (filter, foldl, index, length, range, sortBy, (!!))
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Number (cos, sin, sqrt)
@@ -66,10 +66,13 @@ distById st x y =
     Just a, Just b -> distance a.pos b.pos
     _, _ -> 1.0e18
 
--- Current degree (number of bonds touching `aid`) in a bond set.
+-- Current degree of `aid` in a bond set: the SUM of incident bond orders.
+-- At order=1 (all bonds in this step) this equals the old incident-bond count,
+-- so freeValence and lone-electron counts are unchanged. When higher orders are
+-- introduced in future M2 steps, degree will correctly exceed bond count.
 degreeIn :: Array BBond -> Int -> Int
 degreeIn bonds aid =
-  length (filter (\bd -> bd.a == aid || bd.b == aid) bonds)
+  foldl (\acc bd -> if bd.a == aid || bd.b == aid then acc + bd.order else acc) 0 bonds
 
 -- All unordered atom-id pairs, in ascending (a, b) id order for determinism.
 -- The single candidate-pair walk shared by `recomputeBonds` (bond formation)

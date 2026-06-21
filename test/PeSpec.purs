@@ -287,3 +287,96 @@ peSpec = do
   Console.log "  [clamp-safety / no NaN] ok"
 
   Console.log "all Pe (Morse potential) properties hold."
+
+  -- ─── 12. S3: per-order R0 / De ──────────────────────────────────────────────
+  -- Continuity: order=1 must reproduce today's (pre-S3) values exactly.
+
+  Console.log "S3 per-order bondR0 / bondDepth properties:"
+
+  -- bondR0' order 1 == bondR0 (continuity, 1e-10)
+  check "S3 bondR0' 1 1 order=1 == bondR0 1 1 (continuity H-H)" $
+    approxEq (Pe.bondR0' 1 1 1) (Pe.bondR0 1 1)
+  check "S3 bondR0' 6 6 order=1 == bondR0 6 6 (continuity C-C)" $
+    approxEq (Pe.bondR0' 6 6 1) (Pe.bondR0 6 6)
+  check "S3 bondR0' 8 1 order=1 == bondR0 8 1 (continuity O-H)" $
+    approxEq (Pe.bondR0' 8 1 1) (Pe.bondR0 8 1)
+
+  -- bondDepth' order 1 == bondDepth (continuity, 1e-10)
+  check "S3 bondDepth' 1 1 order=1 == bondDepth 1 1 (continuity H-H)" $
+    approxEq (Pe.bondDepth' 1 1 1) (Pe.bondDepth 1 1)
+  check "S3 bondDepth' 6 6 order=1 == bondDepth 6 6 (continuity C-C)" $
+    approxEq (Pe.bondDepth' 6 6 1) (Pe.bondDepth 6 6)
+  check "S3 bondDepth' 8 1 order=1 == bondDepth 8 1 (continuity O-H)" $
+    approxEq (Pe.bondDepth' 8 1 1) (Pe.bondDepth 8 1)
+
+  -- bondR0': order 2 < order 1, order 3 < order 2 (shorter bonds for higher order)
+  check "S3 bondR0' C-C order=2 < order=1" $
+    Pe.bondR0' 6 6 2 < Pe.bondR0' 6 6 1
+  check "S3 bondR0' C-C order=3 < order=2" $
+    Pe.bondR0' 6 6 3 < Pe.bondR0' 6 6 2
+
+  -- C-C specific: order=2 ~ 134/154 of order=1 (within 5% tolerance)
+  let
+    r0_cc_1 = Pe.bondR0' 6 6 1
+    r0_cc_2 = Pe.bondR0' 6 6 2
+    r0_cc_3 = Pe.bondR0' 6 6 3
+    -- ratio of order-2 to order-1 should be ~0.87 (134/154)
+    ratioR0_2_1 = r0_cc_2 / r0_cc_1
+    -- ratio of order-3 to order-1 should be ~0.78 (120/154)
+    ratioR0_3_1 = r0_cc_3 / r0_cc_1
+  check "S3 bondR0' C-C: ratio order2/order1 within [0.82, 0.92] (target ~0.87)" $
+    ratioR0_2_1 >= 0.82 && ratioR0_2_1 <= 0.92
+  check "S3 bondR0' C-C: ratio order3/order1 within [0.73, 0.83] (target ~0.78)" $
+    ratioR0_3_1 >= 0.73 && ratioR0_3_1 <= 0.83
+
+  -- bondDepth': order 2 > order 1, order 3 > order 2 (stronger bonds for higher order)
+  check "S3 bondDepth' C-C order=2 > order=1" $
+    Pe.bondDepth' 6 6 2 > Pe.bondDepth' 6 6 1
+  check "S3 bondDepth' C-C order=3 > order=2" $
+    Pe.bondDepth' 6 6 3 > Pe.bondDepth' 6 6 2
+
+  -- Diminishing pi: order-2 De < 2 * order-1 De; order-3 De < 3 * order-1 De
+  let
+    de_cc_1 = Pe.bondDepth' 6 6 1
+    de_cc_2 = Pe.bondDepth' 6 6 2
+    de_cc_3 = Pe.bondDepth' 6 6 3
+  check "S3 bondDepth' C-C diminishing pi: order2 < 2 * order1" $
+    de_cc_2 < 2.0 * de_cc_1
+  check "S3 bondDepth' C-C diminishing pi: order3 < 3 * order1" $
+    de_cc_3 < 3.0 * de_cc_1
+
+  -- C-C depth ratios: ~1.77 for order-2 (614/346) and ~2.42 for order-3 (839/346)
+  let
+    ratioD_2_1 = de_cc_2 / de_cc_1
+    ratioD_3_1 = de_cc_3 / de_cc_1
+  check "S3 bondDepth' C-C: depthFactor order2 within [1.6, 1.95] (target ~1.77)" $
+    ratioD_2_1 >= 1.6 && ratioD_2_1 <= 1.95
+  check "S3 bondDepth' C-C: depthFactor order3 within [2.2, 2.65] (target ~2.42)" $
+    ratioD_3_1 >= 2.2 && ratioD_3_1 <= 2.65
+
+  -- morseForce' at bondR0' order == 0 (equilibrium)
+  check "S3 morseForce' C-C order=2 at R0(order=2) == 0" $
+    approxEq (Pe.morseForce' 6 6 2 (Pe.bondR0' 6 6 2)) 0.0
+  check "S3 morseForce' C-C order=3 at R0(order=3) == 0" $
+    approxEq (Pe.morseForce' 6 6 3 (Pe.bondR0' 6 6 3)) 0.0
+
+  -- morseE' at bondR0' order == -bondDepth' order (well minimum)
+  check "S3 morseE' C-C order=2 at R0(order=2) == -bondDepth'(order=2)" $
+    approxEq (Pe.morseE' 6 6 2 (Pe.bondR0' 6 6 2)) (-(Pe.bondDepth' 6 6 2))
+  check "S3 morseE' C-C order=3 at R0(order=3) == -bondDepth'(order=3)" $
+    approxEq (Pe.morseE' 6 6 3 (Pe.bondR0' 6 6 3)) (-(Pe.bondDepth' 6 6 3))
+
+  -- H-H order=2 R0 < H-H order=1 R0 (generalises beyond C-C)
+  check "S3 bondR0' H-H order=2 < order=1" $
+    Pe.bondR0' 1 1 2 < Pe.bondR0' 1 1 1
+
+  -- stretchEnergy' at R0' == 0 for orders 1..3
+  check "S3 stretchEnergy' C-C order=1 at R0(1) == 0" $
+    approxEq (Pe.stretchEnergy' 6 6 1 (Pe.bondR0' 6 6 1)) 0.0
+  check "S3 stretchEnergy' C-C order=2 at R0(2) == 0" $
+    approxEq (Pe.stretchEnergy' 6 6 2 (Pe.bondR0' 6 6 2)) 0.0
+  check "S3 stretchEnergy' C-C order=3 at R0(3) == 0" $
+    approxEq (Pe.stretchEnergy' 6 6 3 (Pe.bondR0' 6 6 3)) 0.0
+
+  Console.log "  [S3 per-order bondR0/bondDepth] ok"
+  Console.log "all S3 per-order Pe properties hold."

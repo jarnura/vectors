@@ -21,10 +21,10 @@ import Prelude
 import Atom (V3, electronShells, nucleonRadius, nucleusRadius)
 import Builder.Geom (atomById, degreeIn, distance)
 import Builder.Types (BuilderState, PlacedAtom)
-import Data.Array (concat, concatMap, foldl, last, length, mapWithIndex, range, snoc, uncons)
-import Data.Int (toNumber)
+import Data.Array (concat, concatMap, foldl, init, last, length, mapWithIndex, range, snoc, sortBy, uncons)
+import Data.Int (floor, toNumber)
 import Data.Maybe (Maybe(..), fromMaybe)
-import Data.Number (cos, pi, sin)
+import Data.Number (asin, atan2, cos, pi, sin, sqrt)
 
 -- Number of bonds incident to atom `aid` in the world's bond set. A public view
 -- of the internal degree count, exposed for the renderer's electron clouds.
@@ -44,23 +44,24 @@ loneCountOf st aid =
     Just a -> max 0 (a.z - degreeOf st aid)
     Nothing -> 0
 
--- Shared (bonding) electron positions: 2 electrons per resolvable bond, placed
--- mirrored about the bond midpoint along/around the inter-atom axis with a small,
--- bounded frame-driven offset. The pair is symmetric, so their MEAN stays exactly
--- at the bond midpoint; the offset breathes with the frame (frame 0 ≠ frame 60).
--- Length = 2 × (# resolvable bonds). Pure, total, deterministic. Model-space.
+-- Shared (bonding) electron positions: 2*order electrons per resolvable bond.
+-- Order 1 (single bond): 1 sigma pair mirrored about the midpoint along the bond
+-- axis — byte-identical to the pre-S4 formula. Order N > 1: 1 sigma pair plus
+-- (N-1) PI pairs offset PERPENDICULAR to the bond axis, each pair also mirrored
+-- about the midpoint and frame-animated. Total length = Σ 2*order over bonds.
+-- Pure, total, deterministic. Model-space.
 bondElectronPositions :: BuilderState -> Number -> Array V3
 bondElectronPositions st frame = concatMap bondPair st.bonds
   where
   bondPair bd =
     case atomById st bd.a, atomById st bd.b of
-      Just a, Just b -> bondPairAt a b frame
+      Just a, Just b -> bondPairAt bd.order a b frame
       _, _ -> []
 
--- The bloom centre + the two shared electrons of each resolvable bond (the bond
--- MIDPOINT and its mirrored pair). Used by the renderer's LOD cross-fade so a
--- bond's shared pair blooms out of the bond midpoint as detail rises. Same data
--- as `bondElectronPositions`, grouped by bond with its midpoint as the centre.
+-- The bloom centre + the 2*order shared electrons of each resolvable bond (the
+-- bond MIDPOINT and its electron positions). Used by the renderer's LOD
+-- cross-fade so a bond's shared electrons bloom out of the bond midpoint as
+-- detail rises. Same data as `bondElectronPositions`, grouped by bond.
 bondElectronGroups
   :: BuilderState -> Number -> Array { center :: V3, positions :: Array V3 }
 bondElectronGroups st frame = foldl collect [] st.bonds
@@ -75,14 +76,24 @@ bondElectronGroups st frame = foldl collect [] st.bonds
             , z: (a.pos.z + b.pos.z) / 2.0
             }
         in
-          snoc acc { center: mid, positions: bondPairAt a b frame }
+          snoc acc { center: mid, positions: bondPairAt bd.order a b frame }
       _, _ -> acc
 
--- The shared electron pair for the resolved bond endpoints `a`/`b` at `frame`
--- (mirrored about their midpoint). Extracted so both `bondElectronPositions` and
+-- The 2*order shared electrons for a bond of the given order between endpoints
+-- `a`/`b` at `frame`. For order 1: the existing sigma pair — a mirrored pair
+-- about the midpoint with a frame-driven offset along the bond axis and a small
+-- transverse breathe. For order N > 1: the sigma pair followed by (N-1) PI
+-- pairs, each a mirrored pair offset PERPENDICULAR to the bond axis by
+-- `piRadius`, frame-animated. Extracted so both `bondElectronPositions` and
 -- `bondElectronGroups` share one definition.
-bondPairAt :: PlacedAtom -> PlacedAtom -> Number -> Array V3
-bondPairAt a b frame =
+--
+-- NaN-safe: a coincident or degenerate axis falls back to tieBreakDir-like
+-- perpendicular construction (world-X or world-Y, always finite).
+--
+-- ORDER-1 BYTE-IDENTITY: at order=1, only the sigma pair is produced; the
+-- formula is identical to the pre-S4 implementation.
+bondPairAt :: Int -> PlacedAtom -> PlacedAtom -> Number -> Array V3
+bondPairAt order a b frame =
   let
     mid =
       { x: (a.pos.x + b.pos.x) / 2.0
@@ -92,13 +103,107 @@ bondPairAt a b frame =
     span = distance a.pos b.pos / 2.0
     speed = 0.03
     phase = frame * speed
+    -- SIGMA pair: along (a rough projection of the bond axis onto the frame
+    -- animation). Same formula as pre-S4 for order-1 byte-identity.
     dx = 0.25 * span * cos phase
     dy = electronCloud * sin phase
     dz = electronCloud * cos phase
+    sigmaPair =
+      [ { x: mid.x + dx, y: mid.y + dy, z: mid.z + dz }
+      , { x: mid.x - dx, y: mid.y - dy, z: mid.z - dz }
+      ]
   in
-    [ { x: mid.x + dx, y: mid.y + dy, z: mid.z + dz }
-    , { x: mid.x - dx, y: mid.y - dy, z: mid.z - dz }
-    ]
+    if order <= 1 then
+      -- Order 1: byte-identical to pre-S4 output.
+      sigmaPair
+    else
+      -- Order > 1: sigma pair + (order-1) PI pairs perpendicular to the axis.
+      sigmaPair <> piPairs order a b mid frame
+
+-- Build (order - 1) PI pairs offset PERPENDICULAR to the bond axis.
+-- The perpendicular basis {p1, p2} is derived deterministically from the unit
+-- bond axis `u`:
+--   ref = world-Y ({0,1,0}), unless |u.y| > 0.9 (nearly parallel to Y),
+--         in which case ref = world-X ({1,0,0}).
+--   p1 = normalize(ref × u)   (first perpendicular; always non-zero by construction)
+--   p2 = normalize(u × p1)    (second perpendicular; orthogonal to both u and p1)
+-- PI pair k (k = 1 .. order-1) is placed at angle θ_k = k * π / order around
+-- the axis, i.e. the direction cos(θ_k)*p1 + sin(θ_k)*p2, at offset `piRadius`
+-- from the axis, mirrored about the midpoint, frame-animated.
+-- NaN-safe: all inputs are finite by construction (distance ≥ 0; if zero the
+-- fallback ref gives a valid non-zero cross product with any non-zero vector).
+piPairs :: Int -> PlacedAtom -> PlacedAtom -> V3 -> Number -> Array V3
+piPairs order a b mid frame =
+  let
+    -- Raw axis vector (not yet normalised).
+    axRaw = { x: b.pos.x - a.pos.x, y: b.pos.y - a.pos.y, z: b.pos.z - a.pos.z }
+    d = sqrt (axRaw.x * axRaw.x + axRaw.y * axRaw.y + axRaw.z * axRaw.z)
+    -- Safe normalised axis: fallback to world-X if degenerate (d < eps).
+    u =
+      if d < 1.0e-9 then { x: 1.0, y: 0.0, z: 0.0 }
+      else { x: axRaw.x / d, y: axRaw.y / d, z: axRaw.z / d }
+    -- Reference vector: world-Y unless nearly parallel to u.
+    ref =
+      if absN u.y > 0.9 then { x: 1.0, y: 0.0, z: 0.0 }
+      else { x: 0.0, y: 1.0, z: 0.0 }
+    -- p1 = normalize(ref × u)
+    cross1 = crossV3 ref u
+    lenC1 = sqrt (cross1.x * cross1.x + cross1.y * cross1.y + cross1.z * cross1.z)
+    p1 =
+      if lenC1 < 1.0e-9 then { x: 1.0, y: 0.0, z: 0.0 }
+      else { x: cross1.x / lenC1, y: cross1.y / lenC1, z: cross1.z / lenC1 }
+    -- p2 = normalize(u × p1)
+    cross2 = crossV3 u p1
+    lenC2 = sqrt (cross2.x * cross2.x + cross2.y * cross2.y + cross2.z * cross2.z)
+    p2 =
+      if lenC2 < 1.0e-9 then { x: 0.0, y: 0.0, z: 1.0 }
+      else { x: cross2.x / lenC2, y: cross2.y / lenC2, z: cross2.z / lenC2 }
+    -- Frame-animation phase for PI pairs (different speed/phase from sigma).
+    piSpeed = 0.025
+    piPhase = frame * piSpeed
+    -- Build the (order-1) PI pairs.
+    numPi = order - 1
+  in
+    concatMap
+      ( \k ->
+          let
+            -- Distribute PI pairs evenly around the axis: θ_k = k * π / order.
+            theta = toNumber k * pi / toNumber order
+            -- Perpendicular direction for this PI pair.
+            cT = cos theta
+            sT = sin theta
+            -- Radial offset from the midpoint along this perpendicular direction.
+            ox = piRadius * (cT * p1.x + sT * p2.x)
+            oy = piRadius * (cT * p1.y + sT * p2.y)
+            oz = piRadius * (cT * p1.z + sT * p2.z)
+            -- Small frame-driven breathe ALONG the perpendicular (not the axis).
+            breathe = electronCloud * cos (piPhase + toNumber k * 1.2)
+            bx = breathe * (cT * p1.x + sT * p2.x)
+            by = breathe * (cT * p1.y + sT * p2.y)
+            bz = breathe * (cT * p1.z + sT * p2.z)
+          in
+            [ { x: mid.x + ox + bx, y: mid.y + oy + by, z: mid.z + oz + bz }
+            , { x: mid.x - ox - bx, y: mid.y - oy - by, z: mid.z - oz - bz }
+            ]
+      )
+      (range 1 numPi)
+
+-- Cross product of two V3 vectors.
+crossV3 :: V3 -> V3 -> V3
+crossV3 u v =
+  { x: u.y * v.z - u.z * v.y
+  , y: u.z * v.x - u.x * v.z
+  , z: u.x * v.y - u.y * v.x
+  }
+
+-- Absolute value of a Number (local alias so we don't import Data.Number.abs).
+absN :: Number -> Number
+absN x = if x < 0.0 then -x else x
+
+-- Radial offset of PI electron pairs from the bond axis. Sized like the
+-- sigma breathe so both layers read at the same scale. Model-space units.
+piRadius :: Number
+piRadius = electronCloud
 
 -- Per-atom CORE lone electrons grouped with the bloom centre (the atom centre):
 -- the same data as `coreLoneElectronPositions`, kept per atom so the renderer can
@@ -148,11 +253,12 @@ coreLoneElectronPositions st frame =
 -- CORE lone electron positions for a single atom (the inner always-lone shells).
 -- Shared by `coreLoneElectronPositions` (flat) and `coreLoneElectronGroups`.
 atomCorePositions :: BuilderState -> PlacedAtom -> Number -> Array V3
-atomCorePositions _ a frame =
+atomCorePositions st a frame =
   let
     coreCount = a.z - valenceShellOf a.z
+    dirs = bondDirsXY st a
   in
-    concat (mapWithIndex (\i count -> shellRing a frame i count) (fillShells coreCount))
+    concat (mapWithIndex (\i count -> shellRing a dirs frame i count) (fillShells coreCount))
 
 -- VALENCE lone electrons: the outermost shell's non-bonding electrons. Per atom,
 -- valenceLone = max 0 (valenceShellOf z − degree) electrons sit on the VALENCE
@@ -173,34 +279,231 @@ atomValencePositions st a frame =
     valenceCount = valenceShellOf a.z
     valenceLone = max 0 (valenceCount - degreeOf st a.id)
     numInner = max 0 (length (electronShells a.z) - 1)
+    dirs = bondDirsXY st a
   in
-    shellRing a frame numInner valenceLone
+    shellRing a dirs frame numInner valenceLone
 
--- Shared ring-placement helper: `count` electrons evenly spaced on the ring at
--- shell index `idx` around atom `a`'s centre, frame-rotated. Radius grows with
--- idx (loneOrbitRadius + idx*shellSpacing) so outer rings sit strictly outside
--- inner ones; inner rings orbit faster (phase 0.05/(idx+1)). Used by both the
--- core and valence placements so their radii and phases stay consistent.
-shellRing :: PlacedAtom -> Number -> Int -> Int -> Array V3
-shellRing a frame idx count
+-- Bond-direction angles in the XY plane from atom `a` to each bonded neighbour.
+-- Returns `atan2(dy, dx)` for each non-degenerate neighbour (dx²+dy² > eps).
+-- Degenerate coincident pairs are dropped (NaN-safe). Pure, total.
+bondDirsXY :: BuilderState -> PlacedAtom -> Array Number
+bondDirsXY st a =
+  let
+    bondedIds = concatMap
+      ( \bd ->
+          if bd.a == a.id then [ bd.b ]
+          else if bd.b == a.id then [ bd.a ]
+          else []
+      )
+      st.bonds
+  in
+    concatMap
+      ( \bid ->
+          case atomById st bid of
+            Nothing -> []
+            Just other ->
+              let
+                dx = other.pos.x - a.pos.x
+                dy = other.pos.y - a.pos.y
+              in
+                if dx * dx + dy * dy < 1.0e-12 then []
+                else [ atan2 dy dx ]
+      )
+      bondedIds
+
+-- Shared ring-placement helper: `count` electrons placed on the ring at shell
+-- index `idx` around atom `a`'s centre, frame-rotated, with partner-facing sectors
+-- excluded via `bondDirs`.
+--
+-- When `bondDirs` is empty the placement is BYTE-IDENTICAL to the old full-circle
+-- even spacing (theta = 2π*k/count + phase), preserving all free-atom tests.
+--
+-- When `bondDirs` is non-empty, each bond direction `dir` contributes an
+-- excluded sector [dir − excludeHalf, dir + excludeHalf] where
+-- excludeHalf = asin(min 1.0 (nucleusRadius * safetyMargin / r)).
+-- The `count` electrons are distributed evenly across the union of safe arcs
+-- (complement of excluded sectors), so the COUNT is always exactly `count`.
+-- Radius and phase are the same as before; z = a.pos.z (model-space XY ring).
+shellRing :: PlacedAtom -> Array Number -> Number -> Int -> Int -> Array V3
+shellRing a bondDirs frame idx count
   | count <= 0 = []
   | otherwise =
       let
         r = loneOrbitRadius + toNumber idx * shellSpacing
-        -- Inner shells orbit faster, like the atomos rings.
         phase = frame * (0.05 / (toNumber idx + 1.0))
       in
-        map
-          ( \k ->
+        if length bondDirs == 0 then
+          -- Free-atom path: byte-identical to previous implementation.
+          map
+            ( \k ->
+                let
+                  theta = 2.0 * pi * toNumber k / toNumber (max 1 count) + phase
+                in
+                  { x: a.pos.x + r * cos theta
+                  , y: a.pos.y + r * sin theta
+                  , z: a.pos.z
+                  }
+            )
+            (range 0 (count - 1))
+        else
+          -- Angular-exclusion path: sample `count` angles evenly across safe arcs.
+          let
+            excludeHalf = asin (min 1.0 (nucleusRadius * safetyMargin / r))
+            safeArcs = buildSafeArcs bondDirs excludeHalf
+            totalLen = foldl (\acc arc -> acc + arc.len) 0.0 safeArcs
+            -- Scale the frame phase offset into arc-space [0, totalLen).
+            phaseOffset =
+              if totalLen > 0.0 then moduloF (phase * totalLen / (2.0 * pi)) totalLen
+              else 0.0
+          in
+            map
+              ( \k ->
+                  let
+                    arcPos =
+                      if totalLen > 0.0 then
+                        moduloF
+                          (toNumber k * totalLen / toNumber count + phaseOffset)
+                          totalLen
+                      else
+                        0.0
+                    theta = arcPosToAngle safeArcs arcPos
+                  in
+                    { x: a.pos.x + r * cos theta
+                    , y: a.pos.y + r * sin theta
+                    , z: a.pos.z
+                    }
+              )
+              (range 0 (count - 1))
+
+-- Safety margin multiplier for the exclusion half-angle: the excluded sector
+-- sweeps a chord of `nucleusRadius * safetyMargin` at each bond direction,
+-- keeping lone electrons comfortably outside the partner nucleus.
+safetyMargin :: Number
+safetyMargin = 1.6
+
+-- Build the list of safe arcs (complement of excluded sectors) on [0, 2π).
+-- Each arc has a start angle and a length. Returns the full circle if all
+-- sectors are excluded (degenerate; should not occur for sensible inputs).
+buildSafeArcs :: Array Number -> Number -> Array { start :: Number, len :: Number }
+buildSafeArcs bondDirs excludeHalf =
+  let
+    twoPi = 2.0 * pi
+    -- Build excluded intervals, with wraparound splitting at 0/2π.
+    rawIntervals = concatMap (dirToIntervals twoPi excludeHalf) bondDirs
+    -- Sort by start angle for merging.
+    sorted = sortBy (\x y -> compare x.lo y.lo) rawIntervals
+    -- Merge overlapping/adjacent intervals.
+    merged = mergeIntervals sorted
+    -- Complement of merged intervals in [0, 2π).
+    safes = complementArcs merged twoPi
+  in
+    safes
+
+-- Convert a bond-direction angle to one or two excluded intervals on [0, 2π).
+-- An interval that crosses 0 is split into two pieces.
+dirToIntervals
+  :: Number -> Number -> Number -> Array { lo :: Number, hi :: Number }
+dirToIntervals twoPi excHalf dir =
+  let
+    -- Normalise dir to [0, 2π).
+    nDir = moduloF dir twoPi
+    lo = nDir - excHalf
+    hi = nDir + excHalf
+  in
+    if lo < 0.0 && hi >= twoPi then
+      -- Covers the full circle.
+      [ { lo: 0.0, hi: twoPi } ]
+    else if lo < 0.0 then
+      -- Wraps below 0: split into tail and head.
+      [ { lo: lo + twoPi, hi: twoPi }, { lo: 0.0, hi: hi } ]
+    else if hi >= twoPi then
+      -- Wraps above 2π: split.
+      [ { lo: lo, hi: twoPi }, { lo: 0.0, hi: hi - twoPi } ]
+    else
+      [ { lo: lo, hi: hi } ]
+
+-- Merge a sorted array of intervals, combining overlapping/adjacent ones.
+-- Input must be sorted by `lo`. Returns a sorted, non-overlapping array.
+-- We accumulate into a list where the LAST element is the open (current) interval.
+mergeIntervals
+  :: Array { lo :: Number, hi :: Number } -> Array { lo :: Number, hi :: Number }
+mergeIntervals intervals = case uncons intervals of
+  Nothing -> []
+  Just { head, tail } ->
+    foldl
+      ( \acc ivl ->
+          case last acc of
+            Nothing -> [ ivl ]
+            Just top ->
               let
-                theta = 2.0 * pi * toNumber k / toNumber (max 1 count) + phase
+                initAcc = fromMaybe [] (init acc)
               in
-                { x: a.pos.x + r * cos theta
-                , y: a.pos.y + r * sin theta
-                , z: a.pos.z
-                }
-          )
-          (range 0 (count - 1))
+                if ivl.lo <= top.hi then
+                  -- Overlapping: extend the last interval.
+                  snoc initAcc { lo: top.lo, hi: max top.hi ivl.hi }
+                else
+                  snoc acc ivl
+      )
+      [ head ]
+      tail
+
+-- Complement of a sorted, non-overlapping array of intervals in [0, twoPi).
+-- Returns safe arc segments as { start, len }.
+complementArcs
+  :: Array { lo :: Number, hi :: Number }
+  -> Number
+  -> Array { start :: Number, len :: Number }
+complementArcs merged twoPi =
+  let
+    -- Walk the gaps between consecutive intervals.
+    result = foldl
+      ( \acc ivl ->
+          let
+            gapLen = ivl.lo - acc.cursor
+            newArcs =
+              if gapLen > 1.0e-12 then
+                snoc acc.arcs { start: acc.cursor, len: gapLen }
+              else
+                acc.arcs
+          in
+            { cursor: ivl.hi, arcs: newArcs }
+      )
+      { cursor: 0.0, arcs: [] }
+      merged
+    -- Final gap from last interval end to 2π.
+    finalLen = twoPi - result.cursor
+    allArcs =
+      if finalLen > 1.0e-12 then
+        snoc result.arcs { start: result.cursor, len: finalLen }
+      else
+        result.arcs
+  in
+    -- If nothing is safe (total exclusion), emit the whole circle as fallback.
+    if length allArcs == 0 then [ { start: 0.0, len: twoPi } ]
+    else allArcs
+
+-- Map an arc-space position (0 ≤ pos < totalLen) to an actual angle in [0, 2π).
+-- Walks the safe-arc list; each arc contributes its length to the offset.
+arcPosToAngle :: Array { start :: Number, len :: Number } -> Number -> Number
+arcPosToAngle arcs pos = go arcs pos
+  where
+  go remaining arcPos = case uncons remaining of
+    Nothing -> 0.0 -- degenerate: no arcs (should not happen)
+    Just { head: arc, tail: rest } ->
+      if arcPos < arc.len || length rest == 0 then
+        arc.start + arcPos
+      else
+        go rest (arcPos - arc.len)
+
+-- Floating-point modulo: x mod m, result in [0, m).
+-- Uses Data.Int.floor for the quotient, which is exact for all finite inputs.
+moduloF :: Number -> Number -> Number
+moduloF x m =
+  let
+    q = x / m
+    floored = toNumber (floor q)
+  in
+    x - floored * m
 
 -- Distribute `total` electrons into shells (capacities 2, 8, 18, 32), filling the
 -- inner shells first; any overflow lands in a final shell. fillShells 6 = [2,4],

@@ -11,7 +11,9 @@ import Builder as Builder
 import BuilderApi (installBuilderApi, installBuilderControls)
 import Camera as Camera
 import Controls as Controls
-import Data.Array (concat, concatMap, length, take, zipWith)
+import Data.Array (concat, concatMap, length, range, take, zipWith)
+import Data.Int (toNumber) as DI
+import Data.Number (cos, pi, sin, sqrt)
 import Data.Foldable (for_)
 import Data.Maybe (Maybe(..))
 import Data.Traversable (traverse)
@@ -48,6 +50,7 @@ import Scene.Entities
   , builderNeutronSphere
   , builderNucleusCompress
   , builderProtonSphere
+  , builderScale
   , builderValenceElectronSphere
   , builderWorldPos
   , electronSphere
@@ -316,26 +319,110 @@ main = do
             )
             s.builder.atoms
 
-        -- Atomic-layer BOND LINES: one bright unit-segment wire per bond,
-        -- stretched between the two vibrated bond endpoints' scaled world
-        -- positions (M1.5: nuclei oscillate in the Morse potential well).
-        -- The segment fades out as detail rises (multiplying its length by
-        -- 1−detail) so it shows in the zoomed-OUT ball layer and vanishes as
-        -- the sub-atomic detail blooms in. Mesh built ONCE (bondLineMesh).
-        -- Render-only: Vibration.vibratedEndpoints is a pure read of the
-        -- BuilderState and never mutates it.
+        -- Atomic-layer BOND LINES: N parallel lines per bond of order N
+        -- (M2-S5: bond multiplicity). The central sigma line runs on the bond
+        -- axis; each flanking pi line is offset PERPENDICULAR to the axis using
+        -- the SAME S4 basis as Builder.Electrons.piPairs, so the bond-order 2
+        -- second line sits where its pi electron pair is.
+        --
+        -- Basis (mirrors S4 piPairs exactly):
+        --   u   = normalised bond axis (a → b)
+        --   ref = world-Y unless |u.y| > 0.9, then world-X
+        --   p1  = normalise(ref × u)    ← first perpendicular
+        --   p2  = normalise(u  × p1)    ← second perpendicular
+        --
+        -- For bond order N, N-1 flanking lines are placed at angles
+        --   θ_k = k * π / N  (k = 1 .. N-1)
+        -- giving offset (piLineOffset * builderScale) × (cos θ_k · p1 + sin θ_k · p2).
+        -- At order 1 this loop is empty and only the central sigma line is drawn —
+        -- byte-identical to the pre-S5 output.
+        --
+        -- Render-only: reads vibratedBondLines (pure read, no model mutation).
         builderBondLineEntities :: State -> Array Entity
         builderBondLineEntities s =
-          map
-            ( \seg ->
+          concatMap bondLineGroup (Vibration.vibratedBondLines s.builder s.frame)
+          where
+          -- Small world-unit perpendicular offset for flanking pi lines.
+          -- Sized proportionally to electronCloud (same scale as piRadius in S4)
+          -- and the builderScale so the offset is visible at the atom-ball zoom level.
+          piLineOffset :: Number
+          piLineOffset = 12.0
+
+          -- Compute the perpendicular basis from the (unscaled) model axis a→b.
+          -- Returns { p1, p2 } matching S4 piPairs exactly.
+          perpBasis
+            :: { x :: Number, y :: Number, z :: Number }
+            -> { x :: Number, y :: Number, z :: Number }
+            -> { p1 :: { x :: Number, y :: Number, z :: Number }
+               , p2 :: { x :: Number, y :: Number, z :: Number }
+               }
+          perpBasis a b =
+            let
+              ax = b.x - a.x
+              ay = b.y - a.y
+              az = b.z - a.z
+              d = sqrt (ax * ax + ay * ay + az * az)
+              u =
+                if d < 1.0e-9 then { x: 1.0, y: 0.0, z: 0.0 }
+                else { x: ax / d, y: ay / d, z: az / d }
+              absUY = if u.y < 0.0 then -u.y else u.y
+              ref =
+                if absUY > 0.9 then { x: 1.0, y: 0.0, z: 0.0 }
+                else { x: 0.0, y: 1.0, z: 0.0 }
+              -- p1 = normalise(ref × u)
+              c1x = ref.y * u.z - ref.z * u.y
+              c1y = ref.z * u.x - ref.x * u.z
+              c1z = ref.x * u.y - ref.y * u.x
+              lc1 = sqrt (c1x * c1x + c1y * c1y + c1z * c1z)
+              p1 =
+                if lc1 < 1.0e-9 then { x: 1.0, y: 0.0, z: 0.0 }
+                else { x: c1x / lc1, y: c1y / lc1, z: c1z / lc1 }
+              -- p2 = normalise(u × p1)
+              c2x = u.y * p1.z - u.z * p1.y
+              c2y = u.z * p1.x - u.x * p1.z
+              c2z = u.x * p1.y - u.y * p1.x
+              lc2 = sqrt (c2x * c2x + c2y * c2y + c2z * c2z)
+              p2 =
+                if lc2 < 1.0e-9 then { x: 0.0, y: 0.0, z: 1.0 }
+                else { x: c2x / lc2, y: c2y / lc2, z: c2z / lc2 }
+            in
+              { p1, p2 }
+
+          -- Build the Entity list for one bond (sigma line + (order-1) pi lines).
+          bondLineGroup :: { a :: { x :: Number, y :: Number, z :: Number }, b :: { x :: Number, y :: Number, z :: Number }, order :: Int } -> Array Entity
+          bondLineGroup seg =
+            let
+              ws = builderWorldPos seg.a
+              we = builderWorldPos seg.b
+              basis = perpBasis seg.a seg.b
+              n = seg.order
+              -- Central sigma line on the axis.
+              sigmaLine =
                 { mesh: Solid bondLineMesh
-                , modelMatrix: \st ->
-                    builderBondLinePlace st.detail
-                      (builderWorldPos seg.a)
-                      (builderWorldPos seg.b)
+                , modelMatrix: \st -> builderBondLinePlace st.detail ws we
                 }
-            )
-            (Vibration.vibratedEndpoints s.builder s.frame)
+              -- Flanking pi lines: (order-1) of them, distributed by θ_k = k*π/N.
+              piLines =
+                map
+                  ( \k ->
+                      let
+                        theta = DI.toNumber k * pi / DI.toNumber n
+                        cT = cos theta
+                        sT = sin theta
+                        off = piLineOffset * builderScale
+                        ox = off * (cT * basis.p1.x + sT * basis.p2.x)
+                        oy = off * (cT * basis.p1.y + sT * basis.p2.y)
+                        oz = off * (cT * basis.p1.z + sT * basis.p2.z)
+                        wa = { x: ws.x + ox, y: ws.y + oy, z: ws.z + oz }
+                        wb = { x: we.x + ox, y: we.y + oy, z: we.z + oz }
+                      in
+                        { mesh: Solid bondLineMesh
+                        , modelMatrix: \st -> builderBondLinePlace st.detail wa wb
+                        }
+                  )
+                  (range 1 (n - 1))
+            in
+              [ sigmaLine ] <> piLines
 
         -- CORE (inner-shell) lone electrons: one blue sphere per core lone
         -- electron, on the inner ring around each atom's centre

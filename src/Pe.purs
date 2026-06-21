@@ -39,12 +39,21 @@ module Pe
   , wallEnergyFactor
   , peCurveSamples
   , bondCurveMarkers
+  -- S3: per-order variants (order=1 reproduces the 2-arg forms exactly)
+  , bondR0'
+  , bondDepth'
+  , morseWidth'
+  , morseE'
+  , morseForce'
+  , morseK'
+  , stretchEnergy'
+  , wallDistanceFor'
   ) where
 
 import Prelude
 
 import Atom (atomicRadius)
-import Chem (bondEnergy)
+import Chem (bondEnergy, depthFactor, lengthFactor)
 import Data.Array (range)
 import Data.Int (toNumber) as Int
 import Data.Number (exp, log, sqrt)
@@ -229,6 +238,93 @@ wallDistanceFor z1 z2 =
   let
     r0 = bondR0 z1 z2
     a = morseWidth z1 z2
+  in
+    r0 - log (1.0 + sqrt wallEnergyFactor) / a
+
+-- ─── S3: per-order Morse parameters ─────────────────────────────────────────
+--
+-- Higher bond orders sit at a shorter equilibrium distance (bondR0' shrinks via
+-- Chem.lengthFactor) and have a deeper Morse well (bondDepth' grows via
+-- Chem.depthFactor). All other Morse parameters (morseWidth', morseE',
+-- morseForce', morseK', stretchEnergy', wallDistanceFor') are re-derived from
+-- these two order-aware base quantities, using the same formulae as their
+-- 2-argument counterparts.
+--
+-- CONTINUITY: for order=1 Chem.lengthFactor 1 = 1.0 and Chem.depthFactor 1 =
+-- 1.0, so every 3-argument function reduces byte-identically to the 2-argument
+-- form. All existing tests expressed as "order=1" calls must pass unchanged.
+--
+-- morseWidth' note: The well still meets the Pauli wall (minSepPe) because R0'
+-- shrinks with order but minSepPe is fixed by atomic radii. The gap
+-- (R0' − minSepPe) decreases for higher orders, so the repulsive branch
+-- steepens (larger a) — physically, double/triple bonds resist compression more.
+-- The floorCeilPe guard prevents R0' from being pushed below minSepPe: for very
+-- small atoms or very high orders where R0'(order) would drop below minSepPe,
+-- bondR0' clamps to minSepPe (identical to the order=1 clamp). wallDistanceFor'
+-- stays sensible because it is derived from bondR0' and morseWidth', both of
+-- which are order-aware.
+
+-- | Order-aware equilibrium bond distance (world units).
+-- |   bondR0' z1 z2 1 == bondR0 z1 z2  (continuity)
+-- |   bondR0' z1 z2 n  = max(minSep, (bondThreshold − pullSlack) * lengthFactor n)
+-- |                     for n > 1: shorter equilibrium, but never below Pauli floor.
+bondR0' :: Int -> Int -> Int -> Number
+bondR0' z1 z2 order =
+  max (minSepPe z1 z2) ((bondThresholdPe - pullSlackPe) * lengthFactor order)
+
+-- | Order-aware well depth De = Chem.bondEnergy * depthFactor(order).
+-- |   bondDepth' z1 z2 1 == bondDepth z1 z2  (continuity)
+bondDepth' :: Int -> Int -> Int -> Number
+bondDepth' z1 z2 order = bondEnergy z1 z2 * depthFactor order
+
+-- | Order-aware Morse width parameter `a`, derived analytically from bondR0' and
+-- | bondDepth'. The repulsive branch reaches wallEnergyFactor·De at minSepPe.
+-- | morseWidth' z1 z2 1 == morseWidth z1 z2  (continuity).
+morseWidth' :: Int -> Int -> Int -> Number
+morseWidth' z1 z2 order =
+  let
+    r0 = bondR0' z1 z2 order
+    ms = minSepPe z1 z2
+    gap = r0 - ms
+    fallbackA = 0.049
+  in
+    if gap < 1.0e-9 then fallbackA
+    else log (1.0 + sqrt (wallEnergyFactor + 1.0)) / gap
+
+-- | Order-aware Morse potential energy.
+-- |   morseE' z1 z2 1 r == morseE z1 z2 r  (continuity)
+morseE' :: Int -> Int -> Int -> Number -> Number
+morseE' z1 z2 order r =
+  morse (bondDepth' z1 z2 order) (morseWidth' z1 z2 order) (bondR0' z1 z2 order) r
+
+-- | Order-aware Morse force.
+-- |   morseForce' z1 z2 1 r == morseForce z1 z2 r  (continuity)
+morseForce' :: Int -> Int -> Int -> Number -> Number
+morseForce' z1 z2 order r =
+  forceMorse (bondDepth' z1 z2 order) (morseWidth' z1 z2 order) (bondR0' z1 z2 order) r
+
+-- | Order-aware harmonic spring constant at equilibrium: k = 2·a²·De.
+-- |   morseK' z1 z2 1 == morseK z1 z2  (continuity)
+morseK' :: Int -> Int -> Int -> Number
+morseK' z1 z2 order =
+  let
+    a = morseWidth' z1 z2 order
+    de = bondDepth' z1 z2 order
+  in
+    2.0 * a * a * de
+
+-- | Order-aware stretch energy (0 at equilibrium, approaches De as r → ∞).
+-- |   stretchEnergy' z1 z2 1 r == stretchEnergy z1 z2 r  (continuity)
+stretchEnergy' :: Int -> Int -> Int -> Number -> Number
+stretchEnergy' z1 z2 order r = morseE' z1 z2 order r + bondDepth' z1 z2 order
+
+-- | Order-aware wall distance for the Pauli exclusion wall crossing.
+-- |   wallDistanceFor' z1 z2 1 == wallDistanceFor z1 z2  (continuity)
+wallDistanceFor' :: Int -> Int -> Int -> Number
+wallDistanceFor' z1 z2 order =
+  let
+    r0 = bondR0' z1 z2 order
+    a = morseWidth' z1 z2 order
   in
     r0 - log (1.0 + sqrt wallEnergyFactor) / a
 

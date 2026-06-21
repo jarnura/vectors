@@ -27,9 +27,9 @@ import Builder.Geom
 import Builder.Overlap (minSeparation)
 import Builder.Types (BBond, BuilderState, PlacedAtom)
 import Chem (valence)
-import Data.Array (any, filter, foldl, range, snoc, sortBy)
+import Data.Array (filter, foldl, index, range, snoc, sortBy)
 import Data.Maybe (Maybe(..))
-import Pe (bondDepth, morseForce, stretchEnergy)
+import Pe (bondDepth', bondR0', morseForce', stretchEnergy')
 
 -- ───── Bond recomputation: valence cap + break hysteresis ────────────
 
@@ -47,36 +47,72 @@ import Pe (bondDepth, morseForce, stretchEnergy)
 breakFrac :: Number
 breakFrac = 0.94
 
--- Free valence of `aid` given a bond set: its element valence minus degree.
-freeValence :: BuilderState -> Array BBond -> Int -> Int
-freeValence st bonds aid =
-  case atomById st aid of
-    Just a -> valence a.z - degreeIn bonds aid
-    Nothing -> 0
-
--- Recompute bonds with valence capping and break hysteresis:
---   (a) KEEP every existing bond whose Morse stretch energy is below the
---       energy break criterion (Pe.stretchEnergy za zb d < Pe.bondDepth za zb
---       * breakFrac). This replaces the old geometric `d <= breakThreshold`
---       check, unifying bond breaking with the Morse potential on the same
---       PE curve (Pe.stretchEnergy). At d=231.6 wu the two criteria agree;
---       breakFrac=0.94 means the bond breaks when 94% of the well depth has
---       been stored as stretch energy. `breakThreshold` is retained as a
---       documented upper clamp used in the pullBond gate.
---   (b) then, in deterministic id order, FORM a single bond for each unbonded
---       pair whose distance < bondThreshold AND where both endpoints still have
---       free valence (valence − degree in the bond set being built).
+-- Recompute bonds with valence capping, break hysteresis, and order growth.
+--
+-- Two-phase approach for correct order assignment:
+--
+--   Phase 1 (single-bond formation — byte-identical to pre-M2 behaviour):
+--     (a) KEEP every existing bond whose Morse stretch energy is below the
+--         energy break criterion (Pe.stretchEnergy za zb d < Pe.bondDepth za zb
+--         * breakFrac). This replaces the old geometric `d <= breakThreshold`
+--         check. At d≈231.6 wu the two criteria agree; breakFrac=0.94 means the
+--         bond breaks when 94% of the well depth is stored as stretch energy.
+--     (b) In deterministic (min,max)-id order, FORM a single bond (order 1)
+--         for each pair whose distance < bondThreshold AND both endpoints have
+--         remaining single-bond valence (valence − bond count in phase-1 set).
+--
+--   Phase 2 (order growth, using phase-1 as a FIXED reference):
+--     For each bond in the phase-1 set, compute how much extra order it can
+--     absorb using the phase-1 bond set as the reference for free valence:
+--
+--       fv_extra(aid) = valence(z) − degreeIn(phase1, aid)
+--
+--     Because phase-1 bonds are all order=1, degreeIn = incident bond COUNT.
+--     This "free valence in phase-1 context" is the remaining capacity each
+--     atom has for additional bond order after all its single bonds are placed.
+--
+--     extra = max 0 (min fv_extra_a fv_extra_b (maxBondOrder − 1))
+--     new_order = 1 + extra
+--
+--     Using the phase-1 state as a fixed reference means every bond's upgrade is
+--     computed with the SAME baseline, regardless of walk order. Concrete examples:
+--
+--       Isolated O₂ (O1 and O2 each bond only to each other):
+--         phase-1: [O1-O2, order 1]. degreeIn(O1)=1, degreeIn(O2)=1.
+--         fv_extra(O1) = 2−1=1, fv_extra(O2)=1. extra=min(1,1,2)=1. Order=2. ✓
+--
+--       O-O-H chain (O2 bonds to BOTH O1 and H in phase-1):
+--         phase-1: [O1-O2,1], [O2-H,1]. degreeIn(O2)=2.
+--         For O1-O2: fv_extra(O2) = 2−2=0. extra=0. Order stays 1. ✓
+--         For O2-H:  fv_extra(O2) = 0. extra=0. Order stays 1. ✓
+--         (O2 correctly distributes its valence-2 as two single bonds.)
+--
+--       Isolated N₂: fv_extra(N)=3−1=2. extra=min(2,2,2)=2. Order=3. ✓
+--
+--       CH₄ (C bonded to 4 H): degreeIn(C)=4. fv_extra(C)=4−4=0. No upgrade. ✓
+--
+-- Hard order cap = 3 (triple is the max; isolated C2 gets order 3 leaving each
+-- C with 1 free valence for further bonding).
 recomputeBonds :: BuilderState -> BuilderState
 recomputeBonds st =
   let
-    kept = filter (bondWithinEnergyBreak st) st.bonds
-    formed = foldl tryForm kept (idPairs st)
+    pairs = idPairs st
+    -- Phase 1: form all bonds with order=1 (byte-identical to pre-M2 behaviour).
+    phase1 = foldl (formSingle st) [] pairs
+    -- Phase 2: upgrade orders using phase-1 as the fixed free-valence reference.
+    phase2 = map (upgradeOrder st phase1) phase1
   in
-    st { bonds = formed }
+    st { bonds = phase2 }
   where
+  -- Maximum bond order representable in the toy model.
+  maxBondOrder :: Int
+  maxBondOrder = 3
+
   -- Energy break criterion: keep the bond while its stretch energy is below
   -- breakFrac * De. Pairs whose ids can't be resolved are treated as broken
   -- (distById returns a sentinel 1e18 >> breakThreshold so SE(1e18) → De >> De*breakFrac).
+  -- S3: uses order-aware stretchEnergy' and bondDepth' so higher-order bonds
+  -- (with larger De) have a wider energy-break horizon.
   bondWithinEnergyBreak st' bd =
     case atomById st' bd.a, atomById st' bd.b of
       Just pa, Just pb ->
@@ -84,39 +120,69 @@ recomputeBonds st =
           d = distance pa.pos pb.pos
           za = pa.z
           zb = pb.z
+          ord = bd.order
         in
-          stretchEnergy za zb d < bondDepth za zb * breakFrac
+          stretchEnergy' za zb ord d < bondDepth' za zb ord * breakFrac
       _, _ -> false
 
-  alreadyBonded bonds p =
-    any (\bd -> (bd.a == p.a && bd.b == p.b) || (bd.a == p.b && bd.b == p.a)) bonds
+  -- Remaining free valence of atom `aid` against a given bond set.
+  remainingFreeValence st' bonds aid =
+    case atomById st' aid of
+      Just a -> max 0 (valence a.z - degreeIn bonds aid)
+      Nothing -> 0
 
-  tryForm bonds p =
-    if
-      not (alreadyBonded bonds p)
-        && distById st p.a p.b < bondThreshold
-        && freeValence st bonds p.a > 0
-        && freeValence st bonds p.b > 0 then snoc bonds p
-    else bonds
+  -- Find an existing bond for pair (p.a, p.b) in the old (pre-recompute) bond set.
+  existingBond p =
+    index (filter (\bd -> (bd.a == p.a && bd.b == p.b) || (bd.a == p.b && bd.b == p.a)) st.bonds) 0
+
+  -- Phase 1: for each candidate pair, KEEP an existing bond (energy-break /
+  -- hysteresis check) at order=1, or FORM a new single bond. Byte-identical
+  -- to the pre-M2 recomputeBonds logic (every bond starts at order 1).
+  formSingle st' builtBonds p =
+    case existingBond p of
+      Just oldBd ->
+        if bondWithinEnergyBreak st' oldBd then
+          -- Kept bond: force order=1; phase 2 may upgrade it.
+          snoc builtBonds { a: p.a, b: p.b, order: 1 }
+        else
+          -- Bond broke (energy criterion failed): try to re-form if the pair
+          -- is still within bond-formation range (handles the repulsive-wall
+          -- case where d < R0 so SE is large but d < bondThreshold).
+          let
+            fvA = remainingFreeValence st' builtBonds p.a
+            fvB = remainingFreeValence st' builtBonds p.b
+          in
+            if fvA > 0 && fvB > 0 && distById st' p.a p.b < bondThreshold then
+              snoc builtBonds { a: p.a, b: p.b, order: 1 }
+            else
+              builtBonds
+      Nothing ->
+        -- Fresh pair: form a single bond if within bondThreshold and both free.
+        let
+          fvA = remainingFreeValence st' builtBonds p.a
+          fvB = remainingFreeValence st' builtBonds p.b
+        in
+          if fvA > 0 && fvB > 0 && distById st' p.a p.b < bondThreshold then
+            snoc builtBonds { a: p.a, b: p.b, order: 1 }
+          else
+            builtBonds
+
+  -- Phase 2: compute the upgraded order for one bond using the PHASE-1 set as
+  -- the fixed free-valence reference. All upgrades are independent of each other
+  -- (no ordering dependency) because the same reference is used throughout.
+  upgradeOrder st' phase1bonds bd =
+    let
+      fvA = remainingFreeValence st' phase1bonds bd.a
+      fvB = remainingFreeValence st' phase1bonds bd.b
+      extra = max 0 (min (min fvA fvB) (maxBondOrder - 1))
+    in
+      { a: bd.a, b: bd.b, order: 1 + extra }
 
 -- FIXED number of bond-pull passes: like `relaxPasses`, the solver is bounded
 -- (no convergence loop), so it always terminates; 10 passes propagate a tug
 -- down chains of ~10 bonds.
 pullPasses :: Int
 pullPasses = 10
-
--- Slack pulled bonds settle inside the FORM threshold: a pulled pair lands at
--- bondThreshold − pullSlack (= 160), comfortably inside both thresholds so the
--- bond is stable after the pull.
-pullSlack :: Number
-pullSlack = 20.0
-
--- Rest length a strong bond is pulled back to: inside the bond-form threshold
--- but never below the pair's Pauli contact floor (`minSeparation`), so the
--- pull and the overlap solver agree (a pulled pair is a fixed point of both).
--- NOTE: pullRestLen is kept for documentation and is equivalent to Pe.bondR0.
-pullRestLen :: Int -> Int -> Number
-pullRestLen za zb = max (minSeparation za zb) (bondThreshold - pullSlack)
 
 -- ── Classical/Morse force relaxation constants ────────────────────────────────
 --
@@ -231,23 +297,30 @@ pullBond strength draggedAid s bd =
         d = distance pa.pos pb.pos
         za = pa.z
         zb = pb.z
+        ord = bd.order
+        -- S3: order-aware De for the strength gate. Higher-order bonds have
+        -- larger De, so they resist drag more strongly (need higher strength to break).
+        de = bondDepth' za zb ord
       in
-        -- Skip: bond is in its stable energy region, OR it yields to drag.
-        if stretchEnergy za zb d < bondDepth za zb * breakFrac || bondDepth za zb <= strength then s
-        else pullPair draggedAid s pa pb d
+        -- Skip: bond is in its stable energy region (order-aware SE < De*breakFrac),
+        -- OR it yields to drag (order-aware De <= strength).
+        if stretchEnergy' za zb ord d < de * breakFrac || de <= strength then s
+        else pullPair draggedAid ord s pa pb d
     _, _ -> s
 
 -- Apply one classical/Morse force relaxation step to the chosen endpoint of an
 -- overstretched strong bond. The mover is advanced along the bond axis by a
 -- displacement bounded by forceStepCap:
---   rawStep = forceStep · (−morseForce za zb d)   -- negate: attractive force → positive Δd
+--   rawStep = forceStep · (−morseForce' za zb ord d)   -- negate: attractive force → positive Δd
 --   step    = clamp rawStep (−forceStepCap) forceStepCap
 --   newDist = max (minSeparation za zb) (d − step)  -- Pauli floor clamp every call
 -- The mover is placed at `alongFrom target.pos dir newDist`. The dragged atom
 -- is never the mover; tie-breaking and NaN-avoidance follow the existing
 -- `separationDir`/`tieBreakDir` machinery.
-pullPair :: Int -> BuilderState -> PlacedAtom -> PlacedAtom -> Number -> BuilderState
-pullPair draggedAid s pa pb d =
+-- S3: `ord` is the bond's order, passed from pullBond; morseForce' is order-aware
+-- so double/triple bonds pull toward their shorter R0'(order).
+pullPair :: Int -> Int -> BuilderState -> PlacedAtom -> PlacedAtom -> Number -> BuilderState
+pullPair draggedAid ord s pa pb d =
   let
     picked =
       if pa.id == draggedAid then { mover: pb, target: pa }
@@ -257,12 +330,31 @@ pullPair draggedAid s pa pb d =
     -- Unit direction from the held endpoint toward the pulled one (id-derived
     -- tie-break when coincident, so no division by zero / NaN is possible).
     dir = separationDir picked.target picked.mover d
-    -- Classical/Morse force relaxation: morseForce < 0 for r > R0 (attractive);
-    -- negating gives a positive rawStep (decreasing d, moving mover toward target).
-    rawStep = forceStep * (-morseForce picked.mover.z picked.target.z d)
+    -- S3: order-aware Morse force direction + guaranteed-cap step.
+    -- morseForce' < 0 for r > R0' (attractive): negating gives rawForce > 0.
+    -- For higher-order bonds, R0' is shorter and the potential steeper, so at
+    -- large r the Morse force decays as exp(-a'*(r-R0')) where a' >> a(order=1).
+    -- At r=450 with a'≈0.16 (O-O order=2), the force is ~exp(-50) ≈ 0 and
+    -- `forceStep * force` would be numerically zero — far below forceStepCap.
+    -- Fix: take the MAX of forceStepCap and the amplified force, preserving the
+    -- sign (direction) of the Morse force while guaranteeing the cap step size
+    -- in the dissociation tail. This is the "direction-only, cap-controlled"
+    -- relaxation: convergence speed = cap, direction = Morse sign.
+    -- For order=1: rawForce at r=450 already >> cap (exp(-14) >> exp(-50)), so
+    -- max has no effect there — no change to existing order-1 behaviour.
+    rawForce = forceStep * (-morseForce' picked.mover.z picked.target.z ord d)
+    rawStep = if rawForce >= 0.0 then max forceStepCap rawForce
+              else min (-forceStepCap) rawForce
     step = max (-forceStepCap) (min forceStepCap rawStep)
-    -- Pauli contact floor clamp prevents penetration below minSeparation.
-    newDist = max (minSeparation picked.mover.z picked.target.z) (d - step)
+    -- S3: floor clamp to max(minSeparation, R0'(order)) when approaching from the
+    -- attractive side (d > R0'). This prevents the cap-72 step from overshooting
+    -- past the potential minimum onto the repulsive wall for high-order bonds whose
+    -- (R0' - minSep) gap is smaller than forceStepCap. For order=1, R0'(1) = R0
+    -- = max(minSep, 160) = 160 >= minSep, so this clamp is always >= minSep and
+    -- the order=1 behaviour is unchanged (160 > 130 so the extra clamp does nothing
+    -- extra in the 130→162 convergence band). Continuity: order=1 floor = 160.
+    r0ord = bondR0' picked.mover.z picked.target.z ord
+    newDist = max (max (minSeparation picked.mover.z picked.target.z) r0ord) (d - step)
   in
     setAtomPos picked.mover.id (alongFrom picked.target.pos dir newDist) s
   where

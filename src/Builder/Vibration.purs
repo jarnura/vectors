@@ -40,6 +40,7 @@ module Builder.Vibration
   , thermalAmp
   , vibAmplitude
   , vibratedEndpoints
+  , vibratedBondLines
   , vibratedMidpoints
   ) where
 
@@ -225,6 +226,24 @@ vibratedPair pa pb bd frame =
       }
   in
     { a: a', b: b' }
+
+-- | Vibrated bond lines with order: the same as vibratedEndpoints but each
+-- | entry also carries the bond's ORDER, so the renderer can place N parallel
+-- | lines per bond (one sigma + (order-1) flanking pi lines).
+-- |
+-- | The {a, b} endpoints are the same vibrated values produced by
+-- | vibratedEndpoints for the same (st, frame) — adding order is a zero-cost
+-- | zip over the bond array. Pure, total, deterministic. Never mutates
+-- | BuilderState.
+vibratedBondLines :: BuilderState -> Number -> Array { a :: V3, b :: V3, order :: Int }
+vibratedBondLines st frame = foldl collect [] st.bonds
+  where
+  collect acc bd =
+    case atomById st bd.a, atomById st bd.b of
+      Just pa, Just pb ->
+        let ep = vibratedPair pa pb bd frame
+        in snoc acc { a: ep.a, b: ep.b, order: bd.order }
+      _, _ -> acc
 
 -- | Midpoints of the vibrated bond endpoints.
 -- |

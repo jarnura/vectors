@@ -2,7 +2,7 @@ module Test.BuilderSpec where
 
 import Prelude
 
-import Data.Array (all, any, filter, index, length)
+import Data.Array (all, any, drop, filter, index, length, take)
 import Data.Foldable (maximum, minimum, sum)
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe, isJust)
@@ -465,3 +465,78 @@ builderSpec = do
     length (B.bondSegments segNoBond) == 0
 
   log "all Builder atom visuals properties hold."
+
+  -- ───── Bonded-Carbon electron exclusion (angular-exclusion regression) ───────
+  -- Bug: lone/valence electrons on a full 360° ring can sweep through the partner
+  -- nucleus when the ring radius (144) exceeds the half-bond distance (65).
+  -- Fix: partner-facing sectors are excluded from electron placement.
+  log "bonded-Carbon electron angular-exclusion (safety regression) properties:"
+  let
+    -- Two Carbons at distance 130 (within bondThreshold 180): one bond expected.
+    cc_posA = { x: 0.0, y: 0.0, z: 0.0 }
+    cc_posB = { x: 130.0, y: 0.0, z: 0.0 }
+    cc = B.addAtom 6 cc_posB (B.addAtom 6 cc_posA B.emptyBuilder)
+    cc_id0 = fromMaybe (-1) (map _.id (index cc.atoms 0))
+    cc_id1 = fromMaybe (-1) (map _.id (index cc.atoms 1))
+    -- Nuclei centres for distance checks.
+    cc_centre0 = cc_posA
+    cc_centre1 = cc_posB
+    nucleusR = 60.0
+    safetyEps = 1.0
+    -- Distance from a V3 to a given centre.
+    distTo cx cy cz p =
+      let
+        ddx = p.x - cx
+        ddy = p.y - cy
+        ddz = p.z - cz
+      in
+        sqrt (ddx * ddx + ddy * ddy + ddz * ddz)
+    -- All electron positions (lone only) for the CC fixture.
+    cc_lone0 = B.loneElectronPositions cc 0.0
+    cc_lone30 = B.loneElectronPositions cc 30.0
+    cc_core = B.coreLoneElectronPositions cc 0.0
+    cc_valence = B.valenceLoneElectronPositions cc 0.0
+
+  -- Fixture sanity: exactly 1 bond formed (the test fixture is valid).
+  check "bonded-CC: exactly 1 bond formed" $ length cc.bonds == 1
+
+  -- COUNT CONSERVATION: loneElectronPositions == coreLone + valenceLone lengths.
+  check "bonded-CC: lone count == coreLone + valenceLone" $
+    length cc_lone0 == length cc_core + length cc_valence
+
+  -- SPLIT EQUALITY: coreLone <> valenceLone equals loneElectronPositions exactly.
+  check "bonded-CC: core <> valence == lone (array equality)" $
+    cc_core <> cc_valence == cc_lone0
+
+  -- COUNT CONSERVATION: Σ loneCountOf == length loneElectronPositions.
+  check "bonded-CC: Σ loneCountOf matches loneElectronPositions length" $
+    length cc_lone0 == B.loneCountOf cc cc_id0 + B.loneCountOf cc cc_id1
+
+  -- DETERMINISM: same result for the same frame.
+  check "bonded-CC: loneElectronPositions is deterministic (frame 30)" $
+    B.loneElectronPositions cc 30.0 == B.loneElectronPositions cc 30.0
+
+  -- SAFETY (the regression guard): no lone electron from atom 0 should be
+  -- within nucleusRadius of atom 1's centre, and vice versa.
+  -- We attribute electrons by index: atom 0 contributes loneCountOf cc cc_id0 electrons
+  -- (first half of cc_lone0), atom 1 contributes the rest.
+  let
+    count0 = B.loneCountOf cc cc_id0
+    loneFor0 = take count0 cc_lone0
+    loneFor1 = drop count0 cc_lone0
+
+  check "bonded-CC: atom-0 lone electrons stay outside atom-1 nucleus" $
+    all (\p -> distTo cc_centre1.x cc_centre1.y cc_centre1.z p >= nucleusR - safetyEps) loneFor0
+  check "bonded-CC: atom-1 lone electrons stay outside atom-0 nucleus" $
+    all (\p -> distTo cc_centre0.x cc_centre0.y cc_centre0.z p >= nucleusR - safetyEps) loneFor1
+
+  -- SAFETY at a different frame (frame 30): exclusion persists across frames.
+  let
+    cc_lone30_for0 = take count0 cc_lone30
+    cc_lone30_for1 = drop count0 cc_lone30
+  check "bonded-CC: atom-0 lone electrons safe at frame 30" $
+    all (\p -> distTo cc_centre1.x cc_centre1.y cc_centre1.z p >= nucleusR - safetyEps) cc_lone30_for0
+  check "bonded-CC: atom-1 lone electrons safe at frame 30" $
+    all (\p -> distTo cc_centre0.x cc_centre0.y cc_centre0.z p >= nucleusR - safetyEps) cc_lone30_for1
+
+  log "all bonded-Carbon electron exclusion properties hold."
