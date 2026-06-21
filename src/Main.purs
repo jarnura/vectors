@@ -58,6 +58,7 @@ import Scene.Entities
   , protonSphere
   , starSphere
   )
+import Builder.Vibration as Vibration
 import Starfield (starPositions)
 import Update (State, applyOrbit, initialState, step)
 import Update
@@ -316,10 +317,13 @@ main = do
             s.builder.atoms
 
         -- Atomic-layer BOND LINES: one bright unit-segment wire per bond,
-        -- stretched between the two bonded atoms' scaled world positions. The
-        -- segment fades out as detail rises (multiplying its length by
+        -- stretched between the two vibrated bond endpoints' scaled world
+        -- positions (M1.5: nuclei oscillate in the Morse potential well).
+        -- The segment fades out as detail rises (multiplying its length by
         -- 1−detail) so it shows in the zoomed-OUT ball layer and vanishes as
         -- the sub-atomic detail blooms in. Mesh built ONCE (bondLineMesh).
+        -- Render-only: Vibration.vibratedEndpoints is a pure read of the
+        -- BuilderState and never mutates it.
         builderBondLineEntities :: State -> Array Entity
         builderBondLineEntities s =
           map
@@ -331,7 +335,7 @@ main = do
                       (builderWorldPos seg.b)
                 }
             )
-            (Builder.bondSegments s.builder)
+            (Vibration.vibratedEndpoints s.builder s.frame)
 
         -- CORE (inner-shell) lone electrons: one blue sphere per core lone
         -- electron, on the inner ring around each atom's centre
@@ -351,8 +355,12 @@ main = do
             (Builder.valenceLoneElectronGroups s.builder s.frame)
 
         -- Shared (bonding) electrons: the pair sitting BETWEEN each bond's two
-        -- nuclei (Builder.bondElectronPositions), breathing with the frame.
-        -- Bonding electrons ARE valence electrons → reuses the amber valence mesh.
+        -- vibrated nuclei (Builder.bondElectronPositions), breathing with the
+        -- frame. The group centre is the vibrated midpoint (M1.5: the midpoint
+        -- is frame-invariant by symmetry, so vibratedMidpoints == bondMidpoints,
+        -- but routing through Vibration.vibratedMidpoints makes the wiring
+        -- explicit). Bonding electrons ARE valence electrons → reuses the amber
+        -- valence mesh. Render-only: never mutates BuilderState.
         builderBondElectronEntities :: State -> Array Entity
         builderBondElectronEntities s =
           builderElectronGroupEntities builderValenceElectronMesh
