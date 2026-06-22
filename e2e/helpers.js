@@ -20,25 +20,53 @@ export async function openDrawer(page) {
       const opacity = parseFloat(getComputedStyle(el).opacity);
       return opacity >= 0.9 && r.left >= 0 && r.right > 0;
     });
+  // Tolerant of the mid-animation toggle race: a click landing while the drawer
+  // is mid-slide can flip it the wrong way, so retry a few times, re-checking the
+  // open state each round before clicking again.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (await isOpen()) return;
+    await page.click('#panel-toggle');
+    try {
+      await page.waitForFunction(() => {
+        const el = document.querySelector('#controls');
+        if (!el) return false;
+        const r = el.getBoundingClientRect();
+        const opacity = parseFloat(getComputedStyle(el).opacity);
+        return opacity >= 0.9 && r.left >= 0 && r.left < 80;
+      }, undefined, { timeout: 2500, polling: 100 });
+      return;
+    } catch (_) {
+      // The click may have toggled it closed mid-animation; settle and retry.
+      await page.waitForTimeout(250);
+    }
+  }
   if (await isOpen()) return;
-  await page.click('#panel-toggle');
-  await page.waitForFunction(() => {
-    const el = document.querySelector('#controls');
-    if (!el) return false;
-    const r = el.getBoundingClientRect();
-    const opacity = parseFloat(getComputedStyle(el).opacity);
-    return opacity >= 0.9 && r.left >= 0 && r.left < 80;
-  }, undefined, { timeout: 2500, polling: 100 });
+  throw new Error('openDrawer: #controls did not reach the open state after retries');
 }
 
 // Reach the Builder scene (CubePoc → Atomos → Molecule → Builder = three
 // #scene-toggle clicks) and wait for window.__builder.
+// NOTE: Builder is still at click 3; the 5-cycle adds Materials at click 4.
 export async function gotoBuilder(page) {
   await expect(page.locator('#scene-toggle')).toBeVisible();
   await page.click('#scene-toggle'); // → atomos
   await page.click('#scene-toggle'); // → molecule
   await page.click('#scene-toggle'); // → builder
   await page.waitForTimeout(700); // generous: let the builder scene boot + render
+  await page.waitForFunction(() => !!window.__builder, null, { timeout: 6000 });
+}
+
+// Reach the Materials scene (CubePoc → Atomos → Molecule → Builder → Materials
+// = four #scene-toggle clicks) and wait for window.__builder + default-load.
+// The Materials scene reuses the Builder render path and the same window.__builder
+// seam, so the same API (getAtoms/getBonds/loadStructure/setOrbit/etc.) is available.
+export async function gotoMaterials(page) {
+  await expect(page.locator('#scene-toggle')).toBeVisible();
+  await page.click('#scene-toggle'); // → atomos
+  await page.click('#scene-toggle'); // → molecule
+  await page.click('#scene-toggle'); // → builder
+  await page.click('#scene-toggle'); // → materials
+  await page.waitForTimeout(900); // generous: let the materials scene default-load + render
   await page.waitForFunction(() => !!window.__builder, null, { timeout: 6000 });
 }
 

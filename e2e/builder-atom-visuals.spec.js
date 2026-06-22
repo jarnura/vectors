@@ -140,7 +140,9 @@ test('builder: background has no starfield (atomos keeps it)', async ({ page }) 
   const builderStars = await sampleBackgroundLit(page);
 
   // --- atomos background: KEEPS its starfield -----------------------------
-  // Cycle back around to atomos (Builder → CubePoc → Atomos = two more clicks).
+  // Cycle back around to atomos (Builder → Materials → CubePoc → Atomos = three more
+  // clicks; the 5-cycle adds Materials between Builder and CubePoc).
+  await page.click('#scene-toggle'); // → materials
   await page.click('#scene-toggle'); // → cube poc
   await page.click('#scene-toggle'); // → atomos
   await page.waitForTimeout(400);
