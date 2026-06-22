@@ -221,9 +221,100 @@
       .mol-value {
         color: #eaf2ff;
       }
-      /* Builder-only potential-energy (Morse) curve overlay. A small glassy
-         panel in the top-right corner; pointer-events:none so it never blocks
-         the canvas. Hidden by default; shown only in the Builder scene. */
+      /* Materials scene: data-driven cards gallery. Positioned at the bottom of
+         the canvas, a horizontal flex row of glassy cards — one per entry in
+         Lattice.structures. Hidden by default (display:none); shown only in the
+         Materials scene via MaterialsCards.showMaterialsCards(true). Cards have
+         pointer-events:auto so clicks reach them; the container has
+         pointer-events:none by default so the hidden gallery never traps canvas
+         orbit-drag/wheel events when in other scenes. */
+      #materials-cards {
+        position: absolute;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 2;
+        display: none;
+        flex-direction: row;
+        gap: 16px;
+        align-items: flex-end;
+        pointer-events: none;
+      }
+      .material-card {
+        pointer-events: auto;
+        cursor: pointer;
+        min-width: 120px;
+        padding: 12px 16px;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-size: 13px;
+        color: #e6edff;
+        background: rgba(15, 20, 35, 0.62);
+        -webkit-backdrop-filter: blur(12px) saturate(140%);
+        backdrop-filter: blur(12px) saturate(140%);
+        border: 1px solid rgba(140, 170, 235, 0.28);
+        border-radius: 14px;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45),
+          inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        user-select: none;
+        /* Start hidden for the stagger entrance */
+        opacity: 0;
+      }
+      .material-card:hover {
+        border-color: rgba(180, 205, 255, 0.55);
+        box-shadow: 0 8px 32px rgba(90, 130, 240, 0.32),
+          inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      }
+      .material-card-selected {
+        border-color: rgba(140, 180, 255, 0.75) !important;
+        box-shadow: 0 0 18px rgba(100, 150, 255, 0.45),
+          inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+        background: rgba(30, 45, 80, 0.72) !important;
+      }
+      .material-card-name {
+        font-size: 15px;
+        font-weight: 700;
+        color: #c8d8ff;
+        letter-spacing: 0.3px;
+      }
+      .material-card-formula {
+        font-size: 13px;
+        color: #7fb0e6;
+        font-weight: 500;
+      }
+      .material-card-hybrid {
+        font-size: 12px;
+        color: #8fa8d0;
+        font-style: italic;
+      }
+      /* Materials scene: data-driven structure info panel. Positioned in the
+         lower-left area of the canvas (below the #panel-toggle icon, clear of
+         the #controls drawer which slides in from the left) so it never
+         overlaps #pe-overlay (top-right) or #materials-cards (bottom-centre).
+         Hidden by default; shown only in the Materials scene. Mirrors the
+         #molecule-info layout so renderInfoPanel can be reused directly. */
+      #materials-info {
+        position: absolute;
+        bottom: 100px;
+        left: 16px;
+        z-index: 1;
+        min-width: 200px;
+        max-width: 280px;
+        font-family: sans-serif;
+        background: rgba(8, 14, 28, 0.78);
+        border: 1px solid rgba(120, 160, 230, 0.45);
+        border-radius: 8px;
+        padding: 10px 14px;
+        color: #cfe0ff;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+        display: none;
+      }
+      /* Builder + Materials potential-energy (Morse) curve overlay. A small
+         glassy panel in the top-right corner; pointer-events:none so it never
+         blocks the canvas. Hidden by default; shown in Builder and Materials. */
       #pe-overlay {
         position: absolute;
         top: 100px;
@@ -258,7 +349,9 @@
     <div id="atom-label">Carbon</div>
     <div id="orbital-info">1s2 2s2 2p2</div>
     <div id="molecule-info"></div>
+    <div id="materials-info"></div>
     <div id="pe-overlay"></div>
+    <div id="materials-cards"></div>
     <div id="controls">
       <button id="scene-toggle" type="button">Switch scene</button>
       <label for="view-2d">2D</label>

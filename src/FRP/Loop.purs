@@ -78,7 +78,7 @@ foreign import installValenceOnlyToggle
   :: Effect Unit -> Effect Unit
 
 -- Wires the "antibonding" checkbox: runs the given effect on each change.
--- Mirrors installValenceOnlyToggle. Builder-only render flag.
+-- Mirrors installValenceOnlyToggle. Builder/Materials render flag.
 foreign import installAntibondingToggle
   :: Effect Unit -> Effect Unit
 
@@ -159,6 +159,13 @@ runLoop
    . { initial :: s
      , step :: Input -> s -> s
      , draw :: s -> Effect Unit
+     -- Optional one-shot state override: on each tick, if this Ref holds Just f,
+     -- f is applied to the state (after `step`) and the Ref is cleared to Nothing.
+     -- Use to inject a precise state change (e.g. zoom reset on scene entry) that
+     -- persists naturally in subsequent frames (step preserves zoom when no
+     -- zoomDelta arrives, so the zoom stays at the overridden value until the user
+     -- zooms manually). The override fires at most once per write.
+     , stateOverride :: Ref.Ref (Maybe (s -> s))
      }
   -> Effect Unit
 runLoop spec = do
@@ -206,6 +213,16 @@ runLoop spec = do
       i <- Ref.read inputRef
       Ref.write emptyInput inputRef
       Ref.modify_ (spec.step i) stateRef
+      -- Consume the one-shot state override (if any) AFTER step so the override
+      -- takes effect on this frame AND persists into subsequent frames (step
+      -- preserves the overridden field when no input drives it, e.g. zoom stays
+      -- at the new value until the user scrolls).
+      mOverride <- Ref.read spec.stateOverride
+      case mOverride of
+        Just f -> do
+          Ref.write Nothing spec.stateOverride
+          Ref.modify_ f stateRef
+        Nothing -> pure unit
       s <- Ref.read stateRef
       spec.draw s
       requestAnimationFrame tick
