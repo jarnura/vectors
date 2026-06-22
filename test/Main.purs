@@ -19,6 +19,7 @@ import Test.VibrationSpec (vibrationSpec)
 import Test.BuilderBondsS4Spec (builderBondsS4Spec)
 import Test.BuilderAntibondingSpec (builderAntibondingSpec)
 import Test.BuilderSpinSpec (builderSpinSpec)
+import Test.LatticeSpec (latticeSpec)
 
 -- | Thin aggregator: runs every per-domain spec in sequence. All assertions
 -- | live in the Test.<Domain>Spec modules; this module holds none.
@@ -40,3 +41,4 @@ main = do
   builderBondsS4Spec
   builderAntibondingSpec
   builderSpinSpec
+  latticeSpec

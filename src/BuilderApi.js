@@ -13,6 +13,10 @@ export const installWindowBuilder = (bridge) => () => {
       bridge.moveAtomWith(strength)(id)(x)(y)(z3)(),
     moveMolecule: (id, x, y, z3) => bridge.moveMolecule(id)(x)(y)(z3)(),
     clear: () => bridge.clear(),
+    // Load a curated crystal structure by index into the shared BuilderState
+    // Ref and fire the onChange eager re-render. Index 0 = Diamond, 1 = Graphene.
+    // Clamp-safe: out-of-range indices are clamped by Lattice.structureOf.
+    loadStructure: (i) => bridge.loadStructure(i)(),
     getBonds: () => bridge.getBonds(),
     getMolecules: () => bridge.getMolecules(),
     getAtoms: () => bridge.getAtoms(),

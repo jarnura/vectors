@@ -20,6 +20,7 @@ import Data.Array (length)
 import Effect (Effect)
 import Effect.Ref as Ref
 import FRP.Loop (installAddButton, installClearButton)
+import Lattice as Lattice
 
 -- One bond rendered as a plain JS object the test reads as an array element.
 -- order is exposed so E2E consumers can read the bond multiplicity; existing
@@ -35,14 +36,18 @@ type JsMolecule = { ids :: Array Int, formula :: String }
 type JsAtom = { id :: Int, z :: Int, pos :: { x :: Number, y :: Number, z :: Number } }
 
 -- The bridge handed to the FFI: synchronous mutators + readers over a shared
--- builder Ref. addAtom/moveAtom/clear mutate the Ref in place (immutably
--- replacing the held record); getBonds/getMolecules read the current snapshot.
+-- builder Ref. addAtom/moveAtom/clear/loadStructure mutate the Ref in place
+-- (immutably replacing the held record); getBonds/getMolecules/getAtoms read
+-- the current snapshot. loadStructure(i) replaces the entire BuilderState with
+-- (Lattice.structureOf i).build and fires onChange, so the Materials scene
+-- default-loads Diamond (index 0) on entry.
 type Bridge =
   { addAtom :: Int -> Number -> Number -> Number -> Effect Unit
   , moveAtom :: Int -> Number -> Number -> Number -> Effect Unit
   , moveAtomWith :: Number -> Int -> Number -> Number -> Number -> Effect Unit
   , moveMolecule :: Int -> Number -> Number -> Number -> Effect Unit
   , clear :: Effect Unit
+  , loadStructure :: Int -> Effect Unit
   , getBonds :: Effect (Array JsBond)
   , getMolecules :: Effect (Array JsMolecule)
   , getAtoms :: Effect (Array JsAtom)
@@ -53,8 +58,12 @@ type Bridge =
 -- mutations and the renderer. After every mutation the `onChange` callback fires
 -- with the new state, letting the caller eagerly re-render the scene so the
 -- change is on-screen immediately (deterministic for pixel-read E2E).
-installBuilderApi :: (BuilderState -> Effect Unit) -> Effect (Ref.Ref BuilderState)
-installBuilderApi onChange = do
+-- The `onSelectStructure` callback is invoked whenever `loadStructure(i)` is
+-- called (both through the card click path and through the seam), so the card
+-- highlight and the #materials-info panel stay in sync regardless of which path
+-- triggered the load. Passing `mempty` disables the extra notification.
+installBuilderApi :: (BuilderState -> Effect Unit) -> (Int -> Effect Unit) -> Effect (Ref.Ref BuilderState)
+installBuilderApi onChange onSelectStructure = do
   ref <- Ref.new emptyBuilder
   let
     -- Apply a pure update to the shared Ref, then notify the renderer.
@@ -76,6 +85,17 @@ installBuilderApi onChange = do
           mutate (moveMolecule aid { x, y, z: z3 })
       , clear:
           mutate clear
+      -- Replace the entire BuilderState with a curated crystal structure
+      -- (Lattice.structureOf i).build. Fires onChange (eager re-render) and
+      -- onSelectStructure (card highlight + #materials-info panel update) so
+      -- both the rendering and the UI overlays stay in sync regardless of
+      -- whether the call came from the card click path or the seam. Clamp-safe:
+      -- out-of-range indices are clamped by Lattice.structureOf. DOM only.
+      , loadStructure: \i -> do
+          let newState = (Lattice.structureOf i).build
+          Ref.write newState ref
+          onChange newState
+          onSelectStructure i
       , getBonds: do
           st <- Ref.read ref
           pure (map (\bd -> { a: bd.a, b: bd.b, order: bd.order }) st.bonds)

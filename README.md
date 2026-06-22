@@ -2,7 +2,8 @@
 
 A small **PureScript + WebGL2** 3D graphics demo — a vertical-sliced
 **"learn matter"** platform (atoms → chemistry → properties of matter) — with
-four scenes, toggled by an on-screen switch:
+five scenes, toggled by an on-screen switch (5-cycles: Cube POC → atomos →
+Molecule → Builder → Materials → Cube POC):
 
 - **Cube POC** — a solid-lit cube + orbiting satellite inside a simple world
   (green ground, wireframe grid, sky-blue horizon).
@@ -46,10 +47,22 @@ four scenes, toggled by an on-screen switch:
   reusing the existing camera zoom; bonds stay visible in both layers — drawn as
   **connecting lines** between atom-balls when zoomed out and as the shared
   electron pair when zoomed in — and "Valence only" still applies.
+- **Materials** — **slice 3**: a curated **crystal-structure gallery**. Reuses
+  the entire Builder render path (same atom/bond/electron entities, same orbit
+  Ref, same zoom/LOD, same `#valence-only` toggle). A **glassy cards gallery**
+  (`#materials-cards`) shows one card per curated structure; clicking a card
+  loads it via the shared `BuilderState` Ref and fires an eager re-render. A
+  **data-driven info panel** (`#materials-info`) shows the selected structure's
+  Name, Formula, Hybridization, Coordination, Bond length, and a real-world note
+  — updated on card click, on default-load (Diamond on first entry), and when
+  `window.__builder.loadStructure(i)` is called through the automation seam.
+  Current structures: **Diamond** (sp³, tetrahedral, coord 4) and **Graphene**
+  (sp², honeycomb, coord 3). A 3rd material is data-only: add one record to the
+  `Lattice.structures` registry and it appears in the gallery automatically.
 
 ## Controls
 
-- **Switch scene** (top-left) — cycle Cube POC → atomos → Molecule → Builder.
+- **Switch scene** (top-left) — cycle Cube POC → atomos → Molecule → Builder → Materials → Cube POC.
 - **Element Z** (atomos) — choose the atom (Z = 1..36: H … Kr); nucleus and
   sub-shell electron rings update live.
 - **2D checkbox** (atomos) — flatten the atom into a 2D Bohr diagram (concentric
@@ -67,7 +80,7 @@ four scenes, toggled by an on-screen switch:
 - **Move a molecule** (Builder) — **single-click + drag** moves the whole
   connected molecule (all bonded atoms together); **double-click an atom then
   drag** moves just that one atom.
-- **Valence only checkbox** (Builder) — hide the blue core (inner-shell)
+- **Valence only checkbox** (Builder + Materials) — hide the blue core (inner-shell)
   electrons, leaving only an atom's amber valence electrons and the bonding pairs.
 - **Panel toggle** (icon below the scene title) — slide the controls drawer in
   from the left (and back out) via anime.js.
@@ -75,10 +88,10 @@ four scenes, toggled by an on-screen switch:
   see many molecules at once), scroll in for detail.
 - **Zoom + / − buttons** (all scenes, in the controls panel) — the same camera
   zoom from on-screen buttons: **+** zooms in, **−** zooms out (clamped).
-- **Orbit D-pad buttons** (Builder, in the controls panel) — **↑↓←→ arrows** orbit
+- **Orbit D-pad buttons** (Builder + Materials, in the controls panel) — **↑↓←→ arrows** orbit
   the camera by a fixed step per click; **⊙ reset** returns to the default orbit
-  angle. Builder-only; orbit has yaw+pitch DOF only (no roll).
-- **Zoom level-of-detail** (Builder) — the same camera zoom smoothly fades each
+  angle. Orbit has yaw+pitch DOF only (no roll).
+- **Zoom level-of-detail** (Builder + Materials) — the same camera zoom smoothly fades each
   atom between a single element-coloured ball (zoomed out) and its full nucleus +
   electrons (zoomed in), eased per frame.
 - **Arrow keys / mouse drag** — rotate the cube (Cube POC).

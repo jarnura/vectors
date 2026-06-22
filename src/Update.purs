@@ -40,7 +40,7 @@ type State =
   , element :: Int
   , view2D :: Boolean
   , valenceOnly :: Boolean
-  -- Builder-only render flag (M3-S2): when true the shared bonding-electron
+  -- Builder/Materials render flag (M3-S2): when true the shared bonding-electron
   -- positions switch from the Bonding to the Antibonding placement
   -- (bondElectronPositionsPhased Antibonding). Render-only; never mutates
   -- BuilderState. Initialises to false (Bonding is the default view).

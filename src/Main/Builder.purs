@@ -1,5 +1,6 @@
 module Main.Builder
   ( clearColorFor
+  , isBuilderLike
   , updateOverlay
   , satelliteTransform
   , ringSegments
@@ -49,12 +50,19 @@ satelliteOrbitRadius = 200.0
 satelliteDegreesPerFrame :: Number
 satelliteDegreesPerFrame = 1.2
 
+-- True when the scene uses the Builder render path (Builder or Materials).
+isBuilderLike :: Scene -> Boolean
+isBuilderLike Builder = true
+isBuilderLike Materials = true
+isBuilderLike _ = false
+
 -- The backdrop (clear) color for the current scene.
 clearColorFor :: Scene -> GL.Color
 clearColorFor CubePoc = skyColor
 clearColorFor Atomos = spaceColor
 clearColorFor Molecule = spaceColor
 clearColorFor Builder = spaceColor
+clearColorFor Materials = spaceColor
 
 -- Animate the HTML overlay label only when the scene or element changes (not
 -- every frame). The label shows the element name and is visible only in atomos.
@@ -101,14 +109,14 @@ satelliteTransform s =
 ringSegments :: Int
 ringSegments = 96
 
--- The projection matrix for a scene at a given canvas size. The Builder scene
--- routes through Camera.viewProjection (zoom-aware perspective × orbit rotation)
--- so the builderYaw/builderPitch orbit applies; every OTHER scene uses the plain
--- Camera.projection (they have no orbit). At yaw = pitch = 0 viewProjection is
--- byte-identical to projection, so the Builder render is unchanged until M3.
+-- The projection matrix for a scene at a given canvas size. The Builder and
+-- Materials scenes route through Camera.viewProjection (zoom-aware perspective ×
+-- orbit rotation) so the builderYaw/builderPitch orbit applies; every OTHER scene
+-- uses the plain Camera.projection (no orbit). At yaw = pitch = 0 viewProjection
+-- is byte-identical to projection, so both scenes are unchanged at zero orbit.
 projectionFor :: State -> Number -> Number -> Matrix Number
 projectionFor s w h
-  | s.scene == Builder =
+  | isBuilderLike s.scene =
       Camera.viewProjection { yaw: s.builderYaw, pitch: s.builderPitch } s.zoom w h
   | otherwise = Camera.projection s.zoom w h
 
@@ -136,7 +144,7 @@ clamp01 n
 -- DOM only via the Labels FFI — never WebGL.
 syncAtomLabels :: CanvasElement -> State -> Effect Unit
 syncAtomLabels canvas s
-  | s.scene == Builder = do
+  | isBuilderLike s.scene = do
       w <- getCanvasWidth canvas
       h <- getCanvasHeight canvas
       client <- Labels.getCanvasClientSize canvas
@@ -178,8 +186,9 @@ v3Distance a b =
   in
     sqrt (dx * dx + dy * dy + dz * dz)
 
--- Render the Builder potential-energy (Morse) curve overlay. Render-only and
--- DOM-only (via the PeOverlay FFI) — it never mutates the BuilderState.
+-- Render the Builder/Materials potential-energy (Morse) curve overlay.
+-- Render-only and DOM-only (via the PeOverlay FFI) — it never mutates the
+-- BuilderState.
 --
 -- Representative pair: the element pair of the FIRST live bond if any bond
 -- exists, else a default Carbon–Carbon (6,6) so the well is always visible. The
@@ -188,10 +197,10 @@ v3Distance a b =
 -- Markers: one live dot per bond at its current internuclear distance r and the
 -- Morse energy there — built by looking up each bond's two atoms (z + pos),
 -- computing r, and running `Pe.bondCurveMarkers`. The overlay shows + dot(s)
--- only in the Builder scene; every other scene hides it.
+-- only in Builder and Materials; every other scene hides it.
 renderPeOverlay :: State -> Effect Unit
 renderPeOverlay s
-  | s.scene == Builder = do
+  | isBuilderLike s.scene = do
       let
         bs = s.builder
         -- Per-bond {z1,z2,r}: skip a bond if either atom can't be resolved.
@@ -267,7 +276,7 @@ installBuilderPick canvas builderRef orbitRef eagerRender readState applyOrbit =
 
     onDown px py detail = do
       s <- readState
-      when (s.scene == Builder) do
+      when (isBuilderLike s.scene) do
         orb <- Ref.read orbitRef
         pc <- projAndCanvas s.zoom orb
         bs <- Ref.read builderRef
@@ -303,7 +312,7 @@ installBuilderPick canvas builderRef orbitRef eagerRender readState applyOrbit =
         Nothing -> pure unit
         Just (Left pick) -> do
           s <- readState
-          when (s.scene == Builder) do
+          when (isBuilderLike s.scene) do
             orb <- Ref.read orbitRef
             pc <- projAndCanvas s.zoom orb
             let
@@ -330,7 +339,7 @@ installBuilderPick canvas builderRef orbitRef eagerRender readState applyOrbit =
             eagerRender bs
         Just (Right prev) -> do
           s <- readState
-          when (s.scene == Builder) do
+          when (isBuilderLike s.scene) do
             -- ORBIT: fold the cursor delta since the last move into the SINGLE
             -- orbit Ref the renderer/pick/seam share, then re-track the cursor.
             -- The next rAF frame mirrors the Ref into State and re-uploads the GPU

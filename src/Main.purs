@@ -9,8 +9,10 @@ import Atom (Nucleon(..))
 import Atom as Atom
 import Builder as Builder
 import BuilderApi (installBuilderApi, installBuilderControls)
+import Lattice as Lattice
 import Camera as Camera
 import Controls as Controls
+import MaterialsCards (highlightCard, renderMaterialsCards, showMaterialsCards, showMaterialsPanel) as MaterialsCards
 import Data.Array (concat, concatMap, length, range, take, zipWith)
 import Data.Int (toNumber) as DI
 import Data.Number (cos, pi, sin, sqrt)
@@ -26,6 +28,7 @@ import Graphics.GL as GL
 import Main.Builder
   ( clearColorFor
   , installBuilderPick
+  , isBuilderLike
   , renderPeOverlay
   , ringSegments
   , satelliteTransform
@@ -459,18 +462,28 @@ main = do
             builderElectronGroupEntities builderValenceElectronMesh
               (Builder.bondElectronGroupsPhased phase s.builder s.frame)
 
+        -- The Builder entity list reused for both Builder and Materials scenes.
+        -- Materials loads a curated crystal lattice via loadStructure (same
+        -- shared Ref), so the same atom/bond/electron entities render correctly.
+        builderLikeEntities :: State -> Array Entity
+        builderLikeEntities s =
+          builderAtomBallEntities s
+            <> builderBondLineEntities s
+            <> builderAtomEntities s
+            <> (if s.valenceOnly then [] else builderLoneElectronEntities s)
+            <> builderValenceElectronEntities s
+            <> builderBondElectronEntities s
+
         entitiesFor :: State -> Array Entity
         entitiesFor s = case s.scene of
           CubePoc -> cubeEntities
           Atomos -> starEntities <> ringEntities s <> nucleusEntities s <> electronEntities s
           Molecule -> starEntities <> moleculeNucleusEntities s <> moleculeElectronEntities s
-          Builder ->
-            builderAtomBallEntities s
-              <> builderBondLineEntities s
-              <> builderAtomEntities s
-              <> (if s.valenceOnly then [] else builderLoneElectronEntities s)
-              <> builderValenceElectronEntities s
-              <> builderBondElectronEntities s
+          Builder -> builderLikeEntities s
+          -- Materials reuses the SAME Builder entity list (atom balls, bond lines,
+          -- nucleus, electrons). The only difference is the initial state is loaded
+          -- via loadStructure 0 (Diamond) on first entry.
+          Materials -> builderLikeEntities s
       updateViewport renderer canvas initialState
       w0 <- getCanvasWidth canvas
       h0 <- getCanvasHeight canvas
@@ -491,6 +504,9 @@ main = do
       -- the next rAF frame. With preserveDrawingBuffer this makes the new geometry
       -- visible to a pixel read taken right after the mutation (deterministic E2E).
       lastStateRef <- Ref.new initialState
+      -- Tracks the scene from the previous frame so we can detect scene changes
+      -- (e.g. entering Materials for the first time → default-load Diamond).
+      prevSceneRef <- Ref.new initialState.scene
       let
         -- Clear + draw one frame of the given State. Reused by the rAF loop and by
         -- the eager re-render after a builder mutation.
@@ -512,8 +528,19 @@ main = do
         eagerRender :: Builder.BuilderState -> Effect Unit
         eagerRender bs = do
           s <- Ref.read lastStateRef
-          when (s.scene == Builder) (renderFrame (s { builder = bs }))
+          when (isBuilderLike s.scene) (renderFrame (s { builder = bs }))
+      -- A mutable slot for the "select structure i" UI callback. Filled after
+      -- selectedStructureRef is created (below). This breaks the forward-reference
+      -- cycle: installBuilderApi must be called before selectedStructureRef is
+      -- allocated, but the loadStructure seam must invoke the callback that closes
+      -- over selectedStructureRef. The Ref is written exactly once before any card
+      -- click or seam call can arrive (DOM wiring is synchronous, no async gap).
+      selectCallbackRef <- Ref.new (\(_i :: Int) -> pure unit :: Effect Unit)
       builderRef <- installBuilderApi eagerRender
+        ( \i -> do
+            cb <- Ref.read selectCallbackRef
+            cb i
+        )
       installBuilderControls eagerRender builderRef
       -- The Builder camera orbit (yaw/pitch radians) lives in ONE shared Ref, the
       -- single source of truth read by the renderer (mirrored into State each
@@ -522,24 +549,24 @@ main = do
       -- it stays OUT of the pure Builder model.
       orbitRef <- Ref.new { yaw: initialState.builderYaw, pitch: initialState.builderPitch }
       installOrbitApi orbitRef
-      -- Production pointer pick+drag: scene-gated to Builder, routed through the
-      -- SAME shared Ref + eagerRender as the API, so there is one source of truth
-      -- and the drag is on-screen immediately. Reads the live canvas size to build
-      -- the exact projection the renderer uses. An empty-space miss orbits the
-      -- camera (writing the shared orbitRef) instead of moving an atom.
+      -- Production pointer pick+drag: scene-gated to Builder and Materials,
+      -- routed through the SAME shared Ref + eagerRender as the API, so there is
+      -- one source of truth and the drag is on-screen immediately. Reads the live
+      -- canvas size to build the exact projection the renderer uses. An empty-space
+      -- miss orbits the camera (writing the shared orbitRef) instead of moving an atom.
       installBuilderPick canvas builderRef orbitRef eagerRender (Ref.read lastStateRef) applyOrbit
       -- On-screen orbit buttons: each click folds a fixed Camera.buttonOrbitDelta
       -- step through Main.applyOrbit into the SAME shared orbitRef as the empty-
       -- space drag (no new Ref/clamp — applyOrbit already pitch-clamps), and
-      -- #orbit-reset writes {yaw:0,pitch:0}. Builder-only: each handler reads the
-      -- live State and only mutates when the Builder scene is active (mirrors
-      -- installBuilderPick). The next rAF frame mirrors orbitRef → State and the
-      -- sizeRef gate re-uploads the projection, so no eager re-render is needed.
+      -- #orbit-reset writes {yaw:0,pitch:0}. Active for Builder and Materials
+      -- (both use the Builder render path). The next rAF frame mirrors orbitRef →
+      -- State and the sizeRef gate re-uploads the projection, so no eager
+      -- re-render is needed.
       let
         orbitWhenBuilder :: ({ yaw :: Number, pitch :: Number } -> { yaw :: Number, pitch :: Number }) -> Effect Unit
         orbitWhenBuilder f = do
           s <- Ref.read lastStateRef
-          when (s.scene == Builder) (Ref.modify_ f orbitRef)
+          when (isBuilderLike s.scene) (Ref.modify_ f orbitRef)
         od = Camera.buttonOrbitDelta
       installOrbitButtons
         (orbitWhenBuilder (applyOrbit { dx: negate od, dy: 0.0 })) -- left
@@ -562,15 +589,100 @@ main = do
       Controls.installButtonPulse "panel-toggle"
       Controls.installButtonPulse "add-btn"
       Controls.installButtonPulse "clear-btn"
+      -- Tracks the currently-selected curated structure index so the cards
+      -- gallery can highlight the active card (updated on default-load and on
+      -- card-click). Starts at 0 (Diamond, the default-load target).
+      selectedStructureRef <- Ref.new 0
+      -- The pure "UI side effects for selecting structure i": update the selection
+      -- Ref, highlight the card, and refresh the #materials-info panel with the
+      -- structure's name/formula/hybridization + properties rows. This is the
+      -- callback stored in selectCallbackRef so the seam (loadStructure via
+      -- installBuilderApi) can invoke it without a forward-reference cycle.
+      let
+        selectStructureUi :: Int -> Effect Unit
+        selectStructureUi i = do
+          Ref.write i selectedStructureRef
+          let
+            st = Lattice.structureOf i
+            -- Header rows (name, formula, hybridization) + per-structure properties.
+            infoRows =
+              [ { label: "Name", value: st.name }
+              , { label: "Formula", value: st.formula }
+              , { label: "Hybridization", value: st.hybridization }
+              ]
+                <> st.properties
+          MaterialsCards.highlightCard i
+          Controls.renderInfoPanel "materials-info" infoRows
+      -- Fill the callback slot so loadStructure(i) through the seam invokes
+      -- selectStructureUi. Synchronous write before any card/seam call.
+      Ref.write selectStructureUi selectCallbackRef
+      -- Render the #materials-cards gallery ONCE at init, data-driven from
+      -- Lattice.structures (one card per entry). The onSelect callback (a) writes
+      -- the builderRef + eager re-renders (the model mutation), then (b) calls
+      -- selectStructureUi (the UI side effects — card highlight + info panel).
+      -- Both paths (card click and seam loadStructure) always call both steps.
+      let
+        cardDataArray =
+          map
+            ( \s -> { name: s.name, formula: s.formula, hybridization: s.hybridization } )
+            Lattice.structures
+        onSelectCard :: Int -> Effect Unit
+        onSelectCard i = do
+          let newState = (Lattice.structureOf i).build
+          Ref.write newState builderRef
+          eagerRender newState
+          selectStructureUi i
+      MaterialsCards.renderMaterialsCards cardDataArray onSelectCard
+      -- One-shot state override Ref: written on Materials entry to zoom out and
+      -- fit the enlarged lattice in the frustum. Consumed by the runLoop tick
+      -- (applied once, then cleared to Nothing). The Builder scene is unaffected —
+      -- we only write this Ref on the Materials entry edge, not for Builder.
+      stateOverrideRef <- Ref.new (Nothing :: Maybe (State -> State))
       runLoop
         { initial: initialState
         , step
+        , stateOverride: stateOverrideRef
         , draw: \s0 -> do
             -- Pull the live builder snapshot AND the live camera orbit into the
             -- state used for rendering (both are shared Refs, the single sources
             -- of truth for the model and the camera respectively).
-            bs <- Ref.read builderRef
+            bs0 <- Ref.read builderRef
             orb <- Ref.read orbitRef
+            -- Default-load Diamond (index 0) when entering the Materials scene
+            -- for the first time (or re-entering with an empty world). This runs
+            -- once per entry by detecting the scene-change edge. The Builder scene
+            -- always starts empty (its Add/Clear buttons manage it) — we only
+            -- auto-load for Materials.
+            prevScene <- Ref.read prevSceneRef
+            bs <-
+              if s0.scene == Materials && prevScene /= Materials && (length bs0.atoms == 0) then do
+                let latticeState = (Lattice.structureOf 0).build
+                Ref.write latticeState builderRef
+                -- Highlight card 0 (Diamond) on auto-load, refresh the info panel,
+                -- and reset selection — via selectStructureUi (single source of truth).
+                selectStructureUi 0
+                -- Reframe: reset orbit to face-on and zoom out so the enlarged
+                -- 2×2×2 Diamond supercell (bounding radius ≈ 660 model units ×
+                -- builderScale 2.2 = 1452 world units) fits the fov=π/3 frustum.
+                -- zoom = 0.35 gives effective camera distance = 1000/0.35 ≈ 2857;
+                -- half-frustum width = tan(π/6)×2857 ≈ 1649 > 1452, a 14% margin.
+                -- The orbit reset makes Diamond's cubic symmetry immediately legible.
+                -- Builder scene orbit + zoom are preserved (we only write these
+                -- on the Materials entry edge, not for Builder).
+                Ref.write { yaw: 0.0, pitch: 0.0 } orbitRef
+                Ref.write (Just (_ { zoom = Camera.clampZoom 0.35 })) stateOverrideRef
+                pure latticeState
+              else
+                pure bs0
+            -- Show/hide the materials overlays (cards gallery + info panel) only in
+            -- the Materials scene. Called on every scene-change edge so the overlays
+            -- mirror how molecule-info / atom-labels are gated in updateOverlay /
+            -- syncAtomLabels.
+            when (prevScene /= s0.scene) do
+              let inMaterials = s0.scene == Materials
+              MaterialsCards.showMaterialsCards inMaterials
+              MaterialsCards.showMaterialsPanel inMaterials
+            Ref.write s0.scene prevSceneRef
             let s = s0 { builder = bs, builderYaw = orb.yaw, builderPitch = orb.pitch }
             Ref.write s lastStateRef
             -- Publish the live eased Builder detail to window.__builderDetail every
@@ -595,8 +707,8 @@ main = do
             -- Sync the per-atom symbol overlay labels every frame so they follow
             -- dragged/zoomed atoms in Builder, and clear when leaving the scene.
             syncAtomLabels canvas s
-            -- Builder-only potential-energy (Morse) curve overlay: draw the
-            -- well for a representative pair + a live dot per bond, hide off
-            -- Builder. Render-only (DOM via PeOverlay) — no model mutation.
+            -- Builder + Materials potential-energy (Morse) curve overlay: draw
+            -- the well for a representative pair + a live dot per bond; hide off
+            -- both scenes. Render-only (DOM via PeOverlay) — no model mutation.
             renderPeOverlay s
         }

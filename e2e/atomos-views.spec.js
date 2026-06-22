@@ -83,6 +83,7 @@ test('subshells M2: element table reaches Krypton (Z=36)', async ({ page }) => {
 });
 
 // overlay-text M2: the scene-title banner scrambles to the current scene name.
+// Updated for the 5-cycle: CubePoc → Atomos → Molecule → Builder → Materials → CubePoc.
 test('overlay: scene title updates on scene switch', async ({ page }) => {
   const title = page.locator('#scene-title');
   await expect(title).toHaveText('Cube POC');
@@ -96,7 +97,10 @@ test('overlay: scene title updates on scene switch', async ({ page }) => {
   await page.click('#scene-toggle'); // → builder (fourth scene)
   await expect(title).toHaveText('builder', { timeout: 4000 });
 
-  await page.click('#scene-toggle'); // → back to cube POC
+  await page.click('#scene-toggle'); // → materials (fifth scene)
+  await expect(title).toHaveText('materials', { timeout: 4000 });
+
+  await page.click('#scene-toggle'); // → back to cube POC (5-cycle completes)
   await expect(title).toHaveText('Cube POC', { timeout: 4000 });
 });
 

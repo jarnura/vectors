@@ -16,12 +16,13 @@ sceneStarfieldSpec = do
   -- ───── Scene switch + starfield (atomos M2) ─────────────────────────
   log "scene + starfield properties:"
 
-  -- The on-screen switch cycles CubePoc → Atomos → Molecule → Builder → CubePoc.
-  check "nextScene cycles CubePoc -> Atomos -> Molecule -> Builder -> CubePoc" $
+  -- The on-screen switch cycles CubePoc → Atomos → Molecule → Builder → Materials → CubePoc.
+  check "nextScene cycles CubePoc -> Atomos -> Molecule -> Builder -> Materials -> CubePoc" $
     nextScene CubePoc == Atomos
       && nextScene Atomos == Molecule
       && nextScene Molecule == Builder
-      && nextScene Builder == CubePoc
+      && nextScene Builder == Materials
+      && nextScene Materials == CubePoc
 
   -- The starfield is a non-empty, deterministic set of points.
   check "starfield has stars" $ length starPositions > 0
@@ -98,14 +99,19 @@ sceneStarfieldSpec = do
   -- toggle now cycles CubePoc → Atomos → Molecule → Builder → CubePoc.
   log "builder scene wiring properties:"
 
-  -- The switch passes Molecule → Builder, and Builder closes the 4-cycle back
-  -- to CubePoc.
+  -- The switch passes Molecule → Builder, and Builder passes to Materials
+  -- which closes the 5-cycle back to CubePoc.
   check "nextScene Molecule = Builder" $ nextScene Molecule == Builder
-  check "nextScene Builder = CubePoc" $ nextScene Builder == CubePoc
+  check "nextScene Builder = Materials" $ nextScene Builder == Materials
+  check "nextScene Materials = CubePoc" $ nextScene Materials == CubePoc
 
   -- The builder scene has a non-empty banner title (the implementer matches
   -- this exact string in Scene.sceneTitle); lowercase like 'atomos'/'molecule'.
   check "sceneTitle Builder is non-empty" $ sceneTitle Builder /= ""
   check "sceneTitle Builder = builder" $ sceneTitle Builder == "builder"
 
-  log "all builder scene wiring properties hold."
+  -- The materials scene has a non-empty banner title (lowercase like sibling scenes).
+  check "sceneTitle Materials is non-empty" $ sceneTitle Materials /= ""
+  check "sceneTitle Materials = materials" $ sceneTitle Materials == "materials"
+
+  log "all builder + materials scene wiring properties hold."
