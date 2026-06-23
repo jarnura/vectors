@@ -86,9 +86,9 @@ test('builder: each atom shows its element symbol label', async ({ page }) => {
 // labels are gone (container emptied, or all labels hidden / detached). Add a
 // couple atoms (labels present), then click #scene-toggle to the next scene
 // (Builder → CubePoc) and assert no visible atom labels remain.
-// Note: the 5-cycle means Builder → Materials → CubePoc; we navigate to
-// CubePoc (two clicks) since Materials also uses the Builder render path and
-// would also show labels. Labels should be cleared in CubePoc (non-builder-like).
+// Note: the 6-cycle means Builder → Materials → Nuclide → CubePoc; we navigate to
+// CubePoc (three clicks) since Materials and Nuclide also use/share the Builder-like
+// path. Labels should be cleared in CubePoc (non-builder-like).
 test('builder: atom labels clear when leaving the Builder scene', async ({ page }) => {
   await gotoBuilder(page);
 
@@ -108,11 +108,12 @@ test('builder: atom labels clear when leaving the Builder scene', async ({ page 
   }
   expect(present).toBeGreaterThan(0);
 
-  // Leave the Builder scene → Materials (Builder → Materials in the 5-cycle).
-  // Materials also uses the Builder render path so labels stay visible there.
-  // Click AGAIN to reach CubePoc (Materials → CubePoc), which is non-builder-like.
+  // Leave the Builder scene → Materials (Builder → Materials in the 6-cycle).
+  // Materials and Nuclide also use the Builder render path so labels stay visible there.
+  // Click twice more to reach CubePoc (Materials → Nuclide → CubePoc), which is non-builder-like.
   await page.click('#scene-toggle'); // Builder → Materials
-  await page.click('#scene-toggle'); // Materials → CubePoc
+  await page.click('#scene-toggle'); // Materials → Nuclide
+  await page.click('#scene-toggle'); // Nuclide → CubePoc
 
   // Let a few frames sync the cleared labels.
   let remaining = present;

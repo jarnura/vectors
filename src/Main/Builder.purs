@@ -37,7 +37,7 @@ import Molecule as Molecule
 import Pe as Pe
 import PeOverlay as PeOverlay
 import Scene (Scene(..), sceneTitle, spaceColor)
-import Scene.Entities (builderScale, builderWorldPos)
+import Scene.Entities (builderScale, builderWorldPosWith)
 import Text as Text
 import Update (State)
 import World (skyColor)
@@ -51,6 +51,7 @@ satelliteDegreesPerFrame :: Number
 satelliteDegreesPerFrame = 1.2
 
 -- True when the scene uses the Builder render path (Builder or Materials).
+-- Nuclide is NOT builder-like: it uses its own nucleus-only render.
 isBuilderLike :: Scene -> Boolean
 isBuilderLike Builder = true
 isBuilderLike Materials = true
@@ -63,9 +64,11 @@ clearColorFor Atomos = spaceColor
 clearColorFor Molecule = spaceColor
 clearColorFor Builder = spaceColor
 clearColorFor Materials = spaceColor
+clearColorFor Nuclide = spaceColor
 
 -- Animate the HTML overlay label only when the scene or element changes (not
 -- every frame). The label shows the element name and is visible only in atomos.
+-- Also shows/hides the #nuclide-info panel and #nuclide-controls drawer section.
 updateOverlay
   :: Ref.Ref { scene :: Scene, element :: Int } -> State -> Effect Unit
 updateOverlay ref s = do
@@ -75,6 +78,7 @@ updateOverlay ref s = do
     elementChanged = prev.element /= s.element
     inAtomos = s.scene == Atomos
     inMolecule = s.scene == Molecule
+    inNuclide = s.scene == Nuclide
   when sceneChanged do
     Text.scrambleInto "scene-title" (sceneTitle s.scene)
     Text.setVisible "atom-label" inAtomos
@@ -88,6 +92,9 @@ updateOverlay ref s = do
     when inAtomos do
       Text.scrambleInto "atom-label" (Atom.elementName s.element)
       Text.scrambleInto "orbital-info" (Atom.configString s.element)
+    -- Nuclide scene: show/hide the nuclide info panel + drawer section.
+    Controls.showNuclidePanel inNuclide
+    Controls.showNuclideSectionInDrawer inNuclide
   when (elementChanged && inAtomos) do
     Text.scrambleInto "atom-label" (Atom.elementName s.element)
     Text.scrambleInto "orbital-info" (Atom.configString s.element)
@@ -157,7 +164,7 @@ syncAtomLabels canvas s
           map
             ( \a ->
                 let
-                  scr = Builder.projectToScreen proj { w, h } (builderWorldPos a.pos)
+                  scr = Builder.projectToScreen proj { w, h } (builderWorldPosWith s.layerSpace a.pos)
                 in
                   { id: a.id
                   , x: scr.x * sx
@@ -283,12 +290,13 @@ installBuilderPick canvas builderRef orbitRef eagerRender readState applyOrbit =
         let
           cursor = { x: px, y: py }
           -- Project every atom's scaled world position (through the orbit-aware
-          -- view-projection) and measure pixel distance.
+          -- view-projection) and measure pixel distance. Use builderWorldPosWith
+          -- so the pick projection matches the render projection (parity).
           candidates =
             map
               ( \a ->
                   let
-                    scr = Builder.projectToScreen pc.vp pc.canvas (builderWorldPos a.pos)
+                    scr = Builder.projectToScreen pc.vp pc.canvas (builderWorldPosWith s.layerSpace a.pos)
                     dx = scr.x - cursor.x
                     dy = scr.y - cursor.y
                   in
@@ -301,7 +309,7 @@ installBuilderPick canvas builderRef orbitRef eagerRender readState applyOrbit =
           -- on double click via the native event.detail).
           Just c | c.dist <= pickRadius ->
             Ref.write
-              (Just (Left { id: c.id, ref: builderWorldPos c.pos, whole: detail < 2 }))
+              (Just (Left { id: c.id, ref: builderWorldPosWith s.layerSpace c.pos, whole: detail < 2 }))
               dragRef
           -- MISS: latch ORBIT mode, seeding the previous cursor pixel.
           _ -> Ref.write (Just (Right { x: px, y: py })) dragRef
@@ -324,11 +332,14 @@ installBuilderPick canvas builderRef orbitRef eagerRender readState applyOrbit =
               modelRef = pick.ref
               world =
                 Builder.unprojectAtDepthFull pc.orb pc.proj pc.canvas { x: px, y: py } modelRef
-              -- Back out builderScale to recover the builder-model position.
+              -- Back out the effective world scale (builderScale × layerSpace) to
+              -- recover the builder-model position. MUST match the render scale so
+              -- pick and renderer stay in parity (no desync on non-default layerSpace).
+              effectiveScale = builderScale * s.layerSpace
               modelPos =
-                { x: world.x / builderScale
-                , y: world.y / builderScale
-                , z: world.z / builderScale
+                { x: world.x / effectiveScale
+                , y: world.y / effectiveScale
+                , z: world.z / effectiveScale
                 }
             -- Single-atom drags pull against the LIVE slider strength
             -- (s.dragStrength, from the same readState snapshot as zoom/scene):

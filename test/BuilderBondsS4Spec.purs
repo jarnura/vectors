@@ -42,23 +42,23 @@ builderBondsS4Spec = do
   -- H-H (order 1), O-O (order 2), N-N (order 3), C-C (order 3 via hard cap).
   -- ──────────────────────────────────────────────────────────────────────────────
   let
-    near = B.bondThreshold * 0.5   -- 90.0 — comfortably inside bonding range
+    near = B.bondThreshold * 0.5 -- 90.0 — comfortably inside bonding range
 
     -- H-H: valence 1 each -> order 1 single bond
     hhPair = B.addAtom 1 { x: near, y: 0.0, z: 0.0 }
-               (B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
+      (B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
 
     -- O-O: valence 2 each -> order 2 double bond (isolated pair)
     ooPair = B.addAtom 8 { x: near, y: 0.0, z: 0.0 }
-               (B.addAtom 8 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
+      (B.addAtom 8 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
 
     -- N-N: valence 3 each -> order 3 triple bond (isolated pair)
     nnPair = B.addAtom 7 { x: near, y: 0.0, z: 0.0 }
-               (B.addAtom 7 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
+      (B.addAtom 7 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
 
     -- C-C: valence 4, but hard cap is 3 -> order 3 triple bond
     ccPair = B.addAtom 6 { x: near, y: 0.0, z: 0.0 }
-               (B.addAtom 6 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
+      (B.addAtom 6 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
 
     -- Bond order helpers
     bondOrder st = case index st.bonds 0 of
@@ -127,11 +127,17 @@ builderBondsS4Spec = do
   -- ── (d) CONSERVATION per-atom: for each atom, (incidentOrders + loneCountOf) == z ─
   let
     perAtomConserved st =
-      all identity (map (\a ->
-        let incidentOrder = degreeIn st.bonds a.id
-            lone = B.loneCountOf st a.id
-        in incidentOrder + lone == a.z
-      ) st.atoms)
+      all identity
+        ( map
+            ( \a ->
+                let
+                  incidentOrder = degreeIn st.bonds a.id
+                  lone = B.loneCountOf st a.id
+                in
+                  incidentOrder + lone == a.z
+            )
+            st.atoms
+        )
 
   check "S4 per-atom conservation: H-H each H: (order + lone) == z(1)" $
     perAtomConserved hhPair
@@ -149,10 +155,10 @@ builderBondsS4Spec = do
     far = B.breakThreshold * 3.0
     -- C-C double bond at origin vicinity
     ccAt0 = B.addAtom 6 { x: near, y: 0.0, z: 0.0 }
-               (B.addAtom 6 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
+      (B.addAtom 6 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
     -- H-H bond far from C-C
     hhFar = B.addAtom 1 { x: far + near, y: 0.0, z: 0.0 }
-               (B.addAtom 1 { x: far, y: 0.0, z: 0.0 } B.emptyBuilder)
+      (B.addAtom 1 { x: far, y: 0.0, z: 0.0 } B.emptyBuilder)
     -- A lone O (oxygen at 2*far)
     loneO = B.addAtom 8 { x: 2.0 * far, y: 0.0, z: 0.0 } B.emptyBuilder
 
@@ -186,15 +192,19 @@ builderBondsS4Spec = do
     ooElectrons = B.bondElectronPositions ooPair 0.0
     ooAtomA = fromMaybe { x: 0.0, y: 0.0, z: 0.0 } (map _.pos (index ooPair.atoms 0))
     ooAtomB = fromMaybe { x: near, y: 0.0, z: 0.0 } (map _.pos (index ooPair.atoms 1))
-    ooMid = { x: (ooAtomA.x + ooAtomB.x) / 2.0
-            , y: (ooAtomA.y + ooAtomB.y) / 2.0
-            , z: (ooAtomA.z + ooAtomB.z) / 2.0 }
+    ooMid =
+      { x: (ooAtomA.x + ooAtomB.x) / 2.0
+      , y: (ooAtomA.y + ooAtomB.y) / 2.0
+      , z: (ooAtomA.z + ooAtomB.z) / 2.0
+      }
 
     -- Unit axis from a to b
     ooD = len3 { x: ooAtomB.x - ooAtomA.x, y: ooAtomB.y - ooAtomA.y, z: ooAtomB.z - ooAtomA.z }
-    ooAxis = { x: (ooAtomB.x - ooAtomA.x) / ooD
-             , y: (ooAtomB.y - ooAtomA.y) / ooD
-             , z: (ooAtomB.z - ooAtomA.z) / ooD }
+    ooAxis =
+      { x: (ooAtomB.x - ooAtomA.x) / ooD
+      , y: (ooAtomB.y - ooAtomA.y) / ooD
+      , z: (ooAtomB.z - ooAtomA.z) / ooD
+      }
 
     -- Displacements of the 4 electrons from the midpoint.
     ooDisps = map (\e -> { x: e.x - ooMid.x, y: e.y - ooMid.y, z: e.z - ooMid.z }) ooElectrons
@@ -206,7 +216,7 @@ builderBondsS4Spec = do
     -- For PI pair (electrons 2 and 3), displacement is perpendicular (dot ≈ 0).
     -- Since we can't know which index is sigma vs pi without knowing the impl,
     -- we check: at least 2 of the 4 electrons have |dot with axis| < eps (perpendicular).
-    piElectronCount = length (foldl (\acc d -> if d < eps then acc <> [d] else acc) [] ooDots)
+    piElectronCount = length (foldl (\acc d -> if d < eps then acc <> [ d ] else acc) [] ooDots)
 
   check "S4 geometry: O-O order 2 => exactly 4 bonding electrons" $
     length ooElectrons == 4
@@ -218,17 +228,21 @@ builderBondsS4Spec = do
     nnElectrons = B.bondElectronPositions nnPair 0.0
     nnAtomA = fromMaybe { x: 0.0, y: 0.0, z: 0.0 } (map _.pos (index nnPair.atoms 0))
     nnAtomB = fromMaybe { x: near, y: 0.0, z: 0.0 } (map _.pos (index nnPair.atoms 1))
-    nnMid = { x: (nnAtomA.x + nnAtomB.x) / 2.0
-            , y: (nnAtomA.y + nnAtomB.y) / 2.0
-            , z: (nnAtomA.z + nnAtomB.z) / 2.0 }
+    nnMid =
+      { x: (nnAtomA.x + nnAtomB.x) / 2.0
+      , y: (nnAtomA.y + nnAtomB.y) / 2.0
+      , z: (nnAtomA.z + nnAtomB.z) / 2.0
+      }
     nnD = len3 { x: nnAtomB.x - nnAtomA.x, y: nnAtomB.y - nnAtomA.y, z: nnAtomB.z - nnAtomA.z }
-    nnAxis = { x: (nnAtomB.x - nnAtomA.x) / nnD
-             , y: (nnAtomB.y - nnAtomA.y) / nnD
-             , z: (nnAtomB.z - nnAtomA.z) / nnD }
+    nnAxis =
+      { x: (nnAtomB.x - nnAtomA.x) / nnD
+      , y: (nnAtomB.y - nnAtomA.y) / nnD
+      , z: (nnAtomB.z - nnAtomA.z) / nnD
+      }
     nnDisps = map (\e -> { x: e.x - nnMid.x, y: e.y - nnMid.y, z: e.z - nnMid.z }) nnElectrons
     nnDots = map (\d -> abs (dot3 d nnAxis)) nnDisps
     -- N-N order 3: 6 electrons. Sigma = 2 electrons along axis, 2 PI pairs = 4 perp.
-    nnPiCount = length (foldl (\acc d -> if d < eps then acc <> [d] else acc) [] nnDots)
+    nnPiCount = length (foldl (\acc d -> if d < eps then acc <> [ d ] else acc) [] nnDots)
 
   check "S4 geometry: N-N order 3 => exactly 6 bonding electrons" $
     length nnElectrons == 6
@@ -245,9 +259,11 @@ builderBondsS4Spec = do
     hhElectrons60 = B.bondElectronPositions hhPair 60.0
     hhAtomA = fromMaybe { x: 0.0, y: 0.0, z: 0.0 } (map _.pos (index hhPair.atoms 0))
     hhAtomB = fromMaybe { x: near, y: 0.0, z: 0.0 } (map _.pos (index hhPair.atoms 1))
-    hhMid = { x: (hhAtomA.x + hhAtomB.x) / 2.0
-            , y: (hhAtomA.y + hhAtomB.y) / 2.0
-            , z: (hhAtomA.z + hhAtomB.z) / 2.0 }
+    hhMid =
+      { x: (hhAtomA.x + hhAtomB.x) / 2.0
+      , y: (hhAtomA.y + hhAtomB.y) / 2.0
+      , z: (hhAtomA.z + hhAtomB.z) / 2.0
+      }
     hhE0 = fromMaybe { x: 0.0, y: 0.0, z: 0.0 } (index hhElectrons0 0)
     hhE1 = fromMaybe { x: 0.0, y: 0.0, z: 0.0 } (index hhElectrons0 1)
 

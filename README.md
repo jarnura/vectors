@@ -1,20 +1,23 @@
 # vectors
 
 A small **PureScript + WebGL2** 3D graphics demo — a vertical-sliced
-**"learn matter"** platform (atoms → chemistry → properties of matter) — with
-five scenes, toggled by an on-screen switch (5-cycles: Cube POC → atomos →
-Molecule → Builder → Materials → Cube POC):
+**"learn matter"** platform (atoms → chemistry → properties of matter → element transformation) — with
+six scenes, toggled by an on-screen switch (6-cycles: Cube POC → atomos →
+Molecule → Builder → Materials → Nuclide → Cube POC):
 
 - **Cube POC** — a solid-lit cube + orbiting satellite inside a simple world
   (green ground, wireframe grid, sky-blue horizon).
 - **atomos** — a 3D atom visualizer in deep space: a nucleus of proton (red) and
   neutron (gray) spheres with electrons on animated orbital rings, configurable
-  by element (Z = 1..36, H…Kr). Electrons fill **sub-shells** in Madelung/Aufbau
-  order; each sub-shell draws a **thin orbital ring line**, and **discrete
-  electrons** (bright spheres) orbit on those rings — **colour-coded by shell**
-  (each shell a distinct colour, sub-shells lighter). A **2D toggle** flattens
-  the atom into a Bohr diagram (concentric circles facing the camera) versus the
-  tilted 3D orbital system. An **element-name label**, a
+  by element (Z = 1..36, H…Kr). The **nucleus is a tight clump** with constant
+  packing density for every element — light nuclei (H/He/Li) are gap-free,
+  heavy nuclei (Fe/Kr) stay distinct, and the nucleus visibly grows ∝ cbrt(A)
+  (matching the real R ∝ A^(1/3) law). Electrons fill **sub-shells** in
+  Madelung/Aufbau order; each sub-shell draws a **thin orbital ring line**, and
+  **discrete electrons** (bright spheres) orbit on those rings — **colour-coded
+  by shell** (each shell a distinct colour, sub-shells lighter). A **2D toggle**
+  flattens the atom into a Bohr diagram (concentric circles facing the camera)
+  versus the tilted 3D orbital system. An **element-name label**, a
   **scene-title banner**, and an **orbital-info overlay** (live electron
   configuration) — anime.js text scramble, HTML overlay — react to the controls.
 - **Molecule** — an **H₂ molecule**: two hydrogen nuclei whose covalent bond is
@@ -29,12 +32,12 @@ Molecule → Builder → Materials → Cube POC):
   mouse. Atoms that come near each other **auto-bond, valence-aware** (H=1, C=4,
   N=3, O=2, … with break hysteresis); connected atoms form a **molecule** with a
   derived Unicode formula (e.g. `H₂O`). Each atom renders its **real per-element
-  nucleus** (Carbon/Oxygen denser/larger than Hydrogen), sits at a **per-element
-  size** (normalised covalent radius — Hydrogen smallest), and shows its **atomic
-  symbol** (H, C, O, …) as an HTML overlay label; each bond shows a **shared
-  electron pair**, and atoms carry only their **lone electrons** (valence-conserved).
-  The Builder background is **plain space — no starfield** (atomos and Molecule
-  keep theirs).
+  nucleus** with constant packing density (so each nucleus grows as you place
+  heavier atoms), sits at a **per-element size** (normalised covalent radius —
+  Hydrogen smallest), and shows its **atomic symbol** (H, C, O, …) as an HTML
+  overlay label; each bond shows a **shared electron pair**, and atoms carry only
+  their **lone electrons** (valence-conserved). The Builder background is
+  **plain space — no starfield** (atomos and Molecule keep theirs).
   An atom's **valence** electrons (outermost shell + the bonding pair) render in
   **amber**, vs its **core** inner-shell electrons in **blue**; a **"Valence only"
   toggle** hides the blue core electrons, leaving just the amber valence + bonds.
@@ -43,13 +46,13 @@ Molecule → Builder → Materials → Cube POC):
   drives a smooth level-of-detail** on each atom: zoom **out** and each atom
   collapses to a single element-coloured ball; zoom **in** and it blooms into its
   real nucleus + electrons. The in-between is a continuous, frame-eased cross-fade
-  (even the +/− zoom buttons animate smoothly — no abrupt swap, no zoom reset),
+  (the **zoom slider** moves smoothly — no abrupt swap, no zoom reset),
   reusing the existing camera zoom; bonds stay visible in both layers — drawn as
   **connecting lines** between atom-balls when zoomed out and as the shared
   electron pair when zoomed in — and "Valence only" still applies.
 - **Materials** — **slice 3**: a curated **crystal-structure gallery**. Reuses
   the entire Builder render path (same atom/bond/electron entities, same orbit
-  Ref, same zoom/LOD, same `#valence-only` toggle). A **glassy cards gallery**
+  Ref, same zoom/LOD, same layer-space, same `#valence-only` toggle). A **glassy cards gallery**
   (`#materials-cards`) shows one card per curated structure; clicking a card
   loads it via the shared `BuilderState` Ref and fires an eager re-render. A
   **data-driven info panel** (`#materials-info`) shows the selected structure's
@@ -59,10 +62,11 @@ Molecule → Builder → Materials → Cube POC):
   Current structures: **Diamond** (sp³, tetrahedral, coord 4) and **Graphene**
   (sp², honeycomb, coord 3). A 3rd material is data-only: add one record to the
   `Lattice.structures` registry and it appears in the gallery automatically.
+- **Nuclide** — **element layer**: a nuclear-physics sandbox. A **nucleus (Z protons + N neutrons, rendered as coloured spheres with constant packing density)** grows ∝ cbrt(A) as you change the mass number. The nucleus is displayed alongside a **data-driven `#nuclide-info` panel** showing Symbol, Name, Z, A (mass number), **binding energy + binding-per-nucleon in MeV**, **stability/decay mode** (Stable, BetaMinus, BetaPlusEC, Alpha, or Unbound), and a "Last reaction" row (products, Q-value in MeV, RELEASED/ABSORBED). **Transmutation controls** allow manual isotope exploration (`#nuc-add-proton`/`#nuc-remove-proton`/`#nuc-add-neutron`/`#nuc-remove-neutron` + manual Z/N inputs). **Named reactions** (`#react-alpha`/`#react-beta-minus`/`#react-beta-plus`/`#react-fuse`/`#react-fission`) conserve Z & A and compute **Q-values** from binding energies (positive = exothermic RELEASED; negative = endothermic ABSORBED). The **decay classifier** uses N/Z stability band heuristics to flag Unbound nucleon-unbound states (He-5, Li-5, Be-8, etc.). Teaching simplifications: SEMF is poor for light nuclei — fixed measured binding energies anchor canonical reactions (α-decay, D-T fusion). Default: Carbon-12 (Z=6, N=6, stable).
 
 ## Controls
 
-- **Switch scene** (top-left) — cycle Cube POC → atomos → Molecule → Builder → Materials → Cube POC.
+- **Switch scene** (top-left) — cycle Cube POC → atomos → Molecule → Builder → Materials → Nuclide → Cube POC.
 - **Element Z** (atomos) — choose the atom (Z = 1..36: H … Kr); nucleus and
   sub-shell electron rings update live.
 - **2D checkbox** (atomos) — flatten the atom into a 2D Bohr diagram (concentric
@@ -86,17 +90,25 @@ Molecule → Builder → Materials → Cube POC):
   from the left (and back out) via anime.js.
 - **Mouse wheel** (all scenes) — zoom the camera: scroll out to pull back (e.g. to
   see many molecules at once), scroll in for detail.
-- **Zoom + / − buttons** (all scenes, in the controls panel) — the same camera
-  zoom from on-screen buttons: **+** zooms in, **−** zooms out (clamped).
+- **Zoom slider** (all scenes, in the controls panel) — drag to set the camera zoom
+  directly (0.05–5.0); updates two-way as wheel zoom and reframes change it.
 - **Orbit D-pad buttons** (Builder + Materials, in the controls panel) — **↑↓←→ arrows** orbit
   the camera by a fixed step per click; **⊙ reset** returns to the default orbit
   angle. Orbit has yaw+pitch DOF only (no roll).
+- **Layer-space slider** (Builder + Materials, in the controls panel) — spread atom
+  CENTRES further apart (1.0–4.0, default 1.6); larger values increase the spacing
+  between atoms' centre positions. Each atom's internal structure (nucleus cluster +
+  electron rings) remains constant-size across all slider values, so atoms look
+  internally identical whether tightly packed or spread out.
 - **Zoom level-of-detail** (Builder + Materials) — the same camera zoom smoothly fades each
   atom between a single element-coloured ball (zoomed out) and its full nucleus +
   electrons (zoomed in), eased per frame.
 - **Arrow keys / mouse drag** — rotate the cube (Cube POC).
 - **Shear input + Apply** — shear the main cube by the entered value
   (`x' = x + k·y`); repeated clicks compound.
+- **Transmutation buttons** (Nuclide) — `+p`, `−p`, `+n`, `−n` change proton/neutron count; **Reset** returns to Carbon-12.
+- **Z / N inputs** (Nuclide) — manually set proton/neutron number (clamped 1..118 for Z; N ≥ 0).
+- **Reaction buttons** (Nuclide) — **α decay**, **β− decay**, **β+ decay**, **Fuse**, **Fission** trigger named nuclear reactions; Fuse/Fission show Z/N input fields for target/fragment nuclides.
 
 ## Develop
 

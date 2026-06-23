@@ -6,18 +6,21 @@ module FRP.Loop
   , installClearButton
   , installCanvasPointer
   , installWheelListener
-  , installZoomButtons
   , installOrbitButtons
   , installValenceOnlyToggle
   , installAntibondingToggle
   , installSubshellViewToggle
   , installDragStrengthSlider
+  , installLayerSpaceSlider
+  , installZoomSlider
+  , installNuclearControls
+  , installNuclearReactionControls
   , setBuilderDetail
+  , setZoomSlider
   ) where
 
 import Prelude
 
-import Camera as Camera
 import Controls (installBondButton, runBondAnimation)
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
@@ -34,8 +37,11 @@ type Input =
   , toggleSubshellView :: Boolean
   , element :: Maybe Int
   , dragStrength :: Maybe Number
+  , layerSpace :: Maybe Number
   , bondProgress :: Maybe Number
   , zoomDelta :: Maybe Number
+  -- Absolute zoom set by the #zoom-slider (Nothing = no slider event this frame).
+  , zoomSet :: Maybe Number
   }
 
 emptyInput :: Input
@@ -50,8 +56,10 @@ emptyInput =
   , toggleSubshellView: false
   , element: Nothing
   , dragStrength: Nothing
+  , layerSpace: Nothing
   , bondProgress: Nothing
   , zoomDelta: Nothing
+  , zoomSet: Nothing
   }
 
 foreign import installKeyUpListener
@@ -96,6 +104,12 @@ foreign import installElementInput
 foreign import installDragStrengthSlider
   :: (Number -> Effect Unit) -> Effect Unit
 
+-- Wires the layer-space slider (#layer-space): on input/change, invokes the
+-- callback with the parsed slider value (the live layer-space multiplier).
+-- Mirrors installDragStrengthSlider in shape.
+foreign import installLayerSpaceSlider
+  :: (Number -> Effect Unit) -> Effect Unit
+
 -- Wires the builder Add button (#add-btn): on click, reads the element selector
 -- (#element-value) and invokes the callback with the chosen atomic number.
 foreign import installAddButton
@@ -125,12 +139,17 @@ foreign import installCanvasPointer
 foreign import installWheelListener
   :: (Number -> Effect Unit) -> Effect Unit
 
--- Wires the on-screen zoom buttons (#zoom-in / #zoom-out): the first argument is
--- the per-click delta magnitude. #zoom-in fires cb(−mag) for zoom IN, #zoom-out
--- fires cb(+mag) for zoom OUT — synthetic wheel deltas that reuse the same zoom
--- channel as the mouse wheel. DOM-only input plumbing — never touches WebGL.
-foreign import installZoomButtons
-  :: Number -> (Number -> Effect Unit) -> Effect Unit
+-- Wires the zoom range slider (#zoom-slider): on input/change, invokes the
+-- callback with the parsed slider value (an absolute zoom in [minZoom,maxZoom]).
+-- Mirrors installDragStrengthSlider in shape. DOM-only — never touches WebGL.
+foreign import installZoomSlider
+  :: (Number -> Effect Unit) -> Effect Unit
+
+-- Write the live State.zoom back to the #zoom-slider value every frame so that
+-- programmatic zoom changes (mouse wheel, Materials reframe) move the thumb.
+-- Setting .value programmatically does NOT fire the input/change listener, so
+-- there is no feedback loop. DOM-only — never touches WebGL.
+foreign import setZoomSlider :: Number -> Effect Unit
 
 -- Wires the on-screen orbit buttons (#orbit-left / #orbit-right step yaw,
 -- #orbit-up / #orbit-down step pitch, #orbit-reset returns to zero). Each
@@ -150,6 +169,32 @@ foreign import installOrbitButtons
 -- debug global (a number in [0,1]) for deterministic E2E observation. Called
 -- every frame from the draw loop. DOM-only — never touches WebGL.
 foreign import setBuilderDetail :: Number -> Effect Unit
+
+-- Wire the Nuclide scene control buttons and inputs in the left drawer.
+-- Each callback is a plain `Effect Unit` thunk (the PureScript caller owns the
+-- per-button mutation — NuclearApi.addProton etc.). The reset callback is
+-- invoked when #nuc-reset is clicked. The setNuclide callback receives (z, n)
+-- from the #nuclide-z / #nuclide-n inputs + "Set" button. DOM-only.
+foreign import installNuclearControls
+  :: Effect Unit  -- addProton
+  -> Effect Unit  -- removeProton
+  -> Effect Unit  -- addNeutron
+  -> Effect Unit  -- removeNeutron
+  -> Effect Unit  -- reset
+  -> (Int -> Int -> Effect Unit)  -- setNuclide z n
+  -> Effect Unit
+
+-- Wire the M3 named-reaction buttons (#react-alpha, #react-beta-minus,
+-- #react-beta-plus, #react-fuse, #react-fission) in the Nuclide drawer.
+-- fuseWith receives (z2, n2) from the #fuse-z2 / #fuse-n2 inputs.
+-- fissionReact receives (zA, nA, zB, nB) from the fission fragment inputs.
+foreign import installNuclearReactionControls
+  :: Effect Unit                          -- decayAlpha
+  -> Effect Unit                          -- decayBetaMinus
+  -> Effect Unit                          -- decayBetaPlus
+  -> (Int -> Int -> Effect Unit)          -- fuseWith z2 n2
+  -> (Int -> Int -> Int -> Int -> Effect Unit)  -- fission zA nA zB nB
+  -> Effect Unit
 
 foreign import requestAnimationFrame
   :: Effect Unit -> Effect Unit
@@ -191,14 +236,16 @@ runLoop spec = do
     Ref.modify_ (_ { element = Just z }) inputRef
   installDragStrengthSlider \d ->
     Ref.modify_ (_ { dragStrength = Just d }) inputRef
+  installLayerSpaceSlider \v ->
+    Ref.modify_ (_ { layerSpace = Just v }) inputRef
   -- Mouse wheel over the canvas: push the raw deltaY as a zoom step. The FFI
   -- preventDefault's the wheel so the page never scrolls.
   installWheelListener \d ->
     Ref.modify_ (_ { zoomDelta = Just d }) inputRef
-  -- On-screen zoom buttons push a synthetic wheel delta into the SAME channel:
-  -- #zoom-in → −buttonZoomDelta (zoom in), #zoom-out → +buttonZoomDelta (out).
-  installZoomButtons Camera.buttonZoomDelta \d ->
-    Ref.modify_ (_ { zoomDelta = Just d }) inputRef
+  -- Zoom slider (#zoom-slider): on input/change, push an absolute zoom value
+  -- into Input.zoomSet. applyZoomSet clamps to [minZoom,maxZoom] in Update.
+  installZoomSlider \v ->
+    Ref.modify_ (_ { zoomSet = Just v }) inputRef
   -- Bond control: clicking #bond-btn runs an anime.js value animation whose
   -- onUpdate pushes the current bond progress into the input ref (DOM-driven).
   installBondButton

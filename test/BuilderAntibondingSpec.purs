@@ -74,19 +74,19 @@ builderAntibondingSpec = do
 
   -- ── Fixtures ─────────────────────────────────────────────────────────────
   let
-    near = B.bondThreshold * 0.5  -- 90.0, comfortably inside bonding range
+    near = B.bondThreshold * 0.5 -- 90.0, comfortably inside bonding range
 
     -- H-H: order 1 (single bond, sigma only)
     hhPair = B.addAtom 1 { x: near, y: 0.0, z: 0.0 }
-               (B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
+      (B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
 
     -- O-O: order 2 (double bond: 1 sigma + 1 PI)
     ooPair = B.addAtom 8 { x: near, y: 0.0, z: 0.0 }
-               (B.addAtom 8 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
+      (B.addAtom 8 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
 
     -- N-N: order 3 (triple bond: 1 sigma + 2 PI)
     nnPair = B.addAtom 7 { x: near, y: 0.0, z: 0.0 }
-               (B.addAtom 7 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
+      (B.addAtom 7 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
 
     -- Bond order from first bond in state.
     bondOrder st = case index st.bonds 0 of
@@ -206,14 +206,14 @@ builderAntibondingSpec = do
   check "AB outward: H-H antibonding has one electron on each side of midpoint along axis" $
     let
       signs = map (\d -> if d > 0.0 then 1 else -1) hhAntibondingDisps
-      positiveCount = length (foldl (\acc s -> if s > 0 then acc <> [s] else acc) [] signs)
+      positiveCount = length (foldl (\acc s -> if s > 0 then acc <> [ s ] else acc) [] signs)
     in
       positiveCount == 1
 
   -- Each antibonding sigma electron should be BEYOND its respective nucleus
   -- (further from the midpoint than the atom centre itself).
   let
-    hhHalfBond = hhAxisD / 2.0  -- distance from midpoint to each nucleus
+    hhHalfBond = hhAxisD / 2.0 -- distance from midpoint to each nucleus
     hhABAbsDisps = map abs hhAntibondingDisps
 
   check "AB outward: H-H antibonding electrons are beyond the nuclei (|disp| > half-bond)" $

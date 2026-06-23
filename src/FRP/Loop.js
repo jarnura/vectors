@@ -74,6 +74,20 @@ export const installDragStrengthSlider = (cb) => () => {
   el.addEventListener("change", fire);
 };
 
+// Layer-space slider (#layer-space): on input/change, parse the slider value
+// and hand the live layer-space multiplier to the callback. Mirrors
+// installDragStrengthSlider exactly. Null-guarded and NaN-guarded.
+export const installLayerSpaceSlider = (cb) => () => {
+  const el = document.getElementById("layer-space");
+  if (!el) return;
+  const fire = () => {
+    const v = parseFloat(el.value);
+    if (!Number.isNaN(v)) cb(v)();
+  };
+  el.addEventListener("input", fire);
+  el.addEventListener("change", fire);
+};
+
 export const installAddButton = (cb) => () => {
   const button = document.getElementById("add-btn");
   const input = document.getElementById("element-value");
@@ -133,15 +147,29 @@ export const installWheelListener = (cb) => () => {
   );
 };
 
-// On-screen zoom buttons: #zoom-in fires cb(-delta) (zoom IN) and #zoom-out
-// fires cb(+delta) (zoom OUT), reusing the same zoom channel as the wheel. The
-// magnitude is passed from PureScript (Camera.buttonZoomDelta) — no literal
-// here. Null-guarded like the other control wirings.
-export const installZoomButtons = (delta) => (cb) => () => {
-  const zin = document.getElementById("zoom-in");
-  const zout = document.getElementById("zoom-out");
-  if (zin) zin.addEventListener("click", () => cb(-delta)());
-  if (zout) zout.addEventListener("click", () => cb(delta)());
+// Zoom slider (#zoom-slider): on input/change, parse the slider value and hand
+// the absolute zoom to the callback. Mirrors installDragStrengthSlider exactly.
+// Null-guarded and NaN-guarded like the other control wirings.
+export const installZoomSlider = (cb) => () => {
+  const el = document.getElementById("zoom-slider");
+  if (!el) return;
+  const fire = () => {
+    const v = parseFloat(el.value);
+    if (!Number.isNaN(v)) cb(v)();
+  };
+  el.addEventListener("input", fire);
+  el.addEventListener("change", fire);
+};
+
+// Write the live zoom value back to the #zoom-slider each frame so the thumb
+// tracks programmatic zoom changes (wheel, Materials reframe). Setting .value
+// programmatically does NOT fire the input/change listener — no feedback loop.
+// Skip the write while the user is actively dragging the slider (it holds focus)
+// so the per-frame write never fights the held thumb — the standard guard for a
+// two-way range-input binding.
+export const setZoomSlider = (v) => () => {
+  const el = document.getElementById("zoom-slider");
+  if (el && document.activeElement !== el) el.value = String(v);
 };
 
 // On-screen orbit buttons: #orbit-left / #orbit-right step yaw, #orbit-up /
@@ -166,6 +194,88 @@ export const installOrbitButtons =
 export const setBuilderDetail = (d) => () => {
   window.__builderDetail = d;
 };
+
+// Nuclide scene controls: wire the left-drawer buttons and inputs for the
+// transmutation sandbox. Each argument is a curried PureScript Effect Unit
+// thunk (the PS caller owns the NuclearApi mutation). Null-guarded like the
+// other control wirings.
+export const installNuclearControls =
+  (onAddProton) =>
+  (onRemoveProton) =>
+  (onAddNeutron) =>
+  (onRemoveNeutron) =>
+  (onReset) =>
+  (onSetNuclide) =>
+  () => {
+    const wire = (id, cb) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener("click", () => cb());
+    };
+    wire("nuc-add-proton", onAddProton);
+    wire("nuc-remove-proton", onRemoveProton);
+    wire("nuc-add-neutron", onAddNeutron);
+    wire("nuc-remove-neutron", onRemoveNeutron);
+    wire("nuc-reset", onReset);
+
+    // Z + N number inputs + Set button.
+    const setBtn = document.getElementById("nuc-set");
+    if (setBtn) {
+      setBtn.addEventListener("click", () => {
+        const zEl = document.getElementById("nuclide-z");
+        const nEl = document.getElementById("nuclide-n");
+        const z = zEl ? parseInt(zEl.value, 10) : NaN;
+        const n = nEl ? parseInt(nEl.value, 10) : NaN;
+        if (!Number.isNaN(z) && !Number.isNaN(n)) onSetNuclide(z)(n)();
+      });
+    }
+  };
+
+// M3 named-reaction buttons: #react-alpha, #react-beta-minus, #react-beta-plus,
+// #react-fuse (reads #fuse-z2 / #fuse-n2 inputs), #react-fission (reads
+// #fiss-za / #fiss-na / #fiss-zb / #fiss-nb inputs).
+// Each argument is a curried PureScript Effect thunk. Null-guarded like the
+// other control wirings.
+export const installNuclearReactionControls =
+  (onAlpha) =>
+  (onBetaMinus) =>
+  (onBetaPlus) =>
+  (onFuseWith) =>
+  (onFission) =>
+  () => {
+    const wire = (id, cb) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener("click", () => cb());
+    };
+    wire("react-alpha", onAlpha);
+    wire("react-beta-minus", onBetaMinus);
+    wire("react-beta-plus", onBetaPlus);
+
+    // Fuse button: reads Z2 + N2 inputs.
+    const fuseBtn = document.getElementById("react-fuse");
+    if (fuseBtn) {
+      fuseBtn.addEventListener("click", () => {
+        const z2El = document.getElementById("fuse-z2");
+        const n2El = document.getElementById("fuse-n2");
+        const z2 = z2El ? parseInt(z2El.value, 10) : NaN;
+        const n2 = n2El ? parseInt(n2El.value, 10) : NaN;
+        if (!Number.isNaN(z2) && !Number.isNaN(n2)) onFuseWith(z2)(n2)();
+      });
+    }
+
+    // Fission button: reads four fragment inputs.
+    const fissBtn = document.getElementById("react-fission");
+    if (fissBtn) {
+      fissBtn.addEventListener("click", () => {
+        const zA = parseInt((document.getElementById("fiss-za") || {}).value, 10);
+        const nA = parseInt((document.getElementById("fiss-na") || {}).value, 10);
+        const zB = parseInt((document.getElementById("fiss-zb") || {}).value, 10);
+        const nB = parseInt((document.getElementById("fiss-nb") || {}).value, 10);
+        if (!Number.isNaN(zA) && !Number.isNaN(nA) && !Number.isNaN(zB) && !Number.isNaN(nB)) {
+          onFission(zA)(nA)(zB)(nB)();
+        }
+      });
+    }
+  };
 
 export const requestAnimationFrame = (effect) => () => {
   window.requestAnimationFrame(() => effect());

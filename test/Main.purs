@@ -20,6 +20,10 @@ import Test.BuilderBondsS4Spec (builderBondsS4Spec)
 import Test.BuilderAntibondingSpec (builderAntibondingSpec)
 import Test.BuilderSpinSpec (builderSpinSpec)
 import Test.LatticeSpec (latticeSpec)
+import Test.LayerSpaceSpec (layerSpaceSpec)
+import Test.NuclearSpec (nuclearSpec)
+import Test.SubAtomicScaleSpec (subAtomicScaleSpec)
+import Test.NucleusPackingSpec (nucleusPackingSpec)
 
 -- | Thin aggregator: runs every per-domain spec in sequence. All assertions
 -- | live in the Test.<Domain>Spec modules; this module holds none.
@@ -42,3 +46,7 @@ main = do
   builderAntibondingSpec
   builderSpinSpec
   latticeSpec
+  layerSpaceSpec
+  nuclearSpec
+  subAtomicScaleSpec
+  nucleusPackingSpec

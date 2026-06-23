@@ -1,7 +1,7 @@
 // E2E spec for the Materials scene (M2).
 //
-// The Materials scene is the 5th scene in the cycle:
-//   CubePoc → Atomos → Molecule → Builder → Materials → CubePoc
+// The Materials scene is the 5th scene in the 6-cycle:
+//   CubePoc → Atomos → Molecule → Builder → Materials → Nuclide → CubePoc
 // It reuses the ENTIRE Builder render path — same entity list, same orbit Ref,
 // same zoom/LOD. On first entry (or when the builder world is empty) it
 // default-loads Diamond (index 0) via Lattice.structureOf(0).build.
@@ -102,9 +102,9 @@ test('materials: clear then re-enter Materials default-loads Diamond again', asy
   const afterClear = await page.evaluate(() => window.__builder.getAtoms());
   expect(afterClear.length).toBe(0);
 
-  // Cycle back through Builder to Materials (5-cycle):
-  // Materials → CubePoc → Atomos → Molecule → Builder → Materials
-  for (let i = 0; i < 5; i++) {
+  // Cycle back through Builder to Materials (6-cycle):
+  // Materials → Nuclide → CubePoc → Atomos → Molecule → Builder → Materials
+  for (let i = 0; i < 6; i++) {
     await page.click('#scene-toggle');
     await page.waitForTimeout(200);
   }
@@ -189,8 +189,22 @@ test('materials: getAtoms reflects loadStructure immediately', async ({ page }) 
 
 // 3a. After default-load the canvas shows non-background lit pixels across a
 // spread region (not a single centered atom — the lattice covers multiple atoms).
+// Note: Materials reframe opens at zoom 0.08 (below detailLo=0.10 → ball view).
+// At that zoom the atoms are small, so we zoom in slightly before sampling to
+// confirm the lattice actually loaded and renders multiple lit atoms.
 test('materials: canvas has lit pixels spread across the scene (not just background)', async ({ page }) => {
   await gotoMaterials(page);
+
+  // Zoom in slightly from the reframe zoom (0.08) so atoms are measurably larger
+  // in screen space. This makes the lit-pixel count robust to SwiftShader timing.
+  // We use the zoom-slider seam (consistent with the builder-layered-zoom spec).
+  await page.evaluate((v) => {
+    const el = document.getElementById('zoom-slider');
+    if (!el) return;
+    el.value = String(v);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, 0.35);
+  await page.waitForTimeout(400);
 
   // Poll the rAF loop until the default-loaded Diamond has actually rendered,
   // rather than relying on a single fixed delay (the 5-atom lattice is sparse,
@@ -251,7 +265,7 @@ test('materials: orbit via setOrbit changes rendered pixels', async ({ page }) =
 });
 
 // ────────────────────────────────────────────────────────────────────────────
-// GATE 4 — 5-cycle regression (other scenes still reachable)
+// GATE 4 — 6-cycle regression (other scenes still reachable)
 // ────────────────────────────────────────────────────────────────────────────
 
 // 4a. Builder is still reachable at click 3 (cycle: CubePoc→Atomos→Molecule→Builder).
@@ -268,10 +282,10 @@ test('cycle: Builder still reachable at 3 scene-toggle clicks', async ({ page })
   expect(afterAdd.length).toBe(1);
 });
 
-// 4b. Completing the 5-cycle returns to CubePoc (5th click from Materials).
-test('cycle: 5 clicks completes the 5-cycle back to CubePoc', async ({ page }) => {
+// 4b. Completing the 6-cycle returns to CubePoc (6th click from CubePoc).
+test('cycle: 6 clicks completes the 6-cycle back to CubePoc', async ({ page }) => {
   // Start from CubePoc and cycle all the way back.
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 6; i++) {
     await page.click('#scene-toggle');
     await page.waitForTimeout(200);
   }

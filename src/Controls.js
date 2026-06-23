@@ -132,3 +132,19 @@ export const installButtonPulse = (id) => () => {
     });
   });
 };
+
+// Show or hide `#nuclide-info`. Pass `true` in the Nuclide scene, `false`
+// elsewhere. Mirrors showMaterialsPanel. No-op if the element is absent.
+export const showNuclidePanel = (visible) => () => {
+  const el = document.getElementById("nuclide-info");
+  if (!el) return;
+  el.style.display = visible ? "block" : "none";
+};
+
+// Show or hide `#nuclide-controls` (the Nuclide-specific section inside the
+// left drawer). Pass `true` in the Nuclide scene, `false` elsewhere.
+export const showNuclideSectionInDrawer = (visible) => () => {
+  const el = document.getElementById("nuclide-controls");
+  if (!el) return;
+  el.style.display = visible ? "flex" : "none";
+};

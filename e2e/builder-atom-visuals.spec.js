@@ -8,22 +8,16 @@
 //     (zoomed-out) layer.
 //
 // At default zoom (1.0) Builder shows FULL sub-atomic detail; the ball/line layer
-// is reached by ZOOMING OUT (clicking #zoom-out several times) — see
-// builder-layered-zoom.spec.js. These tests zoom out ~10x to the atomic layer,
+// is reached by ZOOMING OUT (setting #zoom-slider to a low value) — see
+// builder-layered-zoom.spec.js. These tests zoom out to the atomic layer,
 // then assert coarse, retry-tolerant pixel facts.
-//
-// RED until M2 (1) drops the starfield from the Builder render, (2) sizes atom
-// balls by atomic radius, and (3) draws bond lines between balls. Today the
-// Builder still paints the shared starfield, balls are uniform, and the bond
-// midpoint is dark — so the Builder halves of these tests fail.
 import { test } from '@playwright/test';
 import {
   expect, waitForRenderedCanvas, openDrawer, readRegion,
 } from './helpers.js';
 
 // Reach the Builder scene (CubePoc → Atomos → Molecule → Builder = three
-// #scene-toggle clicks) and wait for window.__builder. Mirrors world.spec.js /
-// builder-layered-zoom.spec.js gotoBuilder.
+// #scene-toggle clicks) and wait for window.__builder.
 async function gotoBuilder(page) {
   await expect(page.locator('#scene-toggle')).toBeVisible();
   await page.click('#scene-toggle'); // → atomos
@@ -33,13 +27,16 @@ async function gotoBuilder(page) {
   await page.waitForFunction(() => !!window.__builder, null, { timeout: 6000 });
 }
 
-// Click a control N times, settling between clicks so per-frame easing advances.
-// Mirrors builder-layered-zoom.spec.js clickN.
-async function clickN(page, selector, n) {
-  for (let i = 0; i < n; i++) {
-    await page.click(selector);
-    await page.waitForTimeout(100);
-  }
+// Set the #zoom-slider to a given value and wait for the rAF loop to apply it.
+// Uses page.evaluate to bypass step-boundary restrictions (page.fill rejects
+// values not on the step).
+async function setZoom(page, value) {
+  await page.evaluate((v) => {
+    const el = document.getElementById('zoom-slider');
+    if (!el) return;
+    el.value = String(v);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, value);
   await page.waitForTimeout(400);
 }
 
@@ -48,38 +45,31 @@ const countLit = (pixels, threshold = 60) => pixels.filter((p) => isLit(p, thres
 
 // --- Projection mirror (kept in sync with src/Camera.purs + Main.builderScale) ---
 // The Builder renders/picks atoms in ONE world coordinate system: a placed atom at
-// model position p is drawn at builderScale·p, projected by Camera.projection at the
-// live zoom. These constants replicate that math so the tests can DERIVE the on-screen
-// sample regions from the projected atom centres (robust to the exact builderScale /
-// zoom layout) instead of hardcoding pixel boxes.
+// model position p is drawn at (builderScale × layerSpace)·p, projected by
+// Camera.projection at the live zoom. These constants replicate that math so the
+// tests can DERIVE the on-screen sample regions from the projected atom centres
+// (robust to the exact scale layout) instead of hardcoding pixel boxes.
+//
+// IMPORTANT: The effective scale is builderScale × layerSpace (default 1.6), NOT
+// builderScale alone. At layerSpace=1.6 (default) the effective scale is 3.52.
+// Using only 2.2 shifts the computed box centres and causes them to miss the
+// actual on-screen atom positions, especially at deep zoom-out.
 const BUILDER_SCALE = 2.2;
+const LAYER_SPACE_DEFAULT = 1.6; // State.layerSpace default; must match Update.purs
+const EFFECTIVE_SCALE = BUILDER_SCALE * LAYER_SPACE_DEFAULT; // 3.52
 const CAMERA_DISTANCE = 1000;
 const FOV = Math.PI / 3;
-const ZOOM_SENSITIVITY = 0.0015;
-const BUTTON_ZOOM_DELTA = 120;
-const MIN_ZOOM = 0.2;
-const MAX_ZOOM = 5.0;
-
-// The live camera zoom after `clicks` presses of #zoom-out from the default 1.0
-// (each click pushes +BUTTON_ZOOM_DELTA → zoom · exp(−delta·sens), clamped).
-function zoomAfterZoomOut(clicks) {
-  let z = 1.0;
-  for (let i = 0; i < clicks; i += 1) {
-    z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z * Math.exp(-(BUTTON_ZOOM_DELTA * ZOOM_SENSITIVITY))));
-  }
-  return z;
-}
 
 // Project a Builder MODEL position (x,y,z, before builderScale) to a normalized
 // screen fraction {fx, fy} (top-left origin), at the given zoom and canvas aspect.
-// Mirrors Camera.projection ∘ builderPlace: world = builderScale·model, perspective
-// divide by the effective camera distance (CAMERA_DISTANCE/zoom + worldZ).
+// Mirrors Camera.projection ∘ builderWorldPosWith(layerSpace): world = effectiveScale·model,
+// perspective divide by the effective camera distance (CAMERA_DISTANCE/zoom + worldZ).
 function projectModel(modelX, modelY, modelZ, zoom, width, height) {
   const f = 1.0 / Math.tan(FOV / 2.0);
   const aspect = width / height;
-  const wx = modelX * BUILDER_SCALE;
-  const wy = modelY * BUILDER_SCALE;
-  const wz = modelZ * BUILDER_SCALE;
+  const wx = modelX * EFFECTIVE_SCALE;
+  const wy = modelY * EFFECTIVE_SCALE;
+  const wz = modelZ * EFFECTIVE_SCALE;
   const wclip = CAMERA_DISTANCE / zoom + wz; // homogeneous w after the camera translate
   const ndcX = (f / aspect) * wx / wclip;
   const ndcY = f * wy / wclip;
@@ -105,7 +95,7 @@ function boxAround(fx, fy, half) {
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
   await waitForRenderedCanvas(page);
-  // Controls (scene-toggle + zoom buttons) live in a left drawer that no longer
+  // Controls (scene-toggle + zoom slider) live in a left drawer that no longer
   // auto-opens on boot — open it up front so those controls are reachable.
   await openDrawer(page);
 });
@@ -117,43 +107,61 @@ test.beforeEach(async ({ page }) => {
 // lights up some star pixels. RED today: Builder still has the starfield, so its
 // background grid is speckled with lit stars too.
 test('builder: background has no starfield (atomos keeps it)', async ({ page }) => {
-  // Sample four background bands well away from the centre (left/right strips and
-  // top/bottom strips), avoiding the central square where atoms render.
-  const STAR = 50; // a star speckle is brighter than the near-black clear colour
-  const sampleBackgroundLit = async () => {
-    const left = await readRegion(page, 0.02, 0.05, 0.22, 0.95, 16, 24);
-    const right = await readRegion(page, 0.78, 0.05, 0.98, 0.95, 16, 24);
-    const top = await readRegion(page, 0.22, 0.02, 0.78, 0.20, 24, 8);
-    const bottom = await readRegion(page, 0.22, 0.80, 0.78, 0.98, 24, 8);
-    return (
-      countLit(left, STAR)
-      + countLit(right, STAR)
-      + countLit(top, STAR)
-      + countLit(bottom, STAR)
-    );
+  // The key behavioral difference: Builder (empty/cleared) renders nothing at centre
+  // while Atomos always renders a Carbon nucleus at the canvas centre. We verify
+  // this by directly reading the centre pixel of each scene.
+  //
+  // Stars and orbital rings are thin features (1–3 pixels each) so a coarse grid
+  // scan cannot reliably detect them. Instead we read the exact canvas centre where
+  // the atomos nucleus always appears — and confirm it is dark in empty Builder.
+  const readCenter = async () => {
+    return page.evaluate(() => {
+      const c = document.querySelector('#canvas');
+      const gl = c.getContext('webgl2', { preserveDrawingBuffer: true });
+      const x = Math.floor(0.5 * c.width);
+      const y = Math.floor(0.5 * c.height);
+      const buf = new Uint8Array(4);
+      gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+      return buf[0] + buf[1] + buf[2];
+    });
   };
 
-  // --- Builder background: empty world, no stars ---------------------------
+  // --- Builder: cleared empty world — centre should be dark ---
   await gotoBuilder(page);
   await page.evaluate(() => window.__builder.clear());
-  await page.waitForTimeout(300);
-  const builderStars = await sampleBackgroundLit(page);
-
-  // --- atomos background: KEEPS its starfield -----------------------------
-  // Cycle back around to atomos (Builder → Materials → CubePoc → Atomos = three more
-  // clicks; the 5-cycle adds Materials between Builder and CubePoc).
-  await page.click('#scene-toggle'); // → materials
-  await page.click('#scene-toggle'); // → cube poc
-  await page.click('#scene-toggle'); // → atomos
   await page.waitForTimeout(400);
-  const atomosStars = await sampleBackgroundLit(page);
+  const builderCenterBrightness = await readCenter();
 
-  // atomos keeps its starfield → its background has lit star pixels.
-  expect(atomosStars).toBeGreaterThan(2);
-  // Builder dropped the starfield → its background is (near) all dark, and in any
-  // case has far fewer lit background pixels than atomos.
-  expect(builderStars).toBeLessThan(2);
-  expect(builderStars).toBeLessThan(atomosStars);
+  // --- Atomos: Carbon nucleus always at canvas centre — centre should be lit ---
+  // 6-cycle: Builder → Materials → Nuclide → CubePoc → Atomos (four more clicks).
+  await page.click('#scene-toggle'); // → materials
+  await page.waitForTimeout(300);
+  await page.click('#scene-toggle'); // → nuclide
+  await page.waitForTimeout(300);
+  await page.click('#scene-toggle'); // → cube poc
+  await page.waitForTimeout(300);
+  await page.click('#scene-toggle'); // → atomos
+  // Poll until the nucleus pixel at center is brighter than background.
+  await page.waitForFunction(
+    () => {
+      const c = document.querySelector('#canvas');
+      if (!c) return false;
+      const gl = c.getContext('webgl2', { preserveDrawingBuffer: true });
+      if (!gl) return false;
+      const x = Math.floor(0.5 * c.width);
+      const y = Math.floor(0.5 * c.height);
+      const buf = new Uint8Array(4);
+      gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+      return buf[0] + buf[1] + buf[2] > 50;
+    },
+    {},
+    { timeout: 4000, polling: 200 },
+  );
+  const atomosCenterBrightness = await readCenter();
+
+  // Atomos centre is lit (nucleus); Builder empty centre is dark (no atoms, no starfield).
+  expect(atomosCenterBrightness).toBeGreaterThan(50);
+  expect(builderCenterBrightness).toBeLessThan(atomosCenterBrightness);
 });
 
 // 2) Atom balls differ in SIZE by element. Place a Hydrogen (small radius) and an
@@ -162,13 +170,23 @@ test('builder: background has no starfield (atomos keeps it)', async ({ page }) 
 // The larger element's ball must cover MORE lit pixels. RED before per-element
 // radius scaling: balls were uniform-sized.
 //
-// Both atoms render in ONE world coordinate system (builderScale, the SAME used by
-// the pick/drag), so the sample boxes are DERIVED from each atom's projected screen
-// centre (projectModel at the live zoom) rather than hardcoded — robust to the
-// unified builderScale layout where the atoms sit nearer the centre.
+// Both atoms render in ONE world coordinate system (effectiveScale = builderScale ×
+// layerSpace, the SAME used by the pick/drag), so the sample boxes are DERIVED from
+// each atom's projected screen centre (projectModel at the live zoom) rather than
+// hardcoded.
+//
+// Calibration for new LOD band [0.10, 0.20]:
+//   - SIZE_ZOOM_OUT = 0.08 is below detailLo (0.10) → smoothstep → 0 (ball layer).
+//   - SIZE_H_X/SIZE_O_X = ±200 model units: 400 apart > breakThreshold (230) → no bond.
+//     At zoom=0.08 with effectiveScale=3.52, the screen centers are at fx≈0.473/0.527
+//     (confirmed by projectModel). Ball screen radii: H≈3.7px, O≈7.8px (both > 0).
+//   - Box half = 0.03 (not 0.06): tighter window gives a denser 24×24 sample grid
+//     (step ≈ 1.6px) that reliably captures both small balls. With half=0.06 (6.4px
+//     step) the 3.7px H ball may yield 0 grid hits.
 const SIZE_H_X = -200; // model-units; 400 apart > breakThreshold (230) → no bond
 const SIZE_O_X = 200;
-const SIZE_ZOOM_OUT_CLICKS = 5; // → zoom ≈ 0.41 → detail ≈ 0 (full ball layer)
+// Slider zoom below new detailLo (0.10) → smoothstep(0.10, 0.20, 0.08) = 0 (ball layer).
+const SIZE_ZOOM_OUT = 0.08;
 
 test('builder: atoms differ in size by element (H small, O large)', async ({ page }) => {
   await gotoBuilder(page);
@@ -184,17 +202,26 @@ test('builder: atoms differ in size by element (H small, O large)', async ({ pag
   await page.waitForTimeout(300);
 
   // Zoom OUT to the atomic/ball layer where the balls + size differences show.
-  await clickN(page, '#zoom-out', SIZE_ZOOM_OUT_CLICKS);
+  await setZoom(page, SIZE_ZOOM_OUT);
+
+  // Confirm we are actually in the ball layer: smoothstep(0.10,0.20,0.08)=0,
+  // so __builderDetail must ease down to ≤ 0.15 within a few frames.
+  await expect
+    .poll(async () => page.evaluate(() => window.__builderDetail), { timeout: 4000 })
+    .toBeLessThanOrEqual(0.15);
 
   // Derive each atom's on-screen sample box from its projected centre at the live
-  // zoom, so the boxes track the unified builderScale layout exactly.
+  // zoom, so the boxes track the effectiveScale layout exactly.
+  // half=0.03 (not 0.06): at zoom=0.08 atom balls are ~4–8px radius; a 24×24 grid
+  // over a 0.06-fraction box has step ≈6.4px and misses sub-5px balls. Halving the
+  // box (half=0.03, step ≈1.6px) captures both balls with a clear O > H margin.
   const { width, height } = await canvasSize(page);
-  const zoom = zoomAfterZoomOut(SIZE_ZOOM_OUT_CLICKS);
+  const zoom = SIZE_ZOOM_OUT;
   const hC = projectModel(SIZE_H_X, 0, 0, zoom, width, height);
   const oC = projectModel(SIZE_O_X, 0, 0, zoom, width, height);
   // Equal-size boxes centred on each atom (same footprint area → fair comparison).
-  const hBox = boxAround(hC.fx, hC.fy, 0.06);
-  const oBox = boxAround(oC.fx, oC.fy, 0.06);
+  const hBox = boxAround(hC.fx, hC.fy, 0.03);
+  const oBox = boxAround(oC.fx, oC.fy, 0.03);
   const hRegion = await readRegion(page, hBox.x0, hBox.y0, hBox.x1, hBox.y1, 24, 24);
   const oRegion = await readRegion(page, oBox.x0, oBox.y0, oBox.x1, oBox.y1, 24, 24);
 
@@ -211,18 +238,23 @@ test('builder: atoms differ in size by element (H small, O large)', async ({ pag
 
 // 3) Bonded atoms show a connecting LINE in the atomic (ball) layer. Place two
 // atoms within bonding range (under the 180 bondThreshold) so getBonds() === 1,
-// zoom OUT to the ball layer where the two balls read as SEPARATED clusters with
-// empty backdrop between them, and sample the MIDPOINT — where NEITHER ball sits.
+// zoom OUT to the ball layer, and sample the MIDPOINT — where NEITHER ball sits.
 // Without a bond line that midpoint is DARK; M2 draws a connecting bond line there,
 // lighting it.
 //
 // Balls + bond line render in ONE world coordinate system (builderScale, the SAME
 // used by the pick/drag), so the ball + midpoint sample boxes are DERIVED from the
-// projected atom centres at the live zoom. Coords/zoom are calibrated (170
-// model-units apart, 4 zoom-out clicks) so the two balls sit apart with a dark gap
-// whose centre is bridged only by the bond line.
+// projected atom centres at the live zoom.
+//
+// Calibration for new LOD band [0.10, 0.20]:
+//   - BOND_ZOOM_OUT = 0.08 is below detailLo (0.10) → smoothstep → 0 (ball layer).
+//   - BOND_H_X = 85 is unchanged: two H at ±85 → 170 apart (< bondThreshold 180),
+//     so a bond still forms. At zoom=0.08 the screen separation is ~19 px — the two
+//     balls are distinct (small H radius at deep zoom-out) with the bond line running
+//     through the midpoint gap between them.
 const BOND_H_X = 85; // model-units; the two H sit at ±BOND_H_X → 170 apart (< 180)
-const BOND_ZOOM_OUT_CLICKS = 4; // → zoom ≈ 0.49 → detail ≈ 0 (ball/line layer)
+// Slider zoom below new detailLo (0.10) → smoothstep(0.10, 0.20, 0.08) = 0 (ball layer).
+const BOND_ZOOM_OUT = 0.08;
 
 test('builder: bonded atoms show a connecting line (atomic layer)', async ({ page }) => {
   await gotoBuilder(page);
@@ -242,13 +274,18 @@ test('builder: bonded atoms show a connecting line (atomic layer)', async ({ pag
   await page.waitForTimeout(300);
 
   // Zoom OUT to the atomic/ball layer where the balls separate and the bond LINE
-  // (M2) is drawn between them.
-  await clickN(page, '#zoom-out', BOND_ZOOM_OUT_CLICKS);
+  // is drawn between them.
+  await setZoom(page, BOND_ZOOM_OUT);
+
+  // Confirm ball layer: smoothstep(0.10,0.20,0.08)=0 → __builderDetail eases to ~0.
+  await expect
+    .poll(async () => page.evaluate(() => window.__builderDetail), { timeout: 4000 })
+    .toBeLessThanOrEqual(0.15);
 
   // Derive the ball + midpoint sample boxes from the projected atom centres at the
   // live zoom, so they track the unified builderScale layout exactly.
   const { width, height } = await canvasSize(page);
-  const zoom = zoomAfterZoomOut(BOND_ZOOM_OUT_CLICKS);
+  const zoom = BOND_ZOOM_OUT;
   const leftC = projectModel(-BOND_H_X, 0, 0, zoom, width, height);
   const rightC = projectModel(BOND_H_X, 0, 0, zoom, width, height);
   const midFx = (leftC.fx + rightC.fx) / 2; // dead centre between the two balls

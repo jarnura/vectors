@@ -47,10 +47,17 @@ clipNear = 1.0
 clipFar :: Number
 clipFar = 2000.0
 
--- Zoom bounds: closest-out (0.2 ⇒ camera 5× farther) and closest-in (5.0 ⇒
--- camera 5× nearer). Clamping keeps the camera from flipping through the origin.
+-- Zoom bounds: closest-out (0.05 ⇒ camera 20× farther, ~4× more zoom-out than
+-- the old 0.2 floor) and closest-in (5.0 ⇒ camera 5× nearer). The wider
+-- zoom-out range lets Builder/Materials pull back far enough to see many atoms
+-- (or an entire crystal supercell) in a single view. The clip planes scale with
+-- zoom (near=clipNear/zoom, far=clipFar/zoom) so the frustum auto-brackets the
+-- scene at any zoom level — no culling occurs. Clamping keeps the camera from
+-- flipping through the origin. HARD CONSTRAINT: minZoom must stay strictly
+-- below Layer.detailLo (0.10) so layerBlend(minZoom) == 0.0 (fully zoomed out
+-- = cheap atom-ball layer = exactly the "many atoms" view).
 minZoom :: Number
-minZoom = 0.2
+minZoom = 0.05
 
 maxZoom :: Number
 maxZoom = 5.0
@@ -69,12 +76,13 @@ clampPitch p = max (negate maxPitch) (min maxPitch p)
 zoomSensitivity :: Number
 zoomSensitivity = 0.0015
 
--- | A fixed positive synthetic wheel-delta magnitude per on-screen zoom-button
--- | click. The #zoom-in / #zoom-out buttons reuse `applyZoomStep` by pushing
--- | ∓`buttonZoomDelta` as a synthetic wheel delta, mirroring the mouse wheel.
--- | One click ≈ exp(zoomSensitivity * 120) = exp(0.18) ≈ 1.197, i.e. ~+19.7%
--- | zoom-in / ~−16.5% zoom-out — the same order as one wheel notch (~100).
--- | Pure; no Effect.
+-- | A fixed positive synthetic wheel-delta magnitude for one `applyZoomStep`.
+-- | The on-screen zoom buttons were replaced by the #zoom-slider (absolute set)
+-- | in M2, so this no longer has a production consumer; it is retained as the
+-- | documented per-step zoom magnitude (the reference the orbit-button step
+-- | below mirrors) and is exercised by CameraLayerSpec. One step ≈
+-- | exp(zoomSensitivity * 120) = exp(0.18) ≈ 1.197, i.e. ~+19.7% zoom-in /
+-- | ~−16.5% zoom-out — the same order as one wheel notch (~100). Pure; no Effect.
 buttonZoomDelta :: Number
 buttonZoomDelta = 120.0
 

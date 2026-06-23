@@ -145,7 +145,7 @@ test('molecule: properties panel shows H₂\'s data-driven properties', async ({
     )
     .toBe(true);
 
-  // Switching fully around (one more click) routes Molecule → Builder (5-cycle).
+  // Switching fully around (one more click) routes Molecule → Builder (6-cycle).
   await page.click('#scene-toggle'); // → Builder
   await page.waitForTimeout(300);
   await expect(info).toBeHidden();

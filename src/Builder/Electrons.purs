@@ -82,7 +82,7 @@ bondSigmaSpins st = concatMap spinForBond st.bonds
   where
   -- Each bond of order n contributes 2*n spin tags: alternating Up/Down.
   spinForBond bd = map (\i -> if i `mod` 2 == 0 then Up else Down)
-                       (range 0 (2 * bd.order - 1))
+    (range 0 (2 * bd.order - 1))
 
 -- Phase-aware shared electron positions. Bonding is byte-identical to
 -- bondElectronPositions. Antibonding places the SAME number of electrons but

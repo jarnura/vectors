@@ -22,7 +22,7 @@ import Data.Traversable (traverse)
 import Effect (Effect)
 import Effect.Console (log)
 import Effect.Ref as Ref
-import FRP.Loop (installOrbitButtons, runLoop, setBuilderDetail)
+import FRP.Loop (installNuclearControls, installOrbitButtons, runLoop, setBuilderDetail, setZoomSlider)
 import Graphics.Canvas (getCanvasElementById, getCanvasHeight, getCanvasWidth)
 import Graphics.GL as GL
 import Main.Builder
@@ -39,23 +39,26 @@ import Main.Builder
 import Math.Matrix as M
 import Meshes as Meshes
 import Molecule as Molecule
+import Main.Nuclide (nuclideNucleusEntities, renderNuclideInfo, installNuclearReactions)
+import NuclearApi (installNuclearApi)
+import Nuclear (NuclearState, defaultNeutrons, addProton, removeProton, addNeutron, removeNeutron) as Nuclear
 import OrbitApi (installOrbitApi)
 import Palette (shellColor, subshellColor)
 import Scene (Scene(..))
 import Scene.Entities
   ( Entity
   , EntityMesh(..)
-  , builderBallPlace
+  , builderBallPlaceWith
   , builderBallSphere
-  , builderBondLinePlace
-  , builderDetailPlace
-  , builderElectronGroupEntities
+  , builderBondLinePlaceWith
+  , builderDetailPlaceWith
+  , builderElectronGroupEntitiesWith
   , builderNeutronSphere
   , builderNucleusCompress
   , builderProtonSphere
   , builderScale
   , builderValenceElectronSphere
-  , builderWorldPos
+  , builderWorldPosWith
   , electronSphere
   , moleculeElectronSphere
   , moleculeNucleusSphere
@@ -70,9 +73,11 @@ import Update (State, applyOrbit, initialState, step)
 import Update
   ( applyAntibonding
   , applyDragStrength
+  , applyLayerSpace
   , applyOrbit
   , applySubshellView
   , applyValenceOnly
+  , applyZoomSet
   , initialState
   ) as ReexportUpdate
 import World (groundTransform, gridTransform, groundExtent, gridDivisions)
@@ -294,8 +299,10 @@ main = do
                       -- builderScale spacing. The whole nucleus BLOOMS out of the atom
                       -- centre with detail (d): at d→0 each nucleon collapses into the
                       -- centre (and shrinks to ~0), at d→1 it reaches its full offset.
+                      -- layerSpace is read from the SAME state as detail so render and
+                      -- pick remain in parity.
                       , modelMatrix: \st ->
-                          builderDetailPlace st.detail a.pos
+                          builderDetailPlaceWith st.layerSpace st.detail a.pos
                             { x: a.pos.x + n.pos.x * builderNucleusCompress
                             , y: a.pos.y + n.pos.y * builderNucleusCompress
                             , z: a.pos.z + n.pos.z * builderNucleusCompress
@@ -318,7 +325,7 @@ main = do
           map
             ( \a ->
                 { mesh: Solid builderBallMesh
-                , modelMatrix: \st -> builderBallPlace st.detail (Atom.atomicRadius a.z) a.pos
+                , modelMatrix: \st -> builderBallPlaceWith st.layerSpace st.detail (Atom.atomicRadius a.z) a.pos
                 }
             )
             s.builder.atoms
@@ -393,36 +400,45 @@ main = do
               { p1, p2 }
 
           -- Build the Entity list for one bond (sigma line + (order-1) pi lines).
+          -- World positions are computed INSIDE the modelMatrix lambdas so they
+          -- react to the live st.layerSpace (render/pick parity).
           bondLineGroup :: { a :: { x :: Number, y :: Number, z :: Number }, b :: { x :: Number, y :: Number, z :: Number }, order :: Int } -> Array Entity
           bondLineGroup seg =
             let
-              ws = builderWorldPos seg.a
-              we = builderWorldPos seg.b
               basis = perpBasis seg.a seg.b
               n = seg.order
               -- Central sigma line on the axis.
               sigmaLine =
                 { mesh: Solid bondLineMesh
-                , modelMatrix: \st -> builderBondLinePlace st.detail ws we
+                , modelMatrix: \st ->
+                    let
+                      ws = builderWorldPosWith st.layerSpace seg.a
+                      we = builderWorldPosWith st.layerSpace seg.b
+                    in
+                      builderBondLinePlaceWith st.layerSpace st.detail ws we
                 }
               -- Flanking pi lines: (order-1) of them, distributed by θ_k = k*π/N.
               piLines =
                 map
                   ( \k ->
-                      let
-                        theta = DI.toNumber k * pi / DI.toNumber n
-                        cT = cos theta
-                        sT = sin theta
-                        off = piLineOffset * builderScale
-                        ox = off * (cT * basis.p1.x + sT * basis.p2.x)
-                        oy = off * (cT * basis.p1.y + sT * basis.p2.y)
-                        oz = off * (cT * basis.p1.z + sT * basis.p2.z)
-                        wa = { x: ws.x + ox, y: ws.y + oy, z: ws.z + oz }
-                        wb = { x: we.x + ox, y: we.y + oy, z: we.z + oz }
-                      in
-                        { mesh: Solid bondLineMesh
-                        , modelMatrix: \st -> builderBondLinePlace st.detail wa wb
-                        }
+                      { mesh: Solid bondLineMesh
+                      , modelMatrix: \st ->
+                          let
+                            ws = builderWorldPosWith st.layerSpace seg.a
+                            we = builderWorldPosWith st.layerSpace seg.b
+                            theta = DI.toNumber k * pi / DI.toNumber n
+                            cT = cos theta
+                            sT = sin theta
+                            -- Pi-line offset scaled by the effective world scale.
+                            off = piLineOffset * builderScale * st.layerSpace
+                            ox = off * (cT * basis.p1.x + sT * basis.p2.x)
+                            oy = off * (cT * basis.p1.y + sT * basis.p2.y)
+                            oz = off * (cT * basis.p1.z + sT * basis.p2.z)
+                            wa = { x: ws.x + ox, y: ws.y + oy, z: ws.z + oz }
+                            wb = { x: we.x + ox, y: we.y + oy, z: we.z + oz }
+                          in
+                            builderBondLinePlaceWith st.layerSpace st.detail wa wb
+                      }
                   )
                   (range 1 (n - 1))
             in
@@ -434,7 +450,7 @@ main = do
         -- molElectronMesh — core electrons keep the existing colour.
         builderLoneElectronEntities :: State -> Array Entity
         builderLoneElectronEntities s =
-          builderElectronGroupEntities molElectronMesh
+          builderElectronGroupEntitiesWith molElectronMesh
             (Builder.coreLoneElectronGroups s.builder s.frame)
 
         -- VALENCE (outermost-shell) lone electrons: one amber sphere per valence
@@ -442,7 +458,7 @@ main = do
         -- Uses the distinct builderValenceElectronMesh (amber/gold).
         builderValenceElectronEntities :: State -> Array Entity
         builderValenceElectronEntities s =
-          builderElectronGroupEntities builderValenceElectronMesh
+          builderElectronGroupEntitiesWith builderValenceElectronMesh
             (Builder.valenceLoneElectronGroups s.builder s.frame)
 
         -- Shared (bonding / antibonding) electrons: the pair sitting BETWEEN
@@ -459,7 +475,7 @@ main = do
           let
             phase = if s.antibonding then Builder.Antibonding else Builder.Bonding
           in
-            builderElectronGroupEntities builderValenceElectronMesh
+            builderElectronGroupEntitiesWith builderValenceElectronMesh
               (Builder.bondElectronGroupsPhased phase s.builder s.frame)
 
         -- The Builder entity list reused for both Builder and Materials scenes.
@@ -474,6 +490,11 @@ main = do
             <> builderValenceElectronEntities s
             <> builderBondElectronEntities s
 
+        -- Nuclide scene: nucleus entities (Z protons + N neutrons via Atom.clusterPositions).
+        -- Delegated to Main.Nuclide with the shared proton/neutron GL meshes partially applied.
+        nuclideEntities :: State -> Array Entity
+        nuclideEntities = nuclideNucleusEntities protonMesh neutronMesh
+
         entitiesFor :: State -> Array Entity
         entitiesFor s = case s.scene of
           CubePoc -> cubeEntities
@@ -484,6 +505,8 @@ main = do
           -- nucleus, electrons). The only difference is the initial state is loaded
           -- via loadStructure 0 (Diamond) on first entry.
           Materials -> builderLikeEntities s
+          -- Nuclide: nucleus only (protons + neutrons, no electrons).
+          Nuclide -> nuclideEntities s
       updateViewport renderer canvas initialState
       w0 <- getCanvasWidth canvas
       h0 <- getCanvasHeight canvas
@@ -549,6 +572,37 @@ main = do
       -- it stays OUT of the pure Builder model.
       orbitRef <- Ref.new { yaw: initialState.builderYaw, pitch: initialState.builderPitch }
       installOrbitApi orbitRef
+      -- The nuclear state (current nuclide) lives in a shared Ref. The render loop
+      -- mirrors it into State each frame (like builderRef/orbitRef). Mutations through
+      -- the NuclearApi (addProton/etc.) fire an onChange callback that eagerly
+      -- re-renders the Nuclide scene so pixel reads reflect the new nucleus immediately.
+      let
+        eagerRenderNuclide :: Nuclear.NuclearState -> Effect Unit
+        eagerRenderNuclide ns = do
+          s <- Ref.read lastStateRef
+          when (s.scene == Nuclide) (renderFrame (s { nuclear = ns }))
+      nuclearRef <- installNuclearApi eagerRenderNuclide
+      -- Wire the Nuclide scene's left-drawer controls. The reset brings the nuclide
+      -- back to the Carbon-12 seed (Z=6, N=defaultNeutrons 6). The setNuclide
+      -- callback handles the #nuclide-z + #nuclide-n inputs.
+      let
+        nuclearMutate :: (Nuclear.NuclearState -> Nuclear.NuclearState) -> Effect Unit
+        nuclearMutate f = do
+          Ref.modify_ f nuclearRef
+          ns <- Ref.read nuclearRef
+          eagerRenderNuclide ns
+        c12Seed :: Nuclear.NuclearState
+        c12Seed = { nuclide: { z: 6, n: Nuclear.defaultNeutrons 6 }, lastQ: 0.0, lastFission: Nothing }
+      installNuclearControls
+        (nuclearMutate (\st -> st { nuclide = Nuclear.addProton st.nuclide }))
+        (nuclearMutate (\st -> st { nuclide = Nuclear.removeProton st.nuclide }))
+        (nuclearMutate (\st -> st { nuclide = Nuclear.addNeutron st.nuclide }))
+        (nuclearMutate (\st -> st { nuclide = Nuclear.removeNeutron st.nuclide }))
+        (nuclearMutate (\_ -> c12Seed))
+        (\z n -> nuclearMutate (\_ -> c12Seed { nuclide = { z, n } }))
+      -- M3: wire named-reaction buttons (α, β−, β+/EC, fuse, fission).
+      -- Delegated to Main.Nuclide.installNuclearReactions to keep Main under 800 lines.
+      installNuclearReactions nuclearMutate
       -- Production pointer pick+drag: scene-gated to Builder and Materials,
       -- routed through the SAME shared Ref + eagerRender as the API, so there is
       -- one source of truth and the drag is on-screen immediately. Reads the live
@@ -624,8 +678,9 @@ main = do
       let
         cardDataArray =
           map
-            ( \s -> { name: s.name, formula: s.formula, hybridization: s.hybridization } )
+            (\s -> { name: s.name, formula: s.formula, hybridization: s.hybridization })
             Lattice.structures
+
         onSelectCard :: Int -> Effect Unit
         onSelectCard i = do
           let newState = (Lattice.structureOf i).build
@@ -643,11 +698,12 @@ main = do
         , step
         , stateOverride: stateOverrideRef
         , draw: \s0 -> do
-            -- Pull the live builder snapshot AND the live camera orbit into the
-            -- state used for rendering (both are shared Refs, the single sources
-            -- of truth for the model and the camera respectively).
+            -- Pull the live builder snapshot AND the live camera orbit AND the
+            -- live nuclear state into the state used for rendering (all are shared
+            -- Refs, the single sources of truth for each sub-system).
             bs0 <- Ref.read builderRef
             orb <- Ref.read orbitRef
+            ns <- Ref.read nuclearRef
             -- Default-load Diamond (index 0) when entering the Materials scene
             -- for the first time (or re-entering with an empty world). This runs
             -- once per entry by detecting the scene-change edge. The Builder scene
@@ -664,13 +720,16 @@ main = do
                 -- Reframe: reset orbit to face-on and zoom out so the enlarged
                 -- 2×2×2 Diamond supercell (bounding radius ≈ 660 model units ×
                 -- builderScale 2.2 = 1452 world units) fits the fov=π/3 frustum.
-                -- zoom = 0.35 gives effective camera distance = 1000/0.35 ≈ 2857;
-                -- half-frustum width = tan(π/6)×2857 ≈ 1649 > 1452, a 14% margin.
+                -- zoom = 0.08 gives effective camera distance = 1000/0.08 = 12500;
+                -- the lattice fits comfortably in the wide frustum, and since 0.08
+                -- is below the new detailLo (0.10) layerBlend 0.08 == 0, so the
+                -- gallery opens on the whole-lattice atom-ball view (not sub-atomic).
+                -- 0.08 > minZoom (0.05), so it is within the legal zoom range.
                 -- The orbit reset makes Diamond's cubic symmetry immediately legible.
                 -- Builder scene orbit + zoom are preserved (we only write these
                 -- on the Materials entry edge, not for Builder).
                 Ref.write { yaw: 0.0, pitch: 0.0 } orbitRef
-                Ref.write (Just (_ { zoom = Camera.clampZoom 0.35 })) stateOverrideRef
+                Ref.write (Just (_ { zoom = Camera.clampZoom 0.08 })) stateOverrideRef
                 pure latticeState
               else
                 pure bs0
@@ -683,11 +742,16 @@ main = do
               MaterialsCards.showMaterialsCards inMaterials
               MaterialsCards.showMaterialsPanel inMaterials
             Ref.write s0.scene prevSceneRef
-            let s = s0 { builder = bs, builderYaw = orb.yaw, builderPitch = orb.pitch }
+            let s = s0 { builder = bs, builderYaw = orb.yaw, builderPitch = orb.pitch, nuclear = ns }
             Ref.write s lastStateRef
             -- Publish the live eased Builder detail to window.__builderDetail every
             -- frame (deterministic E2E hook for the LOD cross-fade).
             setBuilderDetail s.detail
+            -- Sync the #zoom-slider thumb to the live zoom every frame so that
+            -- programmatic zoom changes (wheel, Materials reframe) move the thumb.
+            -- Setting .value programmatically does NOT fire the input listener,
+            -- so there is no feedback loop.
+            setZoomSlider s.zoom
             updateOverlay overlayRef s
             w <- getCanvasWidth canvas
             h <- getCanvasHeight canvas
@@ -711,4 +775,6 @@ main = do
             -- the well for a representative pair + a live dot per bond; hide off
             -- both scenes. Render-only (DOM via PeOverlay) — no model mutation.
             renderPeOverlay s
+            -- Nuclide scene: refresh the live #nuclide-info panel each frame.
+            when (s.scene == Nuclide) (renderNuclideInfo s)
         }

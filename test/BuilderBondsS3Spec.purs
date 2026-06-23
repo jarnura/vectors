@@ -32,17 +32,17 @@ builderBondsS3Spec = do
 
     -- Build isolated O-O (order=2): two O atoms within bondThreshold.
     s3_oo = B.addAtom 8 { x: 150.0, y: 0.0, z: 0.0 }
-               (B.addAtom 8 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
+      (B.addAtom 8 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
     s3_ooBond = getBond s3_oo
 
     -- Build isolated N-N (order=3): two N atoms within bondThreshold.
     s3_nn = B.addAtom 7 { x: 150.0, y: 0.0, z: 0.0 }
-               (B.addAtom 7 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
+      (B.addAtom 7 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
     s3_nnBond = getBond s3_nn
 
     -- Build H-H (order=1 due to valence cap).
     s3_hh = B.addAtom 1 { x: 150.0, y: 0.0, z: 0.0 }
-               (B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
+      (B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
     s3_hhBond = getBond s3_hh
 
   -- Sanity: verify bond orders formed correctly.
@@ -94,9 +94,9 @@ builderBondsS3Spec = do
     s3_ooTarget = { x: 600.0, y: 0.0, z: 0.0 }
     s3_ooMoved = B.moveAtomWith 0.0 s3_ooId0 s3_ooTarget s3_oo
     s3_ooDraggedPos = fromMaybe { x: -1.0, y: -1.0, z: -1.0 }
-                        (map _.pos (B.atomById s3_ooMoved s3_ooId0))
+      (map _.pos (B.atomById s3_ooMoved s3_ooId0))
     s3_ooPartnerPos = fromMaybe { x: -1.0, y: -1.0, z: -1.0 }
-                        (map _.pos (B.atomById s3_ooMoved s3_ooId1))
+      (map _.pos (B.atomById s3_ooMoved s3_ooId1))
     s3_ooDist = sqrt
       ( (s3_ooDraggedPos.x - s3_ooPartnerPos.x) * (s3_ooDraggedPos.x - s3_ooPartnerPos.x)
           + (s3_ooDraggedPos.y - s3_ooPartnerPos.y) * (s3_ooDraggedPos.y - s3_ooPartnerPos.y)
@@ -119,8 +119,10 @@ builderBondsS3Spec = do
   -- S4 update: O-O order=2 now emits 2*order = 4 bond electrons (1 sigma + 1 PI pair).
   -- S3 only affects geometry/energy, not the count formula; count changed in S4.
   check "S3 O-O order=2: bond electron count == 2*order (4 electrons, sigma+PI pair)" $
-    length (B.bondElectronPositions s3_oo 0.0) == 2 * (case index s3_oo.bonds 0 of
-      Just bd -> bd.order
-      Nothing -> 1)
+    length (B.bondElectronPositions s3_oo 0.0) == 2 *
+      ( case index s3_oo.bonds 0 of
+          Just bd -> bd.order
+          Nothing -> 1
+      )
 
   log "all S3 per-order geometry/energy properties hold."

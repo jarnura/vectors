@@ -241,8 +241,10 @@ vibratedBondLines st frame = foldl collect [] st.bonds
   collect acc bd =
     case atomById st bd.a, atomById st bd.b of
       Just pa, Just pb ->
-        let ep = vibratedPair pa pb bd frame
-        in snoc acc { a: ep.a, b: ep.b, order: bd.order }
+        let
+          ep = vibratedPair pa pb bd frame
+        in
+          snoc acc { a: ep.a, b: ep.b, order: bd.order }
       _, _ -> acc
 
 -- | Midpoints of the vibrated bond endpoints.

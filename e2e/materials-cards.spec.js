@@ -168,7 +168,7 @@ test('materials-cards: #materials-cards hidden after leaving Materials scene', a
   });
   expect(visibleBefore).toBe(true);
 
-  // Navigate away (one more scene-toggle brings us to CubePoc).
+  // Navigate away (one more scene-toggle brings us to Nuclide, 6-cycle).
   await page.click('#scene-toggle');
   await page.waitForTimeout(400);
 
@@ -184,7 +184,7 @@ test('materials-cards: gallery re-appears when returning to Materials', async ({
   await gotoMaterials(page);
   await page.waitForTimeout(500);
 
-  // Navigate away to CubePoc.
+  // Navigate away to Nuclide (6-cycle: Materials → Nuclide).
   await page.click('#scene-toggle');
   await page.waitForTimeout(300);
 
@@ -195,8 +195,9 @@ test('materials-cards: gallery re-appears when returning to Materials', async ({
   });
   expect(hiddenMid).toBe(false);
 
-  // Cycle back through the 5-scene cycle to Materials (4 clicks from CubePoc).
-  for (let i = 0; i < 4; i++) {
+  // Cycle back through the 6-scene cycle to Materials (5 clicks from Nuclide).
+  // Nuclide → CubePoc → Atomos → Molecule → Builder → Materials
+  for (let i = 0; i < 5; i++) {
     await page.click('#scene-toggle');
     await page.waitForTimeout(200);
   }

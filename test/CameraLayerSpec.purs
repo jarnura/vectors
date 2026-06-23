@@ -25,6 +25,30 @@ cameraLayerSpec = do
   check "clampZoom above max ⇒ maxZoom" $ Cam.clampZoom 100.0 == Cam.maxZoom
   check "clampZoom in-range (1.0) ⇒ 1.0" $ approxEq (Cam.clampZoom 1.0) 1.0
 
+  -- Extended zoom-out range: minZoom MUST be strictly lower than the old 0.2
+  -- floor so the Builder/Materials world can pull back further and fit more atoms.
+  -- RED until Camera.minZoom is lowered below 0.2.
+  check "minZoom < 0.2 (extended zoom-out range, more atoms in view)" $
+    Cam.minZoom < 0.2
+
+  -- clampZoom clamps tiny / negative values to the new minZoom floor.
+  check "clampZoom 0.001 == minZoom (tiny value clamps to new floor)" $
+    Cam.clampZoom 0.001 == Cam.minZoom
+  check "clampZoom (-1.0) == minZoom (negative value clamps to new floor)" $
+    Cam.clampZoom (-1.0) == Cam.minZoom
+
+  -- projection at new minZoom: world origin must remain inside the frustum
+  -- (NDC z in [-1,1]) — no culling at the extended zoom-out.
+  let
+    projNewMin = Cam.projection Cam.minZoom 800.0 600.0
+    originClipNewMin = M.toVector $ M.multiply projNewMin
+      (fromMaybe (M.zeros 4 1) (M.fromArray 4 1 [ 0.0, 0.0, 0.0, 1.0 ]))
+    originNdcZNewMin = fromMaybe 0.0 (index originClipNewMin 2) / fromMaybe 0.0 (index originClipNewMin 3)
+  check "projection newMinZoom: origin stays in front of far plane (ndc z ≤ 1)" $
+    originNdcZNewMin <= 1.0
+  check "projection newMinZoom: origin stays behind near plane (ndc z ≥ -1)" $
+    originNdcZNewMin >= -1.0
+
   -- applyZoomStep direction: negative deltaY zooms IN (larger), positive OUT.
   check "applyZoomStep: wheel up (−Δ) zooms IN (>1.0)" $
     Cam.applyZoomStep 1.0 (-100.0) > 1.0
@@ -90,17 +114,18 @@ cameraLayerSpec = do
 
   -- smoothstep: clamped Hermite. Below edge0 → 0, above edge1 → 1, symmetric
   -- midpoint → 0.5, and strictly increasing through the band.
+  -- Probes updated to the retuned band (detailLo=0.10, detailHi=0.20).
   check "smoothstep below edge0 == 0.0" $
-    Layer.smoothstep 0.4 0.85 0.3 == 0.0
+    Layer.smoothstep 0.10 0.20 0.05 == 0.0
   check "smoothstep above edge1 == 1.0" $
-    Layer.smoothstep 0.4 0.85 0.9 == 1.0
+    Layer.smoothstep 0.10 0.20 0.25 == 1.0
   check "smoothstep midpoint of [0,1] == 0.5" $
     approxEq (Layer.smoothstep 0.0 1.0 0.5) 0.5
   check "smoothstep is monotonic increasing (0.25 < 0.75)" $
     Layer.smoothstep 0.0 1.0 0.25 < Layer.smoothstep 0.0 1.0 0.75
 
   -- Detail-band invariant: the crossfade band sits strictly inside the camera
-  -- zoom bounds and is ordered.
+  -- zoom bounds and is ordered. Band retuned to detailLo=0.10, detailHi=0.20.
   check "detail band invariant: minZoom < detailLo" $
     Cam.minZoom < Layer.detailLo
   check "detail band invariant: detailLo < detailHi" $
@@ -117,8 +142,24 @@ cameraLayerSpec = do
     approxEq (Layer.layerBlend Cam.maxZoom) 1.0
   check "layerBlend monotonic non-decreasing (0.5 <= 1.0)" $
     Layer.layerBlend 0.5 <= Layer.layerBlend 1.0
-  check "layerBlend monotonic non-decreasing (minZoom <= 0.6)" $
-    Layer.layerBlend Cam.minZoom <= Layer.layerBlend 0.6
+  -- Mid-band probe at 0.15 (inside new band [0.10, 0.20], strictly fractional).
+  check "layerBlend monotonic non-decreasing (minZoom <= 0.15)" $
+    Layer.layerBlend Cam.minZoom <= Layer.layerBlend 0.15
+
+  -- ── Wide-window assertions (new retuned band) ────────────────────────────────
+  -- Sub-atomic layer is FULLY ON at zoom 0.20 (== detailHi): layerBlend 0.20 ≈ 1.0.
+  -- This means the user can pull the camera back to a wide framing (zoom 0.20) and
+  -- still see the sub-particle detail (nucleons + electrons) without flipping to balls.
+  check "layerBlend 0.20 ≈ 1.0 (sub-atomic fully ON when zoomed out to 0.20)" $
+    approxEq (Layer.layerBlend 0.20) 1.0
+  -- Materials reframe lands at zoom 0.08 (above minZoom 0.05, below detailLo 0.10)
+  -- so the gallery opens on the whole-lattice ball view: layerBlend 0.08 ≈ 0.0.
+  check "layerBlend 0.08 ≈ 0.0 (Materials reframe at 0.08 lands on ball view)" $
+    approxEq (Layer.layerBlend 0.08) 0.0
+  -- Mid-band probe: 0.15 is inside the crossfade zone, so detail is strictly
+  -- fractional (not 0, not 1).
+  check "layerBlend 0.15 is fractional (strictly in (0,1) — mid crossfade)" $
+    Layer.layerBlend 0.15 > 0.0 && Layer.layerBlend 0.15 < 1.0
 
   -- easeDetail: one frame of smoothing current → target.
   let

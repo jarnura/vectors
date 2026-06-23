@@ -25,7 +25,6 @@ wallTol = 1.0e-8
 r0Tol :: Number
 r0Tol = 1.0e-10
 
-
 peSpec :: Effect Unit
 peSpec = do
   Console.log "Pe (Morse potential) properties:"
@@ -34,7 +33,7 @@ peSpec = do
 
   -- morse De a R0 R0 = -De  (global minimum)
   let de0 = 4.36
-  let a0  = 0.049
+  let a0 = 0.049
   let r0h = 160.0
   check "morse primitive: minimum at R0 == -De (H-H params)" $
     approxEq (Pe.morse de0 a0 r0h r0h) (-de0)
@@ -191,17 +190,23 @@ peSpec = do
   -- ─── 7. morseK = 2 * a^2 * De, positive ─────────────────────────────────────
 
   check "morseK H-H == 2*a^2*De > 0" $
-    let a = Pe.morseWidth 1 1
-        de = Pe.bondDepth 1 1
-    in approxEq (Pe.morseK 1 1) (2.0 * a * a * de) && Pe.morseK 1 1 > 0.0
+    let
+      a = Pe.morseWidth 1 1
+      de = Pe.bondDepth 1 1
+    in
+      approxEq (Pe.morseK 1 1) (2.0 * a * a * de) && Pe.morseK 1 1 > 0.0
   check "morseK C-C == 2*a^2*De > 0" $
-    let a = Pe.morseWidth 6 6
-        de = Pe.bondDepth 6 6
-    in approxEq (Pe.morseK 6 6) (2.0 * a * a * de) && Pe.morseK 6 6 > 0.0
+    let
+      a = Pe.morseWidth 6 6
+      de = Pe.bondDepth 6 6
+    in
+      approxEq (Pe.morseK 6 6) (2.0 * a * a * de) && Pe.morseK 6 6 > 0.0
   check "morseK O-H == 2*a^2*De > 0" $
-    let a = Pe.morseWidth 8 1
-        de = Pe.bondDepth 8 1
-    in approxEq (Pe.morseK 8 1) (2.0 * a * a * de) && Pe.morseK 8 1 > 0.0
+    let
+      a = Pe.morseWidth 8 1
+      de = Pe.bondDepth 8 1
+    in
+      approxEq (Pe.morseK 8 1) (2.0 * a * a * de) && Pe.morseK 8 1 > 0.0
   check "morseK Kr-Kr > 0" $
     Pe.morseK 36 36 > 0.0
 

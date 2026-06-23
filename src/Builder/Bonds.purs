@@ -343,8 +343,9 @@ pullPair draggedAid ord s pa pb d =
     -- For order=1: rawForce at r=450 already >> cap (exp(-14) >> exp(-50)), so
     -- max has no effect there — no change to existing order-1 behaviour.
     rawForce = forceStep * (-morseForce' picked.mover.z picked.target.z ord d)
-    rawStep = if rawForce >= 0.0 then max forceStepCap rawForce
-              else min (-forceStepCap) rawForce
+    rawStep =
+      if rawForce >= 0.0 then max forceStepCap rawForce
+      else min (-forceStepCap) rawForce
     step = max (-forceStepCap) (min forceStepCap rawStep)
     -- S3: floor clamp to max(minSeparation, R0'(order)) when approaching from the
     -- attractive side (d > R0'). This prevents the cap-72 step from overshooting
