@@ -19,6 +19,7 @@ module Atom
   , nucleons
   , nucleusRadius
   , nucleonRadius
+  , nucleusPackScale
   , maxElectron
   , shellRadius
   , subshellRadius
@@ -64,6 +65,20 @@ nucleusRadius = 60.0
 
 nucleonRadius :: Number
 nucleonRadius = 22.0
+
+-- Constant-density nucleus packing: rad_i = nucleusPackScale * cbrt(i+0.5).
+-- Since cbrt(N)*((i+0.5)/N)^(1/3) = cbrt(i+0.5), the per-nucleon radius depends only on
+-- index, so the outer radius grows as cbrt(N) and packing density is constant for every
+-- element (real R proportional to A^(1/3)): light nuclei pack tight (no gaps), heavy nuclei
+-- stay distinct (no over-merge), and the nucleus visibly grows with mass number A.
+--
+-- Calibrated so the TYPICAL (mean) nearest-neighbour separation ≈ 1 nucleon diameter
+-- (contiguous, slight overlap). At S=13 in Builder-world units (model × 1.408) divided by
+-- the rendered mesh diameter (31.68): He-4 mean≈0.97, C-12 mean≈0.87, O-16 mean≈0.85,
+-- Fe-56 mean≈0.74, Kr-84 mean≈0.71 — contiguous/slightly-overlapping, gap-free, heavy
+-- nuclei still distinguishable (min-NN/d > 0.25 for Kr-84).
+nucleusPackScale :: Number
+nucleusPackScale = 13.0
 
 -- Neutron count (most-abundant isotope, N = A − Z) for Z = 1..36 (index Z−1).
 neutronTable :: Array Int
@@ -360,9 +375,10 @@ clusterPositions total = map place (range 0 (total - 1))
   place i =
     let
       fi = toNumber i
-      -- Fill the ball: radius grows with the cube root of the index.
-      frac = if total <= 1 then 0.0 else pow ((fi + 0.5) / n) (1.0 / 3.0)
-      rad = nucleusRadius * 0.85 * frac
+      -- Constant-density packing: radius grows as cbrt(i+0.5) so the outer
+      -- radius scales as cbrt(N), giving uniform packing density for every
+      -- element (no gaps in light nuclei, no over-merge in heavy nuclei).
+      rad = if total <= 1 then 0.0 else nucleusPackScale * pow (fi + 0.5) (1.0 / 3.0)
       y = 1.0 - 2.0 * (fi + 0.5) / n
       rr = sqrt (max 0.0 (1.0 - y * y))
       theta = goldenAngle * fi

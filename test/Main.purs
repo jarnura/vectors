@@ -23,6 +23,7 @@ import Test.LatticeSpec (latticeSpec)
 import Test.LayerSpaceSpec (layerSpaceSpec)
 import Test.NuclearSpec (nuclearSpec)
 import Test.SubAtomicScaleSpec (subAtomicScaleSpec)
+import Test.NucleusPackingSpec (nucleusPackingSpec)
 
 -- | Thin aggregator: runs every per-domain spec in sequence. All assertions
 -- | live in the Test.<Domain>Spec modules; this module holds none.
@@ -48,3 +49,4 @@ main = do
   layerSpaceSpec
   nuclearSpec
   subAtomicScaleSpec
+  nucleusPackingSpec

@@ -9,12 +9,15 @@ Molecule → Builder → Materials → Nuclide → Cube POC):
   (green ground, wireframe grid, sky-blue horizon).
 - **atomos** — a 3D atom visualizer in deep space: a nucleus of proton (red) and
   neutron (gray) spheres with electrons on animated orbital rings, configurable
-  by element (Z = 1..36, H…Kr). Electrons fill **sub-shells** in Madelung/Aufbau
-  order; each sub-shell draws a **thin orbital ring line**, and **discrete
-  electrons** (bright spheres) orbit on those rings — **colour-coded by shell**
-  (each shell a distinct colour, sub-shells lighter). A **2D toggle** flattens
-  the atom into a Bohr diagram (concentric circles facing the camera) versus the
-  tilted 3D orbital system. An **element-name label**, a
+  by element (Z = 1..36, H…Kr). The **nucleus is a tight clump** with constant
+  packing density for every element — light nuclei (H/He/Li) are gap-free,
+  heavy nuclei (Fe/Kr) stay distinct, and the nucleus visibly grows ∝ cbrt(A)
+  (matching the real R ∝ A^(1/3) law). Electrons fill **sub-shells** in
+  Madelung/Aufbau order; each sub-shell draws a **thin orbital ring line**, and
+  **discrete electrons** (bright spheres) orbit on those rings — **colour-coded
+  by shell** (each shell a distinct colour, sub-shells lighter). A **2D toggle**
+  flattens the atom into a Bohr diagram (concentric circles facing the camera)
+  versus the tilted 3D orbital system. An **element-name label**, a
   **scene-title banner**, and an **orbital-info overlay** (live electron
   configuration) — anime.js text scramble, HTML overlay — react to the controls.
 - **Molecule** — an **H₂ molecule**: two hydrogen nuclei whose covalent bond is
@@ -29,12 +32,12 @@ Molecule → Builder → Materials → Nuclide → Cube POC):
   mouse. Atoms that come near each other **auto-bond, valence-aware** (H=1, C=4,
   N=3, O=2, … with break hysteresis); connected atoms form a **molecule** with a
   derived Unicode formula (e.g. `H₂O`). Each atom renders its **real per-element
-  nucleus** (Carbon/Oxygen denser/larger than Hydrogen), sits at a **per-element
-  size** (normalised covalent radius — Hydrogen smallest), and shows its **atomic
-  symbol** (H, C, O, …) as an HTML overlay label; each bond shows a **shared
-  electron pair**, and atoms carry only their **lone electrons** (valence-conserved).
-  The Builder background is **plain space — no starfield** (atomos and Molecule
-  keep theirs).
+  nucleus** with constant packing density (so each nucleus grows as you place
+  heavier atoms), sits at a **per-element size** (normalised covalent radius —
+  Hydrogen smallest), and shows its **atomic symbol** (H, C, O, …) as an HTML
+  overlay label; each bond shows a **shared electron pair**, and atoms carry only
+  their **lone electrons** (valence-conserved). The Builder background is
+  **plain space — no starfield** (atomos and Molecule keep theirs).
   An atom's **valence** electrons (outermost shell + the bonding pair) render in
   **amber**, vs its **core** inner-shell electrons in **blue**; a **"Valence only"
   toggle** hides the blue core electrons, leaving just the amber valence + bonds.
@@ -59,7 +62,7 @@ Molecule → Builder → Materials → Nuclide → Cube POC):
   Current structures: **Diamond** (sp³, tetrahedral, coord 4) and **Graphene**
   (sp², honeycomb, coord 3). A 3rd material is data-only: add one record to the
   `Lattice.structures` registry and it appears in the gallery automatically.
-- **Nuclide** — **element layer**: a nuclear-physics sandbox. A nucleus (Z protons + N neutrons, rendered as coloured spheres) is displayed alongside a **data-driven `#nuclide-info` panel** showing Symbol, Name, Z, A (mass number), **binding energy + binding-per-nucleon in MeV**, **stability/decay mode** (Stable, BetaMinus, BetaPlusEC, Alpha, or Unbound), and a "Last reaction" row (products, Q-value in MeV, RELEASED/ABSORBED). **Transmutation controls** allow manual isotope exploration (`#nuc-add-proton`/`#nuc-remove-proton`/`#nuc-add-neutron`/`#nuc-remove-neutron` + manual Z/N inputs). **Named reactions** (`#react-alpha`/`#react-beta-minus`/`#react-beta-plus`/`#react-fuse`/`#react-fission`) conserve Z & A and compute **Q-values** from binding energies (positive = exothermic RELEASED; negative = endothermic ABSORBED). The **decay classifier** uses N/Z stability band heuristics to flag Unbound nucleon-unbound states (He-5, Li-5, Be-8, etc.). Teaching simplifications: SEMF is poor for light nuclei — fixed measured binding energies anchor canonical reactions (α-decay, D-T fusion). Default: Carbon-12 (Z=6, N=6, stable).
+- **Nuclide** — **element layer**: a nuclear-physics sandbox. A **nucleus (Z protons + N neutrons, rendered as coloured spheres with constant packing density)** grows ∝ cbrt(A) as you change the mass number. The nucleus is displayed alongside a **data-driven `#nuclide-info` panel** showing Symbol, Name, Z, A (mass number), **binding energy + binding-per-nucleon in MeV**, **stability/decay mode** (Stable, BetaMinus, BetaPlusEC, Alpha, or Unbound), and a "Last reaction" row (products, Q-value in MeV, RELEASED/ABSORBED). **Transmutation controls** allow manual isotope exploration (`#nuc-add-proton`/`#nuc-remove-proton`/`#nuc-add-neutron`/`#nuc-remove-neutron` + manual Z/N inputs). **Named reactions** (`#react-alpha`/`#react-beta-minus`/`#react-beta-plus`/`#react-fuse`/`#react-fission`) conserve Z & A and compute **Q-values** from binding energies (positive = exothermic RELEASED; negative = endothermic ABSORBED). The **decay classifier** uses N/Z stability band heuristics to flag Unbound nucleon-unbound states (He-5, Li-5, Be-8, etc.). Teaching simplifications: SEMF is poor for light nuclei — fixed measured binding energies anchor canonical reactions (α-decay, D-T fusion). Default: Carbon-12 (Z=6, N=6, stable).
 
 ## Controls
 
@@ -92,9 +95,11 @@ Molecule → Builder → Materials → Nuclide → Cube POC):
 - **Orbit D-pad buttons** (Builder + Materials, in the controls panel) — **↑↓←→ arrows** orbit
   the camera by a fixed step per click; **⊙ reset** returns to the default orbit
   angle. Orbit has yaw+pitch DOF only (no roll).
-- **Layer-space slider** (Builder + Materials, in the controls panel) — spread the atoms
-  further apart (1.0–4.0, default 1.6); larger values increase the effective world
-  scale and give the LOD bloom more room.
+- **Layer-space slider** (Builder + Materials, in the controls panel) — spread atom
+  CENTRES further apart (1.0–4.0, default 1.6); larger values increase the spacing
+  between atoms' centre positions. Each atom's internal structure (nucleus cluster +
+  electron rings) remains constant-size across all slider values, so atoms look
+  internally identical whether tightly packed or spread out.
 - **Zoom level-of-detail** (Builder + Materials) — the same camera zoom smoothly fades each
   atom between a single element-coloured ball (zoomed out) and its full nucleus +
   electrons (zoomed in), eased per frame.
