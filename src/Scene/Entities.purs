@@ -26,6 +26,7 @@ module Scene.Entities
   , builderBondLinePlaceWith
   , builderElectronGroupEntities
   , builderElectronGroupEntitiesWith
+  , intraAtomLayerSpace
   ) where
 
 import Prelude
@@ -265,15 +266,33 @@ builderPlaceWith ls p =
   in
     M.translate (p.x * s) (p.y * s) (p.z * s)
 
+-- The layerSpace value the intra-atom structure (nucleus cluster + electron
+-- rings) is frozen at, so each atom looks identical at every layerSpace and
+-- the DEFAULT view (layerSpace 1.6) is byte-identical to the historic render.
+-- Matches Update.initialState.layerSpace / the #layer-space slider default.
+intraAtomLayerSpace :: Number
+intraAtomLayerSpace = 1.6
+
 -- LOD model matrix for a sub-atomic particle, parameterized by layerSpace.
+-- The atom CENTRE scales by S = builderScale × ls (atoms spread with layerSpace),
+-- but the LOCAL offset (full − center) is frozen at builderScale × intraAtomLayerSpace
+-- (intra-atom geometry is constant across all layerSpace values, and the DEFAULT view
+-- at ls=1.6 is byte-identical to the historic builderDetailPlace which scaled the full
+-- position by builderScale × 1.6).
 builderDetailPlaceWith :: Number -> Number -> Atom.V3 -> Atom.V3 -> Matrix Number
 builderDetailPlaceWith ls d center full =
   let
-    lerp c f = c + (f - c) * d
-    pos = { x: lerp center.x full.x, y: lerp center.y full.y, z: lerp center.z full.z }
+    s = builderScale * ls
+    cWorld = { x: center.x * s, y: center.y * s, z: center.z * s }
+    offWorld =
+      { x: (full.x - center.x) * (builderScale * intraAtomLayerSpace)
+      , y: (full.y - center.y) * (builderScale * intraAtomLayerSpace)
+      , z: (full.z - center.z) * (builderScale * intraAtomLayerSpace)
+      }
+    pos = { x: cWorld.x + offWorld.x * d, y: cWorld.y + offWorld.y * d, z: cWorld.z + offWorld.z * d }
     sc = max builderDetailFloor d
   in
-    M.multiply (builderPlaceWith ls pos) (M.scale sc sc sc)
+    M.multiply (M.translate pos.x pos.y pos.z) (M.scale sc sc sc)
 
 -- LOD model matrix for the zoomed-OUT atom ball, parameterized by layerSpace.
 builderBallPlaceWith :: Number -> Number -> Number -> Atom.V3 -> Matrix Number
