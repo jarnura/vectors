@@ -36,18 +36,22 @@ smoothstep edge0 edge1 x =
     t * t * (3.0 - 2.0 * t)
 
 -- | Lower edge of the detail crossfade band (in zoom units). Strictly inside
--- | the camera zoom bounds: Camera.minZoom (0.2) < detailLo < detailHi <= 1.0.
+-- | the camera zoom bounds: Camera.minZoom (0.05) < detailLo < detailHi <= 1.0.
+-- | Retuned to 0.10 so the sub-particle (sub-atomic) layer has zoom-OUT headroom:
+-- | the ball↔sub-atomic crossfade sits in [0.10, 0.20]; balls only below 0.10.
 detailLo :: Number
-detailLo = 0.4
+detailLo = 0.10
 
--- | Upper edge of the detail crossfade band (in zoom units).
+-- | Upper edge of the detail crossfade band (in zoom units). Retuned to 0.20 so
+-- | the sub-particle layer is fully ON for zoom ∈ [0.20, 5.0] — the user can pull
+-- | the camera back to survey many nucleons together without flipping to atom balls.
 detailHi :: Number
-detailHi = 0.85
+detailHi = 0.20
 
 -- | Map a camera zoom factor to a detail level in [0,1]: 0 when fully zoomed
 -- | out (atomic balls), 1 when zoomed in (sub-atomic detail). Monotonic
--- | non-decreasing, saturating at both ends (layerBlend 1.0 == 1.0 since
--- | 1.0 >= detailHi).
+-- | non-decreasing, saturating at both ends (layerBlend 0.20 == 1.0 since
+-- | detailHi = 0.20; layerBlend at 1.0 or maxZoom is also 1.0).
 layerBlend :: Number -> Number
 layerBlend zoom = smoothstep detailLo detailHi zoom
 

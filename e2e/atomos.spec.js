@@ -36,10 +36,9 @@ test('atomos: scene switch flips backdrop sky-blue → near-black', async ({ pag
   const spaceAfter = await readPixel(page, 0.5, 0.04);
   expect(spaceAfter[0] + spaceAfter[1] + spaceAfter[2]).toBeLessThan(120); // dark
 
-  // The switch is a 5-cycle (CubePoc → Atomos → Molecule → Builder → Materials → CubePoc),
-  // so cycling fully around returns to the cube POC sky. Molecule, Builder, and
-  // Materials all share the dark deep-space backdrop with atomos, so the next three
-  // clicks keep it dark.
+  // The switch is a 6-cycle (CubePoc → Atomos → Molecule → Builder → Materials → Nuclide → CubePoc),
+  // so cycling fully around returns to the cube POC sky. Molecule, Builder, Materials, and
+  // Nuclide all share the dark deep-space backdrop with atomos, so the next four clicks keep dark.
   await page.click('#scene-toggle'); // → molecule (still dark space backdrop)
   await page.waitForTimeout(300);
   const moleculeBackdrop = await readPixel(page, 0.5, 0.04);
@@ -55,7 +54,12 @@ test('atomos: scene switch flips backdrop sky-blue → near-black', async ({ pag
   const materialsBackdrop = await readPixel(page, 0.5, 0.04);
   expect(materialsBackdrop[0] + materialsBackdrop[1] + materialsBackdrop[2]).toBeLessThan(120);
 
-  await page.click('#scene-toggle'); // → back to cube POC sky (5-cycle completes)
+  await page.click('#scene-toggle'); // → nuclide (still dark space backdrop)
+  await page.waitForTimeout(300);
+  const nuclideBackdrop = await readPixel(page, 0.5, 0.04);
+  expect(nuclideBackdrop[0] + nuclideBackdrop[1] + nuclideBackdrop[2]).toBeLessThan(120);
+
+  await page.click('#scene-toggle'); // → back to cube POC sky (6-cycle completes)
   await page.waitForTimeout(300);
   const skyAgain = await readPixel(page, 0.5, 0.04);
   expect(skyAgain[2]).toBeGreaterThan(120);

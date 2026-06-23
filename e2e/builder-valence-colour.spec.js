@@ -27,20 +27,23 @@ test.beforeEach(async ({ page }, testInfo) => {
 // electrons. Today every builder electron reuses the single moleculeElectronColor
 // (blue {0.30,0.68,1.0}), so core and valence rings are the SAME colour → RED.
 //
-// Geometry (1280×720 viewport, builderScale 2.2; world→screen at z=0 ≈ 0.62
-// px per world-unit, from the existing TEST-B calibration: world x=132 → 82px →
-// Δfx 0.064). A free Carbon at the origin (Z=6, shells [2,4]) places:
+// Geometry (1280×720 viewport, effectiveScale = builderScale×layerSpace = 2.2×1.6
+// = 3.52; projectModel mirrors builder-atom-visuals.spec.js). A free Carbon at
+// the origin (Z=6, shells [2,4]) places:
 //   • 2 CORE electrons on the inner ring, model radius loneOrbitRadius
-//     = nucleusRadius*1.4 = 84 → ×builderScale 2.2 = 184.8 world → ≈115px on
-//     screen  → fx offset ≈0.090, fy offset ≈0.160 from canvas centre (0.5,0.5).
+//     = nucleusRadius*1.4 = 84 → effective world 84×3.52 = 295.7 → via perspective
+//     (f/aspect × world / 1000) → fx offset ≈0.144 from centre (0.5).
+//     On-screen positions: right side at fx≈0.644, top side at fy≈0.244.
 //   • 4 VALENCE electrons on the outer ring, model radius loneOrbitRadius+
-//     shellSpacing = 84+60 = 144 → ×2.2 = 316.8 world → ≈196px → fx offset
-//     ≈0.153, fy offset ≈0.272 from centre.
+//     shellSpacing = 84+60 = 144 → effective world 144×3.52 = 506.9 → fx offset
+//     ≈0.247 from centre. On-screen: right at fx≈0.747, top at fy≈0.061.
 // Electrons sweep their rings with the frame, so over the canvas a ring's
 // electrons cross every angle; we sample BOXES straddling each ring radius on the
-// RIGHT side of the atom (fx = 0.5 + ring_offset, fy ≈ 0.5) and on the BOTTOM
-// (fx ≈ 0.5, fy = 0.5 + ring_offset), polling several frames to catch electrons
+// RIGHT side of the atom (fx = 0.5 + ring_offset, fy ≈ 0.5) and on the TOP
+// (fx ≈ 0.5, fy = 0.5 − ring_offset), polling several frames to catch electrons
 // as they rotate through, and AGGREGATE the lit electron pixels.
+// (The BOTTOM of the atom is off-canvas for the outer ring at the effective scale
+// 3.52, so we sample the TOP instead — same ring, symmetric coverage.)
 //
 // We classify each lit electron pixel by DOMINANT RGB channel (the same coarse
 // channel-dominance approach the file uses elsewhere), EXCLUDING:
@@ -93,14 +96,16 @@ test('builder: valence electrons render a distinct colour from core electrons', 
     return { channel, total, tally };
   };
 
-  // INNER (core) band boxes — straddle the core ring (≈115px ≈ fx 0.090 / fy
-  // 0.160 from centre) on the right and bottom of the atom.
-  const innerRight = () => readRegion(page, 0.555, 0.42, 0.645, 0.58, 16, 16);
-  const innerBottom = () => readRegion(page, 0.42, 0.60, 0.58, 0.72, 16, 16);
-  // OUTER (valence) band boxes — straddle the valence ring (≈196px ≈ fx 0.153 /
-  // fy 0.272 from centre) on the right and bottom, clear of the inner ring.
-  const outerRight = () => readRegion(page, 0.62, 0.40, 0.72, 0.60, 16, 16);
-  const outerBottom = () => readRegion(page, 0.40, 0.70, 0.60, 0.82, 16, 16);
+  // INNER (core) band boxes — straddle the core ring (model r=84, effective scale
+  // 3.52 → fx offset ≈0.144 from centre: right at fx≈0.644, top at fy≈0.244).
+  const innerRight = () => readRegion(page, 0.60, 0.455, 0.69, 0.545, 16, 16);
+  const innerTop   = () => readRegion(page, 0.46, 0.20, 0.54, 0.28, 16, 16);
+  // OUTER (valence) band boxes — straddle the valence ring (model r=144, effective
+  // scale 3.52 → fx offset ≈0.247: right at fx≈0.747, top at fy≈0.061). The bottom
+  // of the outer ring falls near/beyond the canvas edge at this scale, so we sample
+  // the TOP of the atom (symmetric coverage, box clamped at fy=0.0).
+  const outerRight = () => readRegion(page, 0.70, 0.455, 0.79, 0.545, 16, 16);
+  const outerTop   = () => readRegion(page, 0.46, 0.00, 0.54, 0.12, 16, 16);
 
   // Aggregate lit electron pixels across several frames (electrons sweep their
   // rings), so a ring is sampled at many angles. Returns the pooled pixel list.
@@ -117,11 +122,11 @@ test('builder: valence electrons render a distinct colour from core electrons', 
   // robust to cold-start under SwiftShader / full-suite load).
   let innerPool = [];
   for (let i = 0; i < 25; i++) {
-    innerPool = await poolBand([innerRight, innerBottom], 4);
+    innerPool = await poolBand([innerRight, innerTop], 4);
     if (electronPixels(innerPool).length > 0) break;
     await page.waitForTimeout(120);
   }
-  const outerPool = await poolBand([outerRight, outerBottom], 8);
+  const outerPool = await poolBand([outerRight, outerTop], 8);
 
   const inner = dominantChannel(innerPool);
   const outer = dominantChannel(outerPool);
@@ -277,11 +282,16 @@ test('builder: Valence only toggle hides core electrons, keeps valence', async (
     return t;
   };
 
-  // SAME bands as TEST A: inner (core) and outer (valence) straddle boxes.
-  const innerRight = () => readRegion(page, 0.555, 0.42, 0.645, 0.58, 16, 16);
-  const innerBottom = () => readRegion(page, 0.42, 0.60, 0.58, 0.72, 16, 16);
-  const outerRight = () => readRegion(page, 0.62, 0.40, 0.72, 0.60, 16, 16);
-  const outerBottom = () => readRegion(page, 0.40, 0.70, 0.60, 0.82, 16, 16);
+  // SAME bands as TEST A: inner (core) and outer (valence) straddle boxes,
+  // updated for EFFECTIVE_SCALE = 3.52 (builderScale 2.2 × layerSpace 1.6).
+  // Inner ring (model r=84): right at fx≈0.644, top at fy≈0.244.
+  // Outer ring (model r=144): right at fx≈0.747, top at fy≈0.061.
+  // (Bottom samples replaced by top samples — at scale 3.52 the outer ring bottom
+  // is near/beyond the canvas lower edge, so the symmetric top is used instead.)
+  const innerRight = () => readRegion(page, 0.60, 0.455, 0.69, 0.545, 16, 16);
+  const innerTop   = () => readRegion(page, 0.46, 0.20, 0.54, 0.28, 16, 16);
+  const outerRight = () => readRegion(page, 0.70, 0.455, 0.79, 0.545, 16, 16);
+  const outerTop   = () => readRegion(page, 0.46, 0.00, 0.54, 0.12, 16, 16);
 
   const poolBand = async (boxes, frames = 8) => {
     let pool = [];
@@ -303,8 +313,8 @@ test('builder: Valence only toggle hides core electrons, keeps valence', async (
     }
     return pool;
   };
-  const poolInner = () => poolUntilLit([innerRight, innerBottom], 4, 6);
-  const poolOuter = () => poolUntilLit([outerRight, outerBottom], 4, 8);
+  const poolInner = () => poolUntilLit([innerRight, innerTop], 4, 6);
+  const poolOuter = () => poolUntilLit([outerRight, outerTop], 4, 8);
 
   // ── (2) BEFORE toggling: core blue present on inner, amber present on outer ──
   const innerBefore = channelCounts(await poolInner());
@@ -323,7 +333,7 @@ test('builder: Valence only toggle hides core electrons, keeps valence', async (
   // ── (4) AFTER ON: inner blue core GONE, outer amber valence still present ───
   // Sample the inner band thoroughly (8 frames) — with the toggle ON it should
   // paint NO blue core electrons at all.
-  const innerAfter = channelCounts(await poolBand([innerRight, innerBottom], 8));
+  const innerAfter = channelCounts(await poolBand([innerRight, innerTop], 8));
   // The OUTER (valence) amber band is still rendered — retry until it lights
   // (the sparse 4-electron ring needs a few passes to be caught on the boxes).
   const outerAfter = channelCounts(await poolOuter());

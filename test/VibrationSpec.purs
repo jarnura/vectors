@@ -79,9 +79,11 @@ vibrationSpec = do
     approxEq (Vib.reducedMass 1 1) 0.5
   -- mu(H,C) = 1*12/(1+12) = 12/13
   check "reducedMass H-C ≈ 12/13 = 0.923..." $
-    let m1 = Vib.massProxy 1
-        m2 = Vib.massProxy 6
-    in approxEq (Vib.reducedMass 1 6) (m1 * m2 / (m1 + m2))
+    let
+      m1 = Vib.massProxy 1
+      m2 = Vib.massProxy 6
+    in
+      approxEq (Vib.reducedMass 1 6) (m1 * m2 / (m1 + m2))
   -- symmetry: mu(a,b) == mu(b,a)
   check "reducedMass is symmetric for H-C" $
     approxEq (Vib.reducedMass 1 6) (Vib.reducedMass 6 1)
@@ -198,8 +200,10 @@ vibrationSpec = do
   check "vibratedEndpoints on emptyBuilder == []" $
     length (Vib.vibratedEndpoints B.emptyBuilder 0.0) == 0
   check "vibratedEndpoints on state with no bonds == []" $
-    let oneAtom = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
-    in length (Vib.vibratedEndpoints oneAtom 0.0) == 0
+    let
+      oneAtom = B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder
+    in
+      length (Vib.vibratedEndpoints oneAtom 0.0) == 0
 
   -- one bond => one endpoint pair
   check "vibratedEndpoints: twoH (1 bond) => 1 segment" $
@@ -210,8 +214,9 @@ vibrationSpec = do
     -- H₂O: O + 2H => 2 bonds
     near' = B.bondThreshold * 0.5
     h2o = B.addAtom 1 { x: 0.0, y: near', z: 0.0 }
-            (B.addAtom 1 { x: near', y: 0.0, z: 0.0 }
-               (B.addAtom 8 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder))
+      ( B.addAtom 1 { x: near', y: 0.0, z: 0.0 }
+          (B.addAtom 8 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
+      )
 
   check "vibratedEndpoints: H₂O (2 bonds) => 2 segments" $
     length (Vib.vibratedEndpoints h2o 0.0) == length h2o.bonds
@@ -227,8 +232,10 @@ vibrationSpec = do
     checkMidInvariant i =
       case index segs0 i, index modelMids i of
         Just seg, Just mid ->
-          let vibMid = midV3 seg.a seg.b
-          in approxEqV3 tol vibMid mid
+          let
+            vibMid = midV3 seg.a seg.b
+          in
+            approxEqV3 tol vibMid mid
         _, _ -> false
 
   check "vibratedEndpoints: midpoint invariant for bond 0 at frame 0" $
@@ -240,8 +247,10 @@ vibrationSpec = do
     checkMidFrame30 i =
       case index segs30 i, index modelMids i of
         Just seg, Just mid ->
-          let vibMid = midV3 seg.a seg.b
-          in approxEqV3 tol vibMid mid
+          let
+            vibMid = midV3 seg.a seg.b
+          in
+            approxEqV3 tol vibMid mid
         _, _ -> false
 
   check "vibratedEndpoints: midpoint invariant for bond 0 at frame 30" $
@@ -252,8 +261,10 @@ vibrationSpec = do
     checkMidFrame100 i =
       case index segs100 i, index modelMids i of
         Just seg, Just mid ->
-          let vibMid = midV3 seg.a seg.b
-          in approxEqV3 tol vibMid mid
+          let
+            vibMid = midV3 seg.a seg.b
+          in
+            approxEqV3 tol vibMid mid
         _, _ -> false
 
   check "vibratedEndpoints: midpoint invariant for bond 0 at frame 100" $
@@ -270,13 +281,17 @@ vibrationSpec = do
     -- Displacement magnitude for bond 0 at a given frame:
     -- the shift of seg.b from its model position pb.pos.
     dispAt frame =
-      case index (Vib.vibratedEndpoints twoH frame) 0,
-           index modelSegs 0 of
+      case
+        index (Vib.vibratedEndpoints twoH frame) 0,
+        index modelSegs 0
+        of
         Just seg, Just modelSeg ->
           -- |seg.b - modelSeg.b| = |s| (displacement of b endpoint)
-          sqrt ( (seg.b.x - modelSeg.b.x) * (seg.b.x - modelSeg.b.x)
-               + (seg.b.y - modelSeg.b.y) * (seg.b.y - modelSeg.b.y)
-               + (seg.b.z - modelSeg.b.z) * (seg.b.z - modelSeg.b.z) )
+          sqrt
+            ( (seg.b.x - modelSeg.b.x) * (seg.b.x - modelSeg.b.x)
+                + (seg.b.y - modelSeg.b.y) * (seg.b.y - modelSeg.b.y)
+                + (seg.b.z - modelSeg.b.z) * (seg.b.z - modelSeg.b.z)
+            )
         _, _ -> 0.0
 
     displacements = map dispAt sampleFrames
@@ -299,11 +314,15 @@ vibrationSpec = do
 
     midsMatch vibMs modMs =
       length vibMs == length modMs
-        && all identity (map (\i ->
-              case index vibMs i, index modMs i of
-                Just vm, Just mm -> approxEqV3 tol vm mm
-                _, _ -> false
-            ) (range 0 (length modMs - 1)))
+        && all identity
+          ( map
+              ( \i ->
+                  case index vibMs i, index modMs i of
+                    Just vm, Just mm -> approxEqV3 tol vm mm
+                    _, _ -> false
+              )
+              (range 0 (length modMs - 1))
+          )
 
   check "vibratedMidpoints == bondMidpoints at frame 0" $
     midsMatch vibMids0 modelMidsArr
@@ -364,7 +383,7 @@ vibrationSpec = do
 
   -- bond arrays unchanged: vibratedEndpoints does NOT call recomputeBonds.
   check "MODEL UNCHANGED: bonds array identical after vibratedEndpoints" $
-    twoH.bonds == twoH.bonds  -- trivially true but documents intent
+    twoH.bonds == twoH.bonds -- trivially true but documents intent
 
   -- ─── (12) NaN-SAFE: coincident endpoints ──────────────────────────────────────
   -- Two atoms placed at EXACTLY the same position; distance=0 => tie-break dir.
@@ -378,7 +397,9 @@ vibrationSpec = do
     -- The important thing is no NaN in the result.
     segsCoincident = Vib.vibratedEndpoints coincident 0.0
     noNaN seg = seg.a.x == seg.a.x && seg.a.y == seg.a.y && seg.a.z == seg.a.z
-                  && seg.b.x == seg.b.x && seg.b.y == seg.b.y && seg.b.z == seg.b.z
+      && seg.b.x == seg.b.x
+      && seg.b.y == seg.b.y
+      && seg.b.z == seg.b.z
 
   check "NaN-safe: vibratedEndpoints on (initially-)coincident atoms has no NaN" $
     all noNaN segsCoincident
@@ -486,8 +507,10 @@ vibrationSpec = do
   check "vibratedBondLines: O-O midpoint invariant (same as vibratedEndpoints)" $
     case index ooLines 0, index ooModelMids 0 of
       Just l, Just m ->
-        let vm = midV l.a l.b
-        in abs (vm.x - m.x) < tol2 && abs (vm.y - m.y) < tol2 && abs (vm.z - m.z) < tol2
+        let
+          vm = midV l.a l.b
+        in
+          abs (vm.x - m.x) < tol2 && abs (vm.y - m.y) < tol2 && abs (vm.z - m.z) < tol2
       _, _ -> false
 
   -- determinism

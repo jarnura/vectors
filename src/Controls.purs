@@ -9,6 +9,8 @@ module Controls
   , animateControlBarIn
   , installPanelToggle
   , installButtonPulse
+  , showNuclidePanel
+  , showNuclideSectionInDrawer
   ) where
 
 import Prelude (Unit)
@@ -44,3 +46,11 @@ foreign import installPanelToggle :: String -> String -> Effect Unit
 -- Wire a tasteful click "pulse" (a quick scale bounce) onto a button by id, as
 -- add/clear feedback. No-op if absent. DOM only.
 foreign import installButtonPulse :: String -> Effect Unit
+
+-- Show or hide the `#nuclide-info` overlay panel. Pass `true` in the Nuclide
+-- scene, `false` elsewhere. Mirrors showMaterialsPanel in shape. DOM only.
+foreign import showNuclidePanel :: Boolean -> Effect Unit
+
+-- Show or hide the `#nuclide-controls` section inside the left drawer. Pass
+-- `true` to show in the Nuclide scene, `false` elsewhere. DOM only.
+foreign import showNuclideSectionInDrawer :: Boolean -> Effect Unit

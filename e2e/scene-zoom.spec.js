@@ -117,23 +117,24 @@ test('zoom: wheel out shrinks the scene, wheel in restores it', async ({ page })
 // forms NO bond. It therefore genuinely FAILS if installBuilderPick ignored zoom.
 //
 // Projection geometry (1280×720 viewport, fov π/3, cameraDistance 1000,
-// builderScale 2.2). A world point at z=0 projects to a screen-x pixel offset from
-// centre of:  px = (W/2)·(f/aspect)·zoom/1000 · (model_x·builderScale)
-//   ⇒ px = 1.37179 · zoom · model_x   ⇒   model_x = px / (1.37179 · zoom).
+// effectiveScale = builderScale×layerSpace = 2.2×1.6 = 3.52). A world point at z=0
+// projects to a screen-x pixel offset from centre of:
+//   px = (W/2)·(f/aspect)·zoom/1000 · (model_x·effectiveScale)
+//   ⇒ px = 2.196 · zoom · model_x   ⇒   model_x = px / (2.196 · zoom).
 // So the model-x moved per dragged screen pixel is:
-//   • zoom 0.2 (full wheel-out, minZoom): 3.6449 model-x / px  (zoom-AWARE reach)
-//   • zoom 1.0 (broken, zoom-blind):      0.7290 model-x / px  (zoom-BLIND reach)
+//   • zoom ≈0.165 (10 wheel ticks; above the 0.05 floor ⇒ unclamped): 2.76 model-x / px (zoom-AWARE reach)
+//   • zoom 1.0 (broken, zoom-blind):      0.455 model-x / px  (zoom-BLIND reach)
 //
 // Layout (model space, the coords addAtom takes):
 //   • A at the ORIGIN (0,0,0) → projects to the canvas CENTRE at ANY zoom, so a
 //     pointer-down at the canvas centre always picks A (zoom-invariant pick anchor).
 //   • B at (Dx, 0, 0) with Dx = 440 → 440 > breakThreshold(230) ⇒ A,B start UNBONDED.
 //   We then drag A RIGHT by Sx = 120 screen px (canvas centre → centre+120):
-//   • zoom-AWARE: A → model x ≈ 120·3.6449 = 437.4 ⇒ |440−437.4| = 2.6 < bondThreshold
-//     (180) ⇒ A and B BOND  ⇒ getBonds() == 1.
-//   • zoom-BLIND: A → model x ≈ 120·0.7290 = 87.5 ⇒ |440−87.5| = 352.5 ≫ 180 ⇒ A
-//     stays far from B ⇒ NO bond ⇒ getBonds() == 0.  (Margin 172 model-x.)
-// At zoom 0.2, B projects to ≈121 px right of centre (> the 80px pickRadius), so the
+//   • zoom-AWARE: A → model x ≈ 120·2.76 = 331 ⇒ |440−331| = 109 < bondThreshold
+//     (180) ⇒ A and B BOND  ⇒ getBonds() == 1.  (Margin ≈71 model-x.)
+//   • zoom-BLIND: A → model x ≈ 120·0.455 = 54.6 ⇒ |440−54.6| = 385.4 ≫ 180 ⇒ A
+//     stays far from B ⇒ NO bond ⇒ getBonds() == 0.
+// At zoom ≈0.165, B projects to ≈100 px right of centre (> the 80px pickRadius), so the
 // centre pointer-down unambiguously picks A, not B. Proven discriminating: with the
 // pick hardcoded to Camera.projection 1.0 this fails (no bond); with the real
 // zoom-aware impl it passes (bond forms).
@@ -153,10 +154,11 @@ test('zoom: builder drag still works after zooming', async ({ page }) => {
   expect(before.bonds).toBe(0);
   expect(before.molecules).toBe(2);
 
-  // --- zoom OUT to minZoom (0.2) over the canvas -----------------------------
-  // Ten +120 wheel ticks drive zoom to clampZoom(exp(-0.0015·120·K)); it reaches
-  // minZoom 0.2 by K=9, so K=10 firmly clamps to 0.2 (the zoom-AWARE reach the
-  // numbers above are computed for). Each tick = camera pulls farther back.
+  // --- zoom OUT over the canvas ----------------------------------------------
+  // Ten +120 wheel ticks drive zoom to clampZoom(exp(-0.0015·120·10)) = exp(-1.8)
+  // ≈ 0.165 — above the 0.05 floor, so it is NOT clamped (it would clamp only past
+  // ~K=22). That ≈0.165 is the zoom-AWARE reach the numbers above are computed for.
+  // Each tick = camera pulls farther back.
   const box = await page.locator('#canvas').boundingBox();
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
@@ -165,7 +167,7 @@ test('zoom: builder drag still works after zooming', async ({ page }) => {
     await page.mouse.wheel(0, 120);
     await page.waitForTimeout(50);
   }
-  await page.waitForTimeout(300); // let the zoomed-out (zoom=0.2) camera render
+  await page.waitForTimeout(300); // let the zoomed-out (zoom≈0.165) camera render
 
   // --- a REAL pointer drag over #canvas, under the zoom=0.2 camera -----------
   // Pointer-down at the canvas CENTRE picks A (at the origin → centre at any zoom).

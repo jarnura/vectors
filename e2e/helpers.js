@@ -46,7 +46,7 @@ export async function openDrawer(page) {
 
 // Reach the Builder scene (CubePoc → Atomos → Molecule → Builder = three
 // #scene-toggle clicks) and wait for window.__builder.
-// NOTE: Builder is still at click 3; the 5-cycle adds Materials at click 4.
+// NOTE: Builder is at click 3; the 6-cycle adds Materials at click 4, Nuclide at click 5.
 export async function gotoBuilder(page) {
   await expect(page.locator('#scene-toggle')).toBeVisible();
   await page.click('#scene-toggle'); // → atomos

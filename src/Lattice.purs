@@ -94,8 +94,7 @@ proximityBuild positions =
               else
                 case index atoms i, index atoms j of
                   Just ai, Just aj ->
-                    if absNum (dist3 ai.pos aj.pos - cc) <= bondTol
-                    then [ mkBond ai.id aj.id ]
+                    if absNum (dist3 ai.pos aj.pos - cc) <= bondTol then [ mkBond ai.id aj.id ]
                     else []
                   _, _ -> []
           )
@@ -144,27 +143,27 @@ diamondPositions =
     --   FCC B-sites (4): (a/4,a/4,a/4) (3a/4,3a/4,a/4) (3a/4,a/4,3a/4) (a/4,3a/4,3a/4)
     basis :: Array V3
     basis =
-      [ { x: 0.0,     y: 0.0,     z: 0.0     }  -- A
-      , { x: half,    y: half,    z: 0.0     }  -- A
-      , { x: half,    y: 0.0,     z: half    }  -- A
-      , { x: 0.0,     y: half,    z: half    }  -- A
-      , { x: quarter, y: quarter, z: quarter }  -- B (always degree-4 in own cell)
-      , { x: threeQ,  y: threeQ,  z: quarter }  -- B
-      , { x: threeQ,  y: quarter, z: threeQ  }  -- B
-      , { x: quarter, y: threeQ,  z: threeQ  }  -- B
+      [ { x: 0.0, y: 0.0, z: 0.0 } -- A
+      , { x: half, y: half, z: 0.0 } -- A
+      , { x: half, y: 0.0, z: half } -- A
+      , { x: 0.0, y: half, z: half } -- A
+      , { x: quarter, y: quarter, z: quarter } -- B (always degree-4 in own cell)
+      , { x: threeQ, y: threeQ, z: quarter } -- B
+      , { x: threeQ, y: quarter, z: threeQ } -- B
+      , { x: quarter, y: threeQ, z: threeQ } -- B
       ]
 
     -- 2×2×2 supercell: ix,iy,iz ∈ {0,1} → 8 cells
     cellOffsets :: Array { ox :: Number, oy :: Number, oz :: Number }
     cellOffsets =
       [ { ox: 0.0, oy: 0.0, oz: 0.0 }
-      , { ox: 0.0, oy: 0.0, oz: a   }
-      , { ox: 0.0, oy: a,   oz: 0.0 }
-      , { ox: 0.0, oy: a,   oz: a   }
-      , { ox: a,   oy: 0.0, oz: 0.0 }
-      , { ox: a,   oy: 0.0, oz: a   }
-      , { ox: a,   oy: a,   oz: 0.0 }
-      , { ox: a,   oy: a,   oz: a   }
+      , { ox: 0.0, oy: 0.0, oz: a }
+      , { ox: 0.0, oy: a, oz: 0.0 }
+      , { ox: 0.0, oy: a, oz: a }
+      , { ox: a, oy: 0.0, oz: 0.0 }
+      , { ox: a, oy: 0.0, oz: a }
+      , { ox: a, oy: a, oz: 0.0 }
+      , { ox: a, oy: a, oz: a }
       ]
 
     -- Center: the 2×2×2 block spans [0..2a] in each dimension; center at (a,a,a).
@@ -226,8 +225,8 @@ graphenePositions :: Array V3
 graphenePositions =
   let
     sq3 = sqrt 3.0
-    a1x = cc * sq3         -- lattice vector a1: (a1x, 0)
-    a2x = cc * sq3 / 2.0   -- lattice vector a2: (a2x, a2y)
+    a1x = cc * sq3 -- lattice vector a1: (a1x, 0)
+    a2x = cc * sq3 / 2.0 -- lattice vector a2: (a2x, a2y)
     a2y = 3.0 * cc / 2.0
 
     -- 4×4 supercell: n,m ∈ {0,1,2,3}
@@ -254,8 +253,8 @@ graphenePositions =
                   ax = fn * a1x + fm * a2x
                   ay = fm * a2y
                 in
-                  [ { x: ax,        y: ay,      z: 0.0 }  -- A-site
-                  , { x: ax,        y: ay + cc, z: 0.0 }  -- B-site
+                  [ { x: ax, y: ay, z: 0.0 } -- A-site
+                  , { x: ax, y: ay + cc, z: 0.0 } -- B-site
                   ]
             )
             ms

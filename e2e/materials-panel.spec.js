@@ -67,8 +67,8 @@ test('materials-panel: hidden after leaving Materials scene', async ({ page }) =
   // Confirm visible first.
   await expect(page.locator('#materials-info')).toBeVisible();
 
-  // One more scene-toggle moves to CubePoc.
-  await page.click('#scene-toggle'); // Materials → CubePoc
+  // One more scene-toggle moves to Nuclide (6-cycle: Materials → Nuclide).
+  await page.click('#scene-toggle'); // Materials → Nuclide
   await page.waitForTimeout(400);
 
   await expect(page.locator('#materials-info')).toBeHidden();

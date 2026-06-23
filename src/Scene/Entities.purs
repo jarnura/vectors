@@ -19,7 +19,13 @@ module Scene.Entities
   , builderBallPlace
   , builderBondLinePlace
   , builderWorldPos
+  , builderWorldPosWith
+  , builderPlaceWith
+  , builderDetailPlaceWith
+  , builderBallPlaceWith
+  , builderBondLinePlaceWith
   , builderElectronGroupEntities
+  , builderElectronGroupEntitiesWith
   ) where
 
 import Prelude
@@ -236,6 +242,54 @@ builderWorldPos :: Atom.V3 -> Atom.V3
 builderWorldPos p =
   { x: p.x * builderScale, y: p.y * builderScale, z: p.z * builderScale }
 
+-- Parameterized variants: each takes the live layerSpace multiplier so the
+-- effective scale = builderScale × layerSpace. At layerSpace=1.0 they are
+-- byte-identical to the originals. These are used by the Builder/Materials
+-- render path (Main.purs) and by syncAtomLabels / installBuilderPick in
+-- Main/Builder.purs — ALL use the SAME layerSpace from State so render and
+-- pick stay in parity.
+
+-- World-space position for a builder atom, parameterized by layerSpace.
+builderWorldPosWith :: Number -> Atom.V3 -> Atom.V3
+builderWorldPosWith ls p =
+  let
+    s = builderScale * ls
+  in
+    { x: p.x * s, y: p.y * s, z: p.z * s }
+
+-- Place a builder particle, parameterized by layerSpace.
+builderPlaceWith :: Number -> Atom.V3 -> Matrix Number
+builderPlaceWith ls p =
+  let
+    s = builderScale * ls
+  in
+    M.translate (p.x * s) (p.y * s) (p.z * s)
+
+-- LOD model matrix for a sub-atomic particle, parameterized by layerSpace.
+builderDetailPlaceWith :: Number -> Number -> Atom.V3 -> Atom.V3 -> Matrix Number
+builderDetailPlaceWith ls d center full =
+  let
+    lerp c f = c + (f - c) * d
+    pos = { x: lerp center.x full.x, y: lerp center.y full.y, z: lerp center.z full.z }
+    sc = max builderDetailFloor d
+  in
+    M.multiply (builderPlaceWith ls pos) (M.scale sc sc sc)
+
+-- LOD model matrix for the zoomed-OUT atom ball, parameterized by layerSpace.
+builderBallPlaceWith :: Number -> Number -> Number -> Atom.V3 -> Matrix Number
+builderBallPlaceWith ls d rad center =
+  let
+    sc = rad * max builderDetailFloor (1.0 - d)
+  in
+    M.multiply (builderPlaceWith ls center) (M.scale sc sc sc)
+
+-- Bond-line model matrix, parameterized by layerSpace. The start/end arguments
+-- are WORLD-space positions (already scaled via builderWorldPosWith ls) — this
+-- function is identical to builderBondLinePlace because the scaling is handled
+-- by the caller (builderWorldPosWith ls). Provided as a symmetrical API partner.
+builderBondLinePlaceWith :: Number -> Number -> Atom.V3 -> Atom.V3 -> Matrix Number
+builderBondLinePlaceWith _ls d start end = builderBondLinePlace d start end
+
 -- Build the LOD electron entities for a set of bloom GROUPS (each a bloom centre
 -- + the electron positions that bloom out of it). Every electron's model matrix
 -- interpolates from its group centre (detail 0) to its full position (detail 1)
@@ -251,6 +305,23 @@ builderElectronGroupEntities mesh groups =
           ( \p ->
               { mesh: Solid mesh
               , modelMatrix: \st -> builderDetailPlace st.detail g.center p
+              }
+          )
+          g.positions
+    )
+    groups
+
+-- Parameterized variant: reads st.layerSpace from State to pass to
+-- builderDetailPlaceWith so the electron bloom radius scales with layerSpace.
+builderElectronGroupEntitiesWith
+  :: SolidMesh -> Array { center :: Atom.V3, positions :: Array Atom.V3 } -> Array Entity
+builderElectronGroupEntitiesWith mesh groups =
+  concatMap
+    ( \g ->
+        map
+          ( \p ->
+              { mesh: Solid mesh
+              , modelMatrix: \st -> builderDetailPlaceWith st.layerSpace st.detail g.center p
               }
           )
           g.positions

@@ -462,8 +462,10 @@ builderOverlapSpec = do
     -- Re-compute minSepPe inline (Pe.purs formula, using Pe's exported constants)
     -- so we can assert it equals Builder.Overlap.minSeparation exactly.
     minSepPeInline z1 z2 =
-      let raw = Pe.contactFactorPe * (Atom.atomicRadius z1 + Atom.atomicRadius z2)
-      in max Pe.absoluteMinPe (min Pe.floorCeilPe raw)
+      let
+        raw = Pe.contactFactorPe * (Atom.atomicRadius z1 + Atom.atomicRadius z2)
+      in
+        max Pe.absoluteMinPe (min Pe.floorCeilPe raw)
 
     -- Tolerance for wallDistanceFor ≈ minSeparation (documented ~4.4 + margin).
     wallEquivTol :: Number

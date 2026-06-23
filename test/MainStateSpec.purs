@@ -5,8 +5,9 @@ import Prelude
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Console (log)
-import Main (applyAntibonding, applyDragStrength, applySubshellView, applyValenceOnly, initialState)
-import Test.Util (check)
+import Camera as Camera
+import Main (applyAntibonding, applyDragStrength, applySubshellView, applyValenceOnly, applyZoomSet, initialState)
+import Test.Util (approxEq, check)
 
 mainStateSpec :: Effect Unit
 mainStateSpec = do
@@ -116,3 +117,60 @@ mainStateSpec = do
     (applyAntibonding true initialState).valenceOnly == initialState.valenceOnly
 
   log "all M3-S2 antibonding toggle properties hold."
+
+  -- ───── M2-zoom-slider: applyZoomSet fold ─────────────────────────────
+  log "M2-zoom-slider applyZoomSet fold properties:"
+
+  -- Default: zoom starts at 1.0.
+  check "initialState.zoom == 1.0 (default)" $
+    initialState.zoom == 1.0
+
+  -- Nothing is identity on the zoom field.
+  check "applyZoomSet Nothing leaves zoom unchanged" $
+    (applyZoomSet Nothing initialState).zoom == initialState.zoom
+
+  -- Nothing does not mutate other fields (e.g. view2D).
+  check "applyZoomSet Nothing leaves view2D unchanged" $
+    (applyZoomSet Nothing initialState).view2D == initialState.view2D
+
+  -- Just v with a mid-range value sets zoom to that value.
+  check "applyZoomSet (Just 2.0) sets zoom = 2.0" $
+    approxEq (applyZoomSet (Just 2.0) initialState).zoom 2.0
+
+  check "applyZoomSet (Just 0.5) sets zoom = 0.5" $
+    approxEq (applyZoomSet (Just 0.5) initialState).zoom 0.5
+
+  -- Clamp: below minZoom clamps to minZoom.
+  check "applyZoomSet (Just 0.0) clamps to Camera.minZoom" $
+    approxEq (applyZoomSet (Just 0.0) initialState).zoom Camera.minZoom
+
+  check "applyZoomSet (Just -1.0) clamps to Camera.minZoom" $
+    approxEq (applyZoomSet (Just (-1.0)) initialState).zoom Camera.minZoom
+
+  -- Clamp: above maxZoom clamps to maxZoom.
+  check "applyZoomSet (Just 999.0) clamps to Camera.maxZoom" $
+    approxEq (applyZoomSet (Just 999.0) initialState).zoom Camera.maxZoom
+
+  check "applyZoomSet (Just 5.1) clamps to Camera.maxZoom (5.0)" $
+    approxEq (applyZoomSet (Just 5.1) initialState).zoom Camera.maxZoom
+
+  -- Boundary: minZoom and maxZoom pass through unchanged.
+  check "applyZoomSet (Just minZoom) sets zoom = minZoom exactly" $
+    approxEq (applyZoomSet (Just Camera.minZoom) initialState).zoom Camera.minZoom
+
+  check "applyZoomSet (Just maxZoom) sets zoom = maxZoom exactly" $
+    approxEq (applyZoomSet (Just Camera.maxZoom) initialState).zoom Camera.maxZoom
+
+  -- Just v does not mutate other fields (e.g. dragStrength, valenceOnly).
+  check "applyZoomSet (Just 3.0) leaves dragStrength unchanged" $
+    (applyZoomSet (Just 3.0) initialState).dragStrength == initialState.dragStrength
+
+  check "applyZoomSet (Just 3.0) leaves valenceOnly unchanged" $
+    (applyZoomSet (Just 3.0) initialState).valenceOnly == initialState.valenceOnly
+
+  -- applyZoomSet is independent of applyZoom: setting then delta-zooming compounds.
+  -- (Not a fold test — just verifying the set and the wheel delta work independently.)
+  check "applyZoomSet sets zoom absolutely, not delta-relative" $
+    approxEq (applyZoomSet (Just 1.0) (applyZoomSet (Just 3.0) initialState)).zoom 1.0
+
+  log "all M2-zoom-slider applyZoomSet fold properties hold."

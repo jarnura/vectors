@@ -3,31 +3,23 @@
 // render at full sub-atomic detail (nucleus + electrons); zoomed OUT (low zoom)
 // each atom collapses to a single ball. The blend is driven by a State field
 // `detail` (0 = balls … 1 = full detail) that is EASED each frame toward a
-// smoothstep of the zoom, so even discrete button-zoom steps animate smoothly.
+// smoothstep of the zoom, so even discrete slider changes animate smoothly.
 //
 // The deterministic E2E hook is the debug global `window.__builderDetail`: a
 // number in [0,1] updated EVERY frame with the live eased detail. We assert on it
 // (reliable under SwiftShader) and back it up with a single coarse region
 // pixel-delta to confirm the render actually responds.
 //
-// Zoom is driven by the existing on-screen #zoom-out / #zoom-in buttons, which
-// live inside the #controls drawer (opened with openDrawer like the other builder
-// specs). #zoom-out pulls the camera back → detail eases DOWN toward 0; #zoom-in
-// pushes in → detail eases UP toward 1.
-//
-// RED until M2 wires State.detail, the per-frame easeDetail, the Builder render
-// LOD cross-fade, and the window.__builderDetail debug global. Today
-// window.__builderDetail is undefined, so every poll below times out / the
-// thresholds are never reached.
+// Zoom is driven by the #zoom-slider range input (replacing the old #zoom-in /
+// #zoom-out buttons). Setting the slider to a LOW value zooms OUT → detail eases
+// DOWN toward 0; a HIGH value zooms IN → detail eases UP toward 1.
 import { test } from '@playwright/test';
 import {
   expect, waitForRenderedCanvas, openDrawer, readRegion,
 } from './helpers.js';
 
 // Reach the Builder scene (CubePoc → Atomos → Molecule → Builder = three
-// #scene-toggle clicks) and wait for window.__builder. The drawer is opened up
-// front in beforeEach (like the other builder/zoom specs) so #scene-toggle and the
-// #zoom-in / #zoom-out buttons are reachable. Mirrors world.spec.js gotoBuilder.
+// #scene-toggle clicks) and wait for window.__builder.
 async function gotoBuilder(page) {
   await expect(page.locator('#scene-toggle')).toBeVisible();
   await page.click('#scene-toggle'); // → atomos
@@ -54,14 +46,18 @@ async function readDetail(page) {
   return page.evaluate(() => window.__builderDetail);
 }
 
-// Click a control N times, settling a frame or two between clicks so the per-frame
-// easing can advance. Mirrors zoom-buttons.spec.js clickN.
-async function clickN(page, selector, n) {
-  for (let i = 0; i < n; i++) {
-    await page.click(selector);
-    await page.waitForTimeout(100);
-  }
-  await page.waitForTimeout(300);
+// Set the #zoom-slider to a given value, dispatch an 'input' event so the
+// listener fires, and settle a few frames so easing can advance.
+// Uses page.evaluate to bypass step-boundary restrictions (page.fill rejects
+// values not on the step).
+async function setZoom(page, value) {
+  await page.evaluate((v) => {
+    const el = document.getElementById('zoom-slider');
+    if (!el) return;
+    el.value = String(v);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, value);
+  await page.waitForTimeout(200);
 }
 
 // Coarse region around the atoms (centre of canvas) for a pixel-delta check.
@@ -82,7 +78,7 @@ function regionDelta(a, b) {
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
   await waitForRenderedCanvas(page);
-  // Controls (scene-toggle + zoom buttons) live in a left drawer that no longer
+  // Controls (scene-toggle + zoom slider) live in a left drawer that no longer
   // auto-opens on boot — open it up front so those controls are reachable.
   await openDrawer(page);
 });
@@ -114,15 +110,17 @@ test('builder LOD: zoom-out eases detail down smoothly toward balls', async ({ p
 
   const before = await region(page);
 
-  // Zoom OUT, sampling detail at intermediate points to prove smooth easing
-  // (fractional values, non-increasing) rather than a 1→0 jump.
+  // Zoom OUT in 5 steps straddling the new band [0.10, 0.20], sampling detail
+  // each time to prove smooth easing rather than a 1→0 jump.
+  // Steps descend through the band: 0.18 (inside), 0.15 (mid), 0.12, 0.10 (lo), 0.07 (below).
+  const zoomSteps = [0.18, 0.15, 0.12, 0.10, 0.07];
   const captures = [];
-  for (let step = 0; step < 5; step++) {
-    await clickN(page, '#zoom-out', 2); // 10 clicks total across the loop
+  for (const z of zoomSteps) {
+    await setZoom(page, z);
     captures.push(await readDetail(page));
   }
 
-  // Eventually collapses toward balls (detail ≤ 0.2).
+  // Eventually collapses toward balls (detail ≤ 0.2) once we drop below detailLo=0.10.
   await expect
     .poll(async () => readDetail(page), { timeout: 4000 })
     .toBeLessThanOrEqual(0.2);
@@ -151,15 +149,55 @@ test('builder LOD: zoom-in eases detail back up toward full detail', async ({ pa
   await addBondedPair(page);
   await page.waitForTimeout(600);
 
-  // Drive it OUT first → collapsed toward balls.
-  await clickN(page, '#zoom-out', 10);
+  // Drive it OUT first → collapsed toward balls (0.07 is below detailLo=0.10).
+  await setZoom(page, 0.07);
   await expect
     .poll(async () => readDetail(page), { timeout: 4000 })
     .toBeLessThanOrEqual(0.2);
 
-  // Now zoom IN more times than the zoom-outs → detail eases back toward 1.
-  await clickN(page, '#zoom-in', 12);
+  // Now set slider to a high zoom → detail eases back toward 1.
+  await setZoom(page, 3.0);
   await expect
     .poll(async () => readDetail(page), { timeout: 4000 })
     .toBeGreaterThanOrEqual(0.9);
+});
+
+// 4) Multi-nucleon persistence: the sub-particle layer PERSISTS at wide zoom-out
+// (zoom ~0.20–0.25, above the new detailHi=0.20 floor) so the user can survey many
+// nucleons densely together without flipping to the atom-ball view.
+// Only dropping below detailLo=0.10 (e.g. zoom~0.07) collapses to balls.
+test('builder LOD: sub-particle layer persists at wide zoom-out (Krypton, zoom 0.22)', async ({ page }) => {
+  await gotoBuilder(page);
+
+  // Krypton (Z=36) has 36 nucleons — a rich multi-nucleon nucleus to survey.
+  await page.evaluate(() => {
+    const b = window.__builder;
+    b.clear();
+    b.addAtom(36, 0, 0, 0);
+  });
+  await page.waitForTimeout(600);
+
+  // Confirm full detail at default zoom (1.0) before driving the camera back.
+  await expect
+    .poll(async () => readDetail(page), { timeout: 4000 })
+    .toBeGreaterThanOrEqual(0.9);
+
+  // Drive to zoom 0.22 — above new detailHi (0.20), so sub-particle layer stays
+  // fully ON. The eased detail must remain HIGH (≥ 0.9).
+  await setZoom(page, 0.22);
+  await expect
+    .poll(async () => readDetail(page), { timeout: 4000 })
+    .toBeGreaterThanOrEqual(0.9);
+
+  // Confirm the render still shows lit pixels (nucleon spheres are visible,
+  // not just the background black) at the wide framing.
+  const pixels = await region(page);
+  const litPixels = pixels.filter((p) => p[0] + p[1] + p[2] > 30);
+  expect(litPixels.length).toBeGreaterThan(0);
+
+  // Now drop to zoom 0.07 (below detailLo=0.10) — collapses to balls.
+  await setZoom(page, 0.07);
+  await expect
+    .poll(async () => readDetail(page), { timeout: 4000 })
+    .toBeLessThanOrEqual(0.2);
 });

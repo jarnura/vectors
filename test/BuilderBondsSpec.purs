@@ -584,7 +584,7 @@ builderBondsSpec = do
   --     We read the order field directly from the live bond record.
   check "M2-S1: BBond record has order field accessible" $
     case m2s1_bond0 of
-      Just bd -> bd.order == bd.order  -- order field exists and is an Int (reflexive)
+      Just bd -> bd.order == bd.order -- order field exists and is an Int (reflexive)
       Nothing -> false
 
   -- (d) behaviour identical at order 1: degreeIn with all-order-1 bonds == old count

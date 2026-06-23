@@ -22,19 +22,19 @@ builderSpinSpec = do
   log "M3-S3 spin-tag (sigma singlet) properties:"
 
   let
-    near = B.bondThreshold * 0.5  -- comfortably inside bonding range
+    near = B.bondThreshold * 0.5 -- comfortably inside bonding range
 
     -- H-H: order 1 (single bond, sigma only) — the canonical singlet pair.
     hhPair = B.addAtom 1 { x: near, y: 0.0, z: 0.0 }
-               (B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
+      (B.addAtom 1 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
 
     -- O-O: order 2 (double bond: 1 sigma + 1 PI pair).
     ooPair = B.addAtom 8 { x: near, y: 0.0, z: 0.0 }
-               (B.addAtom 8 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
+      (B.addAtom 8 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
 
     -- N-N: order 3 (triple bond: 1 sigma + 2 PI pairs).
     nnPair = B.addAtom 7 { x: near, y: 0.0, z: 0.0 }
-               (B.addAtom 7 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
+      (B.addAtom 7 { x: 0.0, y: 0.0, z: 0.0 } B.emptyBuilder)
 
     hhSpins = bondSigmaSpins hhPair
     ooSpins = bondSigmaSpins ooPair

@@ -4,6 +4,7 @@ module Update
   , step
   , applyDetail
   , applyZoom
+  , applyZoomSet
   , applyOrbit
   , applyToggle
   , applyToggle2D
@@ -11,6 +12,7 @@ module Update
   , applyAntibonding
   , applySubshellView
   , applyDragStrength
+  , applyLayerSpace
   , applyElement
   , applyBondProgress
   , applyShear
@@ -28,6 +30,7 @@ import Math.Matrix (Matrix)
 import Math.Matrix as M
 import Builder as Builder
 import FRP.Loop (Input)
+import Nuclear (NuclearState)
 import Scene (Scene(..), nextScene)
 import Vector as V
 
@@ -55,7 +58,17 @@ type State =
   -- render (M2 plumbing; M3 wires the drag→yaw/pitch).
   , builderYaw :: Number
   , builderPitch :: Number
+  -- Layer-space multiplier (M1-layer-space): effective Builder world scale =
+  -- builderScale × layerSpace. Range 1.0–4.0, step 0.1, default 1.6 (visibly
+  -- more spacious than the cramped unit baseline of 1.0). Driven by the
+  -- #layer-space range slider; Builder and Materials share ONE render path
+  -- so both scenes benefit. Other scenes (CubePoc/Atomos/Molecule) are unaffected.
+  , layerSpace :: Number
   , builder :: Builder.BuilderState
+  -- Nuclide scene: live snapshot of the shared NuclearApi Ref (mirrored each
+  -- frame, like State.builder). Kept here so render code reads a consistent
+  -- immutable snapshot within one frame without re-reading the Ref.
+  , nuclear :: NuclearState
   }
 
 -- Maximum rotation per keypress, in degrees.
@@ -104,7 +117,14 @@ initialState =
   -- byte-identical to the plain projection until M3 wires the drag.
   , builderYaw: 0.0
   , builderPitch: 0.0
+  -- Layer-space default 1.6: effective scale = builderScale (2.2) × 1.6 = 3.52,
+  -- which is visibly more spacious than the unit baseline (2.2). Slider range
+  -- 1.0–4.0, step 0.1. Clamped by applyLayerSpace to that range.
+  , layerSpace: 1.6
   , builder: Builder.emptyBuilder
+  -- Nuclide scene seed: Carbon-12 (Z=6, N=6), the same default as NuclearApi.
+  -- Overwritten each frame from the shared NuclearApi Ref (like State.builder).
+  , nuclear: { nuclide: { z: 6, n: 6 }, lastQ: 0.0, lastFission: Nothing }
   }
 
 step :: Input -> State -> State
@@ -115,11 +135,14 @@ step input =
     >>> applyAntibonding input.toggleAntibonding
     >>> applySubshellView input.toggleSubshellView
     >>> applyDragStrength input.dragStrength
+    >>> applyLayerSpace input.layerSpace
     >>> applyElement input.element
     >>> applyBondProgress input.bondProgress
     >>> applyShear input.shear
     >>> applyKey input.lastKey
     >>> applyMouse input.mouse
+    -- Slider set (absolute) comes BEFORE wheel delta so both feed applyDetail.
+    >>> applyZoomSet input.zoomSet
     >>> applyZoom input.zoomDelta
     >>> applyDetail
     >>> tickFrame
@@ -128,10 +151,18 @@ step input =
 
 -- Ease the Builder level-of-detail one frame toward the smoothstep of the live
 -- zoom (Layer.layerBlend). Run EVERY frame (right after applyZoom) so even
--- discrete #zoom-in/#zoom-out steps cross-fade smoothly rather than snapping.
--- Other scenes ignore s.detail when rendering, so easing always is harmless.
+-- discrete zoom changes (slider set or wheel notch) cross-fade smoothly rather
+-- than snapping. Other scenes ignore s.detail when rendering, so easing always
+-- is harmless.
 applyDetail :: State -> State
 applyDetail s = s { detail = Layer.easeDetail s.detail (Layer.layerBlend s.zoom) }
+
+-- Apply an absolute zoom value from the #zoom-slider (clamped to [minZoom,maxZoom]).
+-- Nothing is identity; Just v sets zoom = Camera.clampZoom v. Composed in step
+-- BEFORE applyZoom (wheel delta) so the slider and the wheel both feed applyDetail.
+applyZoomSet :: Maybe Number -> State -> State
+applyZoomSet Nothing s = s
+applyZoomSet (Just v) s = s { zoom = Camera.clampZoom v }
 
 -- Apply one mouse-wheel step to the camera zoom (clamped inside applyZoomStep).
 applyZoom :: Maybe Number -> State -> State
@@ -196,6 +227,27 @@ applySubshellView true s = s { subshellView = not s.subshellView }
 applyDragStrength :: Maybe Number -> State -> State
 applyDragStrength Nothing s = s
 applyDragStrength (Just d) s = s { dragStrength = d }
+
+-- Layer-space range: 1.0 (unit, historic builderScale spread) .. 4.0 (4× wider).
+-- Default 1.6 (slider init). Effective Builder world scale = builderScale × layerSpace.
+layerSpaceMin :: Number
+layerSpaceMin = 1.0
+
+layerSpaceMax :: Number
+layerSpaceMax = 4.0
+
+clampLayerSpace :: Number -> Number
+clampLayerSpace v
+  | v < layerSpaceMin = layerSpaceMin
+  | v > layerSpaceMax = layerSpaceMax
+  | otherwise = v
+
+-- Receive the live layer-space from the #layer-space slider (DOM-driven). The
+-- value is clamped to [1.0, 4.0] (the slider range) before storing — Nothing
+-- is identity, Just v sets layerSpace = clamp v. Mirrors applyDragStrength.
+applyLayerSpace :: Maybe Number -> State -> State
+applyLayerSpace Nothing s = s
+applyLayerSpace (Just v) s = s { layerSpace = clampLayerSpace v }
 
 -- Select the rendered element (atomic number) from the selector. Out-of-range
 -- values are clamped downstream by Atom.elementOf.

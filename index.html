@@ -312,6 +312,33 @@
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
         display: none;
       }
+      /* Nuclide scene: live nuclear state info panel. Positioned top-right,
+         mirrors #molecule-info layout. Hidden by default; shown only in the
+         Nuclide scene via Controls.showNuclidePanel. */
+      #nuclide-info {
+        position: absolute;
+        top: 100px;
+        right: 16px;
+        z-index: 1;
+        min-width: 220px;
+        max-width: 300px;
+        font-family: sans-serif;
+        background: rgba(8, 14, 28, 0.78);
+        border: 1px solid rgba(120, 160, 230, 0.45);
+        border-radius: 8px;
+        padding: 10px 14px;
+        color: #cfe0ff;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+        display: none;
+      }
+      /* Nuclide controls drawer section: shown inside the left drawer only in
+         the Nuclide scene. Flex-column layout, hidden by default. */
+      #nuclide-controls {
+        display: none;
+        flex-direction: column;
+        gap: 6px;
+        width: 100%;
+      }
       /* Builder + Materials potential-energy (Morse) curve overlay. A small
          glassy panel in the top-right corner; pointer-events:none so it never
          blocks the canvas. Hidden by default; shown in Builder and Materials. */
@@ -350,6 +377,7 @@
     <div id="orbital-info">1s2 2s2 2p2</div>
     <div id="molecule-info"></div>
     <div id="materials-info"></div>
+    <div id="nuclide-info"></div>
     <div id="pe-overlay"></div>
     <div id="materials-cards"></div>
     <div id="controls">
@@ -362,6 +390,8 @@
       <input id="antibonding" type="checkbox" />
       <label for="drag-strength">Drag&nbsp;strength</label>
       <input id="drag-strength" type="range" min="0" max="10" step="0.1" value="3" />
+      <label for="layer-space">Layer&nbsp;space</label>
+      <input id="layer-space" type="range" min="1.0" max="4.0" step="0.1" value="1.6" />
       <label for="subshell-view">Sub-shells</label>
       <input id="subshell-view" type="checkbox" checked />
       <span class="controls-sep">|</span>
@@ -377,9 +407,42 @@
       <button id="add-btn" type="button">Add</button>
       <button id="clear-btn" type="button">Clear</button>
       <span class="controls-sep">|</span>
-      <label>Zoom</label>
-      <button id="zoom-in" type="button">+</button>
-      <button id="zoom-out" type="button">−</button>
+      <!-- Nuclide scene transmutation controls: hidden when not in the Nuclide scene -->
+      <div id="nuclide-controls">
+        <label>Nuclide</label>
+        <button id="nuc-add-proton" type="button">+Proton</button>
+        <button id="nuc-remove-proton" type="button">−Proton</button>
+        <button id="nuc-add-neutron" type="button">+Neutron</button>
+        <button id="nuc-remove-neutron" type="button">−Neutron</button>
+        <button id="nuc-reset" type="button">Reset (C-12)</button>
+        <label for="nuclide-z">Z</label>
+        <input id="nuclide-z" type="number" min="0" max="118" step="1" value="6" />
+        <label for="nuclide-n">N</label>
+        <input id="nuclide-n" type="number" min="0" max="200" step="1" value="6" />
+        <button id="nuc-set" type="button">Set Z+N</button>
+        <!-- M3: Named-reaction buttons -->
+        <label>Reactions</label>
+        <button id="react-alpha" type="button">α Decay</button>
+        <button id="react-beta-minus" type="button">β− Decay</button>
+        <button id="react-beta-plus" type="button">β+/EC Decay</button>
+        <label for="fuse-z2">Fuse Z₂</label>
+        <input id="fuse-z2" type="number" min="1" max="118" step="1" value="1" />
+        <label for="fuse-n2">N₂</label>
+        <input id="fuse-n2" type="number" min="0" max="200" step="1" value="2" />
+        <button id="react-fuse" type="button">Fuse</button>
+        <label for="fiss-za">Fiss. f1 Z</label>
+        <input id="fiss-za" type="number" min="1" max="118" step="1" value="56" />
+        <label for="fiss-na">f1 N</label>
+        <input id="fiss-na" type="number" min="0" max="200" step="1" value="85" />
+        <label for="fiss-zb">f2 Z</label>
+        <input id="fiss-zb" type="number" min="1" max="118" step="1" value="36" />
+        <label for="fiss-nb">f2 N</label>
+        <input id="fiss-nb" type="number" min="0" max="200" step="1" value="56" />
+        <button id="react-fission" type="button">Fission</button>
+      </div>
+      <span class="controls-sep" id="nuclide-sep" style="display:none">|</span>
+      <label for="zoom-slider">Zoom</label>
+      <input id="zoom-slider" type="range" min="0.05" max="5.0" step="0.05" value="1.0" />
       <span class="controls-sep">|</span>
       <label>Orbit</label>
       <span class="orbit-pad">
