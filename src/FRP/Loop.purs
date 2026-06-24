@@ -8,6 +8,7 @@ module FRP.Loop
   , installWheelListener
   , installOrbitButtons
   , installValenceOnlyToggle
+  , installFreeElectronsOnlyToggle
   , installAntibondingToggle
   , installSubshellViewToggle
   , installDragStrengthSlider
@@ -33,6 +34,7 @@ type Input =
   , toggleScene :: Boolean
   , toggle2D :: Boolean
   , toggleValenceOnly :: Boolean
+  , toggleFreeElectronsOnly :: Boolean
   , toggleAntibonding :: Boolean
   , toggleSubshellView :: Boolean
   , element :: Maybe Int
@@ -52,6 +54,7 @@ emptyInput =
   , toggleScene: false
   , toggle2D: false
   , toggleValenceOnly: false
+  , toggleFreeElectronsOnly: false
   , toggleAntibonding: false
   , toggleSubshellView: false
   , element: Nothing
@@ -83,6 +86,11 @@ foreign import installView2DToggle
 
 -- Wires the "valence only" checkbox: runs the given effect on each change.
 foreign import installValenceOnlyToggle
+  :: Effect Unit -> Effect Unit
+
+-- Wires the "free electrons only" checkbox: runs the given effect on each change.
+-- Mirrors installValenceOnlyToggle. Builder/Materials render flag.
+foreign import installFreeElectronsOnlyToggle
   :: Effect Unit -> Effect Unit
 
 -- Wires the "antibonding" checkbox: runs the given effect on each change.
@@ -176,12 +184,12 @@ foreign import setBuilderDetail :: Number -> Effect Unit
 -- invoked when #nuc-reset is clicked. The setNuclide callback receives (z, n)
 -- from the #nuclide-z / #nuclide-n inputs + "Set" button. DOM-only.
 foreign import installNuclearControls
-  :: Effect Unit  -- addProton
-  -> Effect Unit  -- removeProton
-  -> Effect Unit  -- addNeutron
-  -> Effect Unit  -- removeNeutron
-  -> Effect Unit  -- reset
-  -> (Int -> Int -> Effect Unit)  -- setNuclide z n
+  :: Effect Unit -- addProton
+  -> Effect Unit -- removeProton
+  -> Effect Unit -- addNeutron
+  -> Effect Unit -- removeNeutron
+  -> Effect Unit -- reset
+  -> (Int -> Int -> Effect Unit) -- setNuclide z n
   -> Effect Unit
 
 -- Wire the M3 named-reaction buttons (#react-alpha, #react-beta-minus,
@@ -189,11 +197,11 @@ foreign import installNuclearControls
 -- fuseWith receives (z2, n2) from the #fuse-z2 / #fuse-n2 inputs.
 -- fissionReact receives (zA, nA, zB, nB) from the fission fragment inputs.
 foreign import installNuclearReactionControls
-  :: Effect Unit                          -- decayAlpha
-  -> Effect Unit                          -- decayBetaMinus
-  -> Effect Unit                          -- decayBetaPlus
-  -> (Int -> Int -> Effect Unit)          -- fuseWith z2 n2
-  -> (Int -> Int -> Int -> Int -> Effect Unit)  -- fission zA nA zB nB
+  :: Effect Unit -- decayAlpha
+  -> Effect Unit -- decayBetaMinus
+  -> Effect Unit -- decayBetaPlus
+  -> (Int -> Int -> Effect Unit) -- fuseWith z2 n2
+  -> (Int -> Int -> Int -> Int -> Effect Unit) -- fission zA nA zB nB
   -> Effect Unit
 
 foreign import requestAnimationFrame
@@ -228,6 +236,8 @@ runLoop spec = do
     (Ref.modify_ (_ { toggle2D = true }) inputRef)
   installValenceOnlyToggle
     (Ref.modify_ (_ { toggleValenceOnly = true }) inputRef)
+  installFreeElectronsOnlyToggle
+    (Ref.modify_ (_ { toggleFreeElectronsOnly = true }) inputRef)
   installAntibondingToggle
     (Ref.modify_ (_ { toggleAntibonding = true }) inputRef)
   installSubshellViewToggle

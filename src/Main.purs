@@ -73,6 +73,7 @@ import Update (State, applyOrbit, initialState, step)
 import Update
   ( applyAntibonding
   , applyDragStrength
+  , applyFreeElectronsOnly
   , applyLayerSpace
   , applyOrbit
   , applySubshellView
@@ -488,7 +489,7 @@ main = do
             <> builderAtomEntities s
             <> (if s.valenceOnly then [] else builderLoneElectronEntities s)
             <> builderValenceElectronEntities s
-            <> builderBondElectronEntities s
+            <> (if s.freeElectronsOnly then [] else builderBondElectronEntities s)
 
         -- Nuclide scene: nucleus entities (Z protons + N neutrons via Atom.clusterPositions).
         -- Delegated to Main.Nuclide with the shared proton/neutron GL meshes partially applied.
@@ -591,6 +592,7 @@ main = do
           Ref.modify_ f nuclearRef
           ns <- Ref.read nuclearRef
           eagerRenderNuclide ns
+
         c12Seed :: Nuclear.NuclearState
         c12Seed = { nuclide: { z: 6, n: Nuclear.defaultNeutrons 6 }, lastQ: 0.0, lastFission: Nothing }
       installNuclearControls

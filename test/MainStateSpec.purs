@@ -6,7 +6,7 @@ import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Console (log)
 import Camera as Camera
-import Main (applyAntibonding, applyDragStrength, applySubshellView, applyValenceOnly, applyZoomSet, initialState)
+import Main (applyAntibonding, applyDragStrength, applyFreeElectronsOnly, applySubshellView, applyValenceOnly, applyZoomSet, initialState)
 import Test.Util (approxEq, check)
 
 mainStateSpec :: Effect Unit
@@ -28,6 +28,31 @@ mainStateSpec = do
     (applyValenceOnly false initialState).view2D == initialState.view2D
 
   log "all builder valence-only toggle properties hold."
+
+  -- ───── Builder free-electrons-only toggle ───────────────────────────────────
+  log "builder free-electrons-only toggle properties:"
+
+  -- Default: freeElectronsOnly starts as false.
+  check "initialState.freeElectronsOnly == false" $
+    initialState.freeElectronsOnly == false
+
+  -- true flips the field from its false init.
+  check "applyFreeElectronsOnly true flips false→true" $
+    (applyFreeElectronsOnly true initialState).freeElectronsOnly == true
+
+  -- A double-toggle returns to the original value.
+  check "applyFreeElectronsOnly true twice returns to false" $
+    (applyFreeElectronsOnly true (applyFreeElectronsOnly true initialState)).freeElectronsOnly == false
+
+  -- false is identity on the field.
+  check "applyFreeElectronsOnly false leaves freeElectronsOnly = false" $
+    (applyFreeElectronsOnly false initialState).freeElectronsOnly == false
+
+  -- Independence: freeElectronsOnly and valenceOnly are orthogonal fields.
+  check "applyFreeElectronsOnly true leaves valenceOnly unchanged" $
+    (applyFreeElectronsOnly true initialState).valenceOnly == initialState.valenceOnly
+
+  log "all builder free-electrons-only toggle properties hold."
 
   -- ───── Atomos sub-shell view toggle (atomos shell/sub-shell toggle M2) ─────
   log "atomos sub-shell view toggle properties:"

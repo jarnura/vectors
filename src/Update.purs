@@ -9,6 +9,7 @@ module Update
   , applyToggle
   , applyToggle2D
   , applyValenceOnly
+  , applyFreeElectronsOnly
   , applyAntibonding
   , applySubshellView
   , applyDragStrength
@@ -43,6 +44,10 @@ type State =
   , element :: Int
   , view2D :: Boolean
   , valenceOnly :: Boolean
+  -- Builder/Materials render flag: when true ONLY free/lone electrons are shown;
+  -- the shared covalent bonding-pair electrons are hidden. Composes independently
+  -- with valenceOnly. Initialises to false (bonding pair visible by default).
+  , freeElectronsOnly :: Boolean
   -- Builder/Materials render flag (M3-S2): when true the shared bonding-electron
   -- positions switch from the Bonding to the Antibonding placement
   -- (bondElectronPositionsPhased Antibonding). Render-only; never mutates
@@ -93,6 +98,8 @@ initialState =
   , element: 6 -- Carbon by default
   , view2D: false
   , valenceOnly: false
+  -- Free-electrons-only starts false: bonding pair is visible by default.
+  , freeElectronsOnly: false
   -- Antibonding starts false: Bonding placement is the default render view.
   , antibonding: false
   -- Sub-shell view is the default (each filled sub-shell its own ring); the
@@ -132,6 +139,7 @@ step input =
   applyToggle input.toggleScene
     >>> applyToggle2D input.toggle2D
     >>> applyValenceOnly input.toggleValenceOnly
+    >>> applyFreeElectronsOnly input.toggleFreeElectronsOnly
     >>> applyAntibonding input.toggleAntibonding
     >>> applySubshellView input.toggleSubshellView
     >>> applyDragStrength input.dragStrength
@@ -203,6 +211,12 @@ applyToggle2D true s = s { view2D = not s.view2D }
 applyValenceOnly :: Boolean -> State -> State
 applyValenceOnly false s = s
 applyValenceOnly true s = s { valenceOnly = not s.valenceOnly }
+
+-- Flip "free electrons only" (hide bonding-pair electrons in the Builder) when
+-- the #free-electrons-only checkbox changes. Mirrors applyValenceOnly exactly.
+applyFreeElectronsOnly :: Boolean -> State -> State
+applyFreeElectronsOnly false s = s
+applyFreeElectronsOnly true s = s { freeElectronsOnly = not s.freeElectronsOnly }
 
 -- Flip the Builder antibonding render mode when the "#antibonding" checkbox
 -- changes. When true the shared bonding-electron positions switch from the
