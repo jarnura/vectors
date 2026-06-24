@@ -37,6 +37,12 @@ export const installValenceOnlyToggle = (effect) => () => {
   el.addEventListener("change", () => effect());
 };
 
+export const installFreeElectronsOnlyToggle = (effect) => () => {
+  const el = document.getElementById("free-electrons-only");
+  if (!el) return;
+  el.addEventListener("change", () => effect());
+};
+
 export const installAntibondingToggle = (effect) => () => {
   const el = document.getElementById("antibonding");
   if (!el) return;

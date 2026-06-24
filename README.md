@@ -86,6 +86,9 @@ Molecule → Builder → Materials → Nuclide → Cube POC):
   drag** moves just that one atom.
 - **Valence only checkbox** (Builder + Materials) — hide the blue core (inner-shell)
   electrons, leaving only an atom's amber valence electrons and the bonding pairs.
+- **Free only checkbox** (Builder + Materials) — hide the shared covalent bonding-pair
+  electrons, showing only the free (lone) electrons on each atom; composes independently
+  with Valence only (both can be on/off for 4 viewing modes).
 - **Panel toggle** (icon below the scene title) — slide the controls drawer in
   from the left (and back out) via anime.js.
 - **Mouse wheel** (all scenes) — zoom the camera: scroll out to pull back (e.g. to
